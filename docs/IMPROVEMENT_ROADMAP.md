@@ -3,9 +3,9 @@
 **Purpose:** turn Ageno Quiz into a professional, industry-level quiz and exam platform that belongs to the **Agenoverse** brand. The plan spans multiple sessions and tracks its own progress.
 
 - **Created:** 2026-10-23
-- **Last updated:** 2026-10-25 (Session 6)
-- **Current phase:** 5 (Integrity and security). P5.1 done, interim rules live; P5.2 and P5.3 are implemented and tested, waiting on the user's check with a real quiz on a deployed build. Phase 4's real-quiz check is the same check.
-- **Next up:** the user deploys the app and takes a real quiz (see Session 6, "Not verified"), then tick P5.2/P5.3 and do P5.4 (access code and URLs) and P5.5 (strict rules). Decision pending: show raw % or weighted score as the headline (P5.3).
+- **Last updated:** 2026-10-25 (Session 7)
+- **Current phase:** 5 (Integrity and security). P5.1, P5.2, P5.3 and P5.8 are done. P5.4, P5.5, P5.6, P5.7 and P5.9 are built and tested but **not deployed or checked in a browser yet**; the strict Firestore rules (P5.5) are written but the interim rules are still live.
+- **Next up:** the user deploys the app, checks it (Session 7, "Deploy order and checks"), then deploys `firestore.rules` and checks again; then tick P5.4–P5.7 and P5.9, close Phase 5, and start Phase 6. Decision pending: raw % or weighted score as the headline (P5.3).
 
 ---
 
@@ -36,7 +36,7 @@ Decisions already made with the user:
 | 2 | Join page | Done |
 | 3 | Quiz lobby (intro) | Done |
 | 4 | Exam-taking experience | Done (awaiting the user's check with a real quiz) |
-| 5 | Integrity and security | In progress (P5.1 done; P5.2, P5.3 built, awaiting a real-quiz check) |
+| 5 | Integrity and security | In progress (P5.1–P5.3, P5.8 done; P5.4–P5.7, P5.9 built, awaiting deploy and a check) |
 | 6 | Data layer cleanup | Not started |
 | 7 | App-wide polish and accessibility | Not started |
 | 8 | Agenoverse integration and pro exam features | Backlog |
@@ -328,7 +328,7 @@ Files: the in-quiz view in `client.tsx`, `components/quiz/QuizTimer.tsx`, the re
 Without this, Ageno Quiz isn't really an exam system. The live app works, so the deployed rules must be looser than `firestore.rules` (probably test mode), which risks exposing data.
 
 - [x] **P5.1 Audit the deployed rules.** Compare the live rules in the Firebase console with the repo file, and write the findings in the Session Log. (Findings: Session 6.)
-- [ ] **P5.2 Server-side attempts.** *(Built and tested in Session 6; unticked until a real quiz has been taken on a deployed build. The key is still publicly readable in Firestore until P5.5.)*
+- [x] **P5.2 Server-side attempts.** *(Built in Session 6; the user took a real quiz on the deployed build and it worked. Not hand-checked: a strict quiz and the 5/1-minute warnings. The key stays readable in Firestore until the P5.5 rules are deployed.)*
   - **No separate backend.** These are Next.js route handlers in this same project, running as Vercel serverless functions. That's the same pattern `app/api/auth/session/route.ts` already uses. Use the Node runtime (`firebase-admin` doesn't run on Edge) and reuse the existing `FIREBASE_*` env vars on Vercel.
   - Add API routes that use the Admin SDK (`firebase/admin.ts`):
     - `POST /api/attempts/start` creates `attempts/{id}` with a server `startedAt` and `deadline`, picks the question set, and returns questions **without** `correctIndex` or `isCorrect`.
@@ -338,16 +338,16 @@ Without this, Ageno Quiz isn't really an exam system. The live app works, so the
     - `getQuizByCode` (`firebase/firestore.ts:360`) and `firebase/quizDifficulty.ts:84-91` send the answers to the browser.
     - `client.tsx:791` caches them in localStorage.
     - `submitQuizResponse` (`firestore.ts:382-817`) writes a score the browser calculated.
-- [ ] **P5.3 Fix scoring.** *(One server scoring function, the multiplier mismatch and the answers-rebuilding fallback are done in Session 6; unticked with P5.2. The raw-vs-weighted decision below is still open: both are stored, the weighted score is still the headline.)*
+- [x] **P5.3 Fix scoring.** *(One server scoring function, the multiplier mismatch and the answers-rebuilding fallback are done and checked with P5.2. The raw-vs-weighted decision below is still open: both are stored, the weighted score is still the headline.)*
   - Use one scoring function, on the server.
   - Fix the mismatched default multipliers: 1.0 in `client.tsx:377` vs 1.5/2.0 in `firestore.ts:577-581`.
   - Remove the fallback in `firestore.ts:464-471` that rebuilds questions from the user's own answers, which marks every answer correct.
   - **Decision needed:** keep "raw % × multiplier, capped at 100", where 50% on hard counts as 100%, or store the raw score and weighted points separately. The recommendation is to store both and show raw % as the score.
-- [ ] **P5.4 Separate the URL from the access code.**
+- [ ] **P5.4 Separate the URL from the access code.** *(Built in Session 7, see its log; unticked until checked on a deployed build.)*
   - Move quizzes to `/q/{slug-or-id}`.
   - Verify the access code on the server, and never send it to `/join`.
   - `getActiveQuizzes` (`firestore.ts:187`) stops returning codes and filters on `isPublic && active`.
-- [ ] **P5.5 Rewrite `firestore.rules`.**
+- [ ] **P5.5 Rewrite `firestore.rules`.** *(Rules written and tested in the emulator in Session 7, **not deployed**. The leaderboard now reads through the server, so the "public projection" item is done.)*
   - **Cover these collections:**
     - `responses` (top-level)
     - `questions_{easy,medium,hard}`: admin only, players get questions through the API
@@ -357,15 +357,15 @@ Without this, Ageno Quiz isn't really an exam system. The live app works, so the
   - Fix the `isPublished` vs `isPublic` mismatch.
   - The leaderboard reads other users' docs, so give it a public projection or denormalized display names.
   - Deploy the rules and verify them.
-- [ ] **P5.6 Middleware** (`middleware.ts`).
+- [ ] **P5.6 Middleware** (`middleware.ts`). *(Built in Session 7: server-side admin gate, real admin paths. Unticked until checked with a real admin login.)*
   - The admin matcher checks for `/admin`, but the real admin routes are `/dashboard`, `/quizzes`, `/users`, `/quiz-reports` and `/settings`.
   - `QUIZ_CODE_PATTERN` (`:55`) treats those paths as public quiz codes. Once quizzes live under `/q/` (P5.4), that problem goes away.
   - Verify the session cookie on the server in the `(admin)` layout instead of trusting the `user_role` cookie.
-- [ ] **P5.7 Remove the mobile auth bypass.**
+- [ ] **P5.7 Remove the mobile auth bypass.** *(Built in Session 7: same sign-in rule on every device; starting a quiz needs an account. Unticked until checked on a phone.)*
   - `SafeQuizLoader` passes `skipAuthCheck={isMobileBrowser}`.
   - `app/(user)/layout.tsx:57` skips the check on mobile too.
-- [ ] **P5.8 Block dev routes in production:** `app/(dev)/*` and `/api/auth/session/debug`.
-- [ ] **P5.9 Server-side integrity signals.** (The browser side of fullscreen exits is already counted; see Session 5.)
+- [x] **P5.8 Block dev routes in production:** `app/(dev)/*` and `/api/auth/session/debug`. *(Done in Session 7 and checked against a production build: all three return 404.)*
+- [ ] **P5.9 Server-side integrity signals.** (The browser side of fullscreen exits is already counted; see Session 5.) *(Built in Session 7: numbered events, server timestamps, server-derived counts. Unticked until a real attempt shows them in the reports.)*
   - Record tab switches, blur and leaving fullscreen as events on the attempt doc, timestamped when the server receives them.
   - Keep the "camera" stub out of the UI until it's real.
 
@@ -468,6 +468,29 @@ Add new entries at the top. Template:
 - Notes/blockers: …
 - Next up: P0.3
 ```
+
+### 2026-10-25 — Session 7 (Phase 5, continued)
+- Done: P5.2 and P5.3 ticked (the user took a real quiz on the deployed build and it worked). P5.8 done. P5.4, P5.5, P5.6, P5.7 and P5.9 built and tested, **not deployed**. A dependency security update (Next 15.5.28) is in Session 6's log below.
+  - **One idea ties P5.4 and P5.5 together: players no longer read Firestore.** Everything a player reads goes through small server routes, none of which ever returns an access code, an email or an answer key; then the rules can deny the browser everything except a person's own profile.
+    - **New routes (`lib/server/*`, Admin SDK):** `GET /api/quizzes` (public list: switched on and `isPublic !== false`), `GET /api/quizzes/[quizId]` (one quiz + question counts; replaces the old `/summary` route), `POST /api/quizzes/resolve` (access code → quiz id; tries the code as typed, upper and lower case), `GET /api/leaderboard`, `GET /api/my-attempts`. The first two are briefly edge-cached (`s-maxage=30`) and the browser sends no token to them; the rest are private. Browser side: `lib/api-client.ts` (`apiRequest`), `lib/quizzes-api.ts`, `lib/exam/api.ts`.
+    - **P5.4:** quizzes live at `/q/<quizId>` (`app/(quiz)/q/[id]`); `app/(quiz)/[code]` is now a small resolver that turns an old `/<CODE>` link into `/q/<id>` and remembers the code for the session. `PublicQuiz` (`lib/quiz-data.ts`) is the shape players get: **no access code, no owner, no answer settings**. `startAttempt` checks the code (`access_code_required` / `access_code_invalid`, case and spaces ignored) when the quiz needs one; the lobby only forwards what was typed and shows the server's answer inline. `/join` no longer lists codes, can't search by code, and its code box asks the server. Open quizzes (`requiresAccessCode: false`) and quizzes with no code stored need none.
+    - **P5.5:** `firestore.rules` rewritten (final): `users` own profile or admin only; `quizzes` and everything under it admin only; `responses` and `answers` readable by their owner or an admin and **never writable from a browser** (admin may delete); `attempts` denied; `settings` admin; `userActivities` unchanged. 20 emulator tests (`__tests__/firestore-rules.test.ts`, now in the repo) cover what must keep working (profile, own results, admin screens) and every attack from the audit.
+    - **Leaderboard and My quizzes** were rebuilt on the server routes (needed for the rules, and also the main speed fix for those two pages): the leaderboard page used to fetch every name and title one by one and **re-fetched the whole board each time a name arrived**; now it is one request. The ranking logic is unchanged, moved to `lib/leaderboard.ts`. Other people's names come as the name they chose or `User xxxxxx`: **the email-prefix fallback is gone** (it exposed part of people's emails).
+    - `firebase/firestore.ts` is now types only; `getActiveQuizzes`, `getQuizById`, `getQuizByCode`, `getUserQuizAttempts` are deleted. `utils/difficulty-helpers.ts` accepts any quiz-like object (`QuizTiming`). `SafeQuizLoader` and `AuthStateHandler` are deleted.
+  - **P5.6:** `app/(admin)/layout.tsx` is a server component. `lib/server/admin-access.ts` verifies the session cookie (revocation included) and the role (claim or `users/{uid}.role`) and redirects anyone else before anything renders; the old client layout became `AdminShell`. `middleware.ts` was rewritten: real admin paths are checked **first** (they used to match the "6+ letters = quiz code" rule and were open), `/leaderboard` and `/quiz/join` are no longer public, and the old-link rule is capitals and digits only (`/profile` was accidentally public). The `user_role` cookie is only a hint; the server check does not read it.
+  - **P5.7:** **decision (say if you want it changed): starting an attempt needs sign-in, everywhere.** The lobby is open to everyone; a signed-out visitor sees "Sign in to start" (brings them back to the same quiz). `(user)/layout.tsx` lost its mobile and timeout leniency. Guests are gone from the server too (`anonymous` responses are no longer created); old guest responses stay in the data and just show as anonymous. `?redirectTo=` only follows paths on this site (`safeRedirectPath`; the sign-in page used to follow any URL).
+  - **P5.8:** `lib/dev-routes.ts`: `/auth-test`, `/useauth-test` and `/api/auth/session/debug` return 404 in production unless `ENABLE_DEV_ROUTES=true` is set on purpose (middleware, the `(dev)` layout and the debug handler each check). The debug endpoint was public and listed cookie names and session details.
+  - **P5.9:** the browser reports numbered events (`tab_hidden`, `window_blur`, `fullscreen_exit`) with the autosave and the submit, keeps unsent ones across a reload, and continues the numbering after a resume. `applyEvents` (`lib/exam/integrity.ts`) stamps them with the server's time, ignores repeats by number, caps storage at 500 (counts continue) and **derives the counts itself: a count sent by the browser is ignored**. Late submits' events are not read, like their answers. The response gets `tabSwitchCount`, `blurCount`, `fullscreenExits` and `integrityEvents` (only when there is something to report). The results screen shows what the server recorded (including "Window focus lost"). The camera stub is gone: the admin reports' "Camera Issues" column became "Left Fullscreen" and "Focus Lost", and new responses no longer carry `cameraFlags`. Transition note: a browser tab still running the previous version sends counts instead of events, which are ignored (that attempt's counts show 0).
+  - **Decisions and things to know:** (1) sign-in required (above). (2) A blur also fires when the tab is hidden, so one tab switch normally records both; they are counted separately on purpose. (3) Access codes are 5–6 characters of capitals and digits, so they can be guessed by trying many; `/api/quizzes/resolve` and `start` have **no rate limit yet** (planned with the operations work). (4) The leaderboard's own score weighting (1.0/1.3/1.6 on an already-weighted score) is unchanged and should be fixed together with the raw-vs-weighted decision (P5.3/P7.2). (5) `/quizzes` (admin) and `/q/` (players) are different paths on purpose.
+  - **Verified:** `tsc` ✓ `lint` ✓ `npm run build` ✓ (Next 15.5.28; `/dashboard` is now dynamic; the lobby page is 23 kB lighter without the Firestore browser SDK). Tests: 38 logic (event rules, scoring, normaliser, seed, storage), 42 component, 59 access-control (middleware, admin check, dev routes, redirect helper), 41 server integration against the emulator (public routes never leak a code, access-code checks, sign-in required, events, leaderboard, my attempts, plus everything from Session 6) passing two runs in a row, 20 rules tests. Mutation checks: weakening the admin gate and the late-submit and key-leak guards each make tests fail. **Real production build, real Firestore, read-only requests:** the quiz list and lobby payloads contain no access code or owner; start, leaderboard and my-attempts refuse without a sign-in; `/dashboard`, `/leaderboard`, `/profile` redirect to sign-in; a forged `session` + `user_role=admin` cookie pair is still refused by the server check; the two debug routes return 404. Nothing was written to production.
+  - **Not verified (needs you, after deploying):** a real admin login reaching the admin screens (create, edit, delete a quiz; Settings; Reports with the new columns); joining by card and by code (including a code-protected quiz, and a wrong code); an old `/<CODE>` link; the sign-in redirect round trip from the lobby; the leaderboard and My quizzes with real data and their speed; a phone; a strict-mode quiz showing fullscreen exits and focus loss in the reports.
+  - **Deploy order and checks (important):**
+    1. Commit and push so Vercel deploys the app. The interim rules are still live, so everything works during this step.
+    2. Check as a normal user: `/join`, open a quiz card, join by code (right and wrong), take a quiz, reload mid-way and resume, submit, Retry, leaderboard, My quizzes. Then as an admin: dashboard, create/edit/delete a quiz, users, reports, settings. Then signed out: the lobby shows "Sign in to start"; `/dashboard` sends you to sign-in.
+    3. Only then deploy the rules: `firebase deploy --only firestore:rules --project ageno-quiz-af3ff` (rollback target: the interim ruleset `58ee6f53-dc81-4c72-83a6-8f45b1cc3e79`).
+    4. Repeat the checks in step 2. If an admin screen shows empty data or a permission error, roll the rules back and tell me which screen.
+  - **Browsers still open on the previous version** will fail to submit once the rules are live (they write `responses` directly): ask people to reload, or deploy at a quiet time.
+- Next up: after the checks, tick P5.4–P5.7 and P5.9, mark Phase 5 Done, then Phase 6 (data layer cleanup). The performance work discussed in the session (region, caching, warm functions) is still to schedule; part of it (the leaderboard and My quizzes) is already done here.
 
 ### 2026-10-25 — Session 6 (Phase 5)
 - **Later in the session: P5.2 and P5.3 implemented, tested, not yet ticked** (they need the user's check with a real quiz on a deployed build; same convention as Sessions 3–4). Summary of what changed, then the design decisions to review.

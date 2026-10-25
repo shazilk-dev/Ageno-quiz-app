@@ -1,48 +1,48 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getQuizByCode, type Quiz } from "@/firebase/firestore";
-import { fetchQuestionCounts } from "@/lib/exam/api";
+import { ApiRequestError } from "@/lib/api-client";
 import type { QuestionCounts } from "@/lib/exam/types";
+import type { PublicQuiz } from "@/lib/quiz-data";
+import { fetchQuiz } from "@/lib/quizzes-api";
 import { getRecommendedDifficulty } from "@/utils/difficulty-helpers";
 
 type QuizStatus = "loading" | "ready" | "notFound" | "error";
 export type QuestionsStatus = "loading" | "ready" | "empty" | "error";
 
 /**
- * Loads a quiz by its code and how many questions each level has. The questions themselves are not
- * loaded here: they arrive, without their answers, when an attempt starts.
+ * Loads a quiz for its lobby in one request: the quiz as a player may see it (no access code) and how
+ * many questions each level has. The questions themselves arrive, without their answers, when an
+ * attempt starts.
  */
-export function useQuizLoader(code: string) {
-  const [quiz, setQuiz] = useState<Quiz | null>(null);
+export function useQuizLoader(quizId: string) {
+  const [quiz, setQuiz] = useState<PublicQuiz | null>(null);
+  const [active, setActive] = useState(true);
+  const [counts, setCounts] = useState<QuestionCounts>({});
   const [status, setStatus] = useState<QuizStatus>("loading");
   const [reloadKey, setReloadKey] = useState(0);
-
   const [difficulty, setDifficulty] = useState("medium");
-  const [counts, setCounts] = useState<QuestionCounts | null>(null);
-  const [countsFailed, setCountsFailed] = useState(false);
-  const [countsKey, setCountsKey] = useState(0);
 
   useEffect(() => {
-    if (!code) return;
+    if (!quizId) return;
     let cancelled = false;
 
     setStatus("loading");
-    getQuizByCode(code)
-      .then((found) => {
+    fetchQuiz(quizId)
+      .then((info) => {
         if (cancelled) return;
-        if (!found) {
-          setStatus("notFound");
-          return;
-        }
-        setQuiz(found);
-        setDifficulty(getRecommendedDifficulty(found));
-        setCounts(null);
-        setCountsFailed(false);
+        setQuiz(info.quiz);
+        setActive(info.active);
+        setCounts(info.counts);
+        setDifficulty(getRecommendedDifficulty(info.quiz));
         setStatus("ready");
       })
       .catch((error) => {
         if (cancelled) return;
+        if (error instanceof ApiRequestError && error.status === 404) {
+          setStatus("notFound");
+          return;
+        }
         console.error("Error fetching quiz:", error);
         setStatus("error");
       });
@@ -50,47 +50,26 @@ export function useQuizLoader(code: string) {
     return () => {
       cancelled = true;
     };
-  }, [code, reloadKey]);
+  }, [quizId, reloadKey]);
 
-  const quizId = quiz?.id;
-  useEffect(() => {
-    if (!quizId) return;
-    let cancelled = false;
-
-    setCounts(null);
-    setCountsFailed(false);
-    fetchQuestionCounts(quizId)
-      .then((loaded) => {
-        if (!cancelled) setCounts(loaded);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.error("Error loading question counts:", error);
-        setCountsFailed(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [quizId, countsKey]);
-
-  const questionCount = counts?.[difficulty] ?? 0;
-  const questionsStatus: QuestionsStatus = countsFailed
-    ? "error"
-    : counts === null
-      ? "loading"
-      : questionCount > 0
-        ? "ready"
-        : "empty";
+  const questionCount = counts[difficulty] ?? 0;
+  const questionsStatus: QuestionsStatus =
+    status === "error"
+      ? "error"
+      : status !== "ready"
+        ? "loading"
+        : questionCount > 0
+          ? "ready"
+          : "empty";
 
   return {
     quiz,
+    active,
     status,
     reload: useCallback(() => setReloadKey((key) => key + 1), []),
     difficulty,
     selectDifficulty: setDifficulty,
     questionCount,
     questionsStatus,
-    reloadCounts: useCallback(() => setCountsKey((key) => key + 1), []),
   };
 }

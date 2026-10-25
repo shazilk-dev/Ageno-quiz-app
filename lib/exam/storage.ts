@@ -1,4 +1,5 @@
 import type { AnswerMap, FlagMap } from "./answers";
+import type { ClientIntegrityEvent } from "./types";
 
 /**
  * The copy of an attempt in progress that this device keeps, so a reload or a crashed tab doesn't lose
@@ -22,6 +23,11 @@ export interface SavedAttempt {
   tabSwitches: number;
   /** Strict exams only. Missing in attempts saved before this existed. */
   fullscreenExits?: number;
+  /** Window focus lost. Missing in attempts saved before this existed. */
+  blurs?: number;
+  /** Where numbering of new events continues from, and the ones the server may not have yet. */
+  eventSeq?: number;
+  pendingEvents?: ClientIntegrityEvent[];
   savedAt: number;
 }
 

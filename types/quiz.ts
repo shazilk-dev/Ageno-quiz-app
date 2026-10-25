@@ -13,7 +13,10 @@ export interface QuizResponse {
   quizTitle?: string;
   userName?: string;
   tabSwitchCount?: number;
-  cameraFlags?: string[];
+  /** Times the person left fullscreen (strict exams), as recorded by the server. */
+  fullscreenExits?: number;
+  /** Times the window lost focus during the attempt, as recorded by the server. */
+  blurCount?: number;
   difficulty?: QuizDifficulty;
   [key: string]: unknown;
 }

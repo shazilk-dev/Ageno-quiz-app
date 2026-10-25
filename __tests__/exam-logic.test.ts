@@ -8,6 +8,12 @@ import {
   secondsUntil,
   summarize,
 } from "../lib/exam/answers";
+import {
+  applyEvents,
+  MAX_EVENTS_PER_REQUEST,
+  MAX_STORED_EVENTS,
+  type IntegrityState,
+} from "../lib/exam/integrity";
 import { normalizeQuestion, type StoredQuestion } from "../lib/exam/normalize";
 import { scoreAttempt } from "../lib/exam/scoring";
 import { seedFromServer } from "../lib/exam/seed";
@@ -252,7 +258,9 @@ describe("seedFromServer", () => {
     flagged: {},
     index: 0,
     tabSwitches: 1,
+    blurs: 0,
     fullscreenExits: 0,
+    eventSeq: 4,
   };
 
   it("moves the server's start onto the device's clock, so the time allowed stays the same", () => {
@@ -272,7 +280,10 @@ describe("seedFromServer", () => {
       flagged: {},
       index: 0,
       tabSwitches: 1,
+      blurs: 0,
       fullscreenExits: 0,
+      eventSeq: 4,
+      pendingEvents: [],
     });
   });
 
@@ -290,6 +301,9 @@ describe("seedFromServer", () => {
       index: 1,
       tabSwitches: 0,
       fullscreenExits: 3,
+      blurs: 2,
+      eventSeq: 7,
+      pendingEvents: [{ seq: 7, type: "window_blur", at: 5 }],
       savedAt: 0,
     };
     const { progress } = seedFromServer(state, { local, resume: true, receivedAt: 1_005_000 });
@@ -298,7 +312,10 @@ describe("seedFromServer", () => {
       flagged: { "2": true },
       index: 1,
       tabSwitches: 1,
+      blurs: 2,
       fullscreenExits: 3,
+      eventSeq: 7,
+      pendingEvents: [{ seq: 7, type: "window_blur", at: 5 }],
     });
   });
 
@@ -307,6 +324,86 @@ describe("seedFromServer", () => {
     expect(
       seedFromServer(state, { local: other, resume: true, receivedAt: 1_005_000 }).progress?.answers
     ).toEqual({ "1": 1, "2": null });
+  });
+});
+
+describe("applyEvents (integrity events, counted on the server)", () => {
+  const empty: IntegrityState = {
+    events: [],
+    eventSeq: 0,
+    tabSwitches: 0,
+    blurs: 0,
+    fullscreenExits: 0,
+  };
+  const event = (seq: number, type: string, at = 100) => ({ seq, type, at });
+
+  it("counts each kind from the events and stamps them with the server's time", () => {
+    const next = applyEvents(
+      empty,
+      [event(1, "tab_hidden"), event(2, "window_blur"), event(3, "tab_hidden"), event(4, "fullscreen_exit")],
+      9_000
+    );
+    expect(next).toMatchObject({ tabSwitches: 2, blurs: 1, fullscreenExits: 1, eventSeq: 4 });
+    expect(next.events).toEqual([
+      { seq: 1, type: "tab_hidden", at: 9_000, clientAt: 100 },
+      { seq: 2, type: "window_blur", at: 9_000, clientAt: 100 },
+      { seq: 3, type: "tab_hidden", at: 9_000, clientAt: 100 },
+      { seq: 4, type: "fullscreen_exit", at: 9_000, clientAt: 100 },
+    ]);
+  });
+
+  it("ignores an event it already has, so a resend after a dropped connection counts once", () => {
+    const first = applyEvents(empty, [event(1, "tab_hidden"), event(2, "tab_hidden")], 1);
+    const again = applyEvents(first, [event(1, "tab_hidden"), event(2, "tab_hidden"), event(3, "window_blur")], 2);
+    expect(again).toMatchObject({ tabSwitches: 2, blurs: 1, eventSeq: 3 });
+    expect(again.events).toHaveLength(3);
+  });
+
+  it("takes events in sequence order whatever order they arrive in", () => {
+    const next = applyEvents(empty, [event(3, "window_blur"), event(1, "tab_hidden"), event(2, "tab_hidden")], 1);
+    expect(next.events.map((e) => e.seq)).toEqual([1, 2, 3]);
+    expect(next.eventSeq).toBe(3);
+  });
+
+  it("skips malformed events and unknown types, and does not change anything for a non-list", () => {
+    const next = applyEvents(
+      empty,
+      [null, "x", { seq: "1", type: "tab_hidden" }, { seq: 1.5, type: "tab_hidden" }, event(2, "teleport"), { type: "tab_hidden" }, event(3, "tab_hidden")],
+      1
+    );
+    expect(next).toMatchObject({ tabSwitches: 1, eventSeq: 3 });
+    expect(next.events).toHaveLength(1);
+    expect(applyEvents(empty, "nonsense", 1)).toBe(empty);
+    expect(applyEvents(empty, undefined, 1)).toBe(empty);
+  });
+
+  it("can't be told a count: only events move it, and it never goes down", () => {
+    const state = { ...empty, tabSwitches: 5, eventSeq: 5 };
+    expect(applyEvents(state, [event(2, "tab_hidden")], 1)).toMatchObject({ tabSwitches: 5 });
+  });
+
+  it("takes at most a batch per request, and keeps counting past the stored cap", () => {
+    const many = Array.from({ length: MAX_EVENTS_PER_REQUEST + 50 }, (_, i) => event(i + 1, "tab_hidden"));
+    expect(applyEvents(empty, many, 1).tabSwitches).toBe(MAX_EVENTS_PER_REQUEST);
+
+    const full: IntegrityState = {
+      ...empty,
+      eventSeq: MAX_STORED_EVENTS,
+      events: Array.from({ length: MAX_STORED_EVENTS }, (_, i) => ({
+        seq: i + 1,
+        type: "tab_hidden" as const,
+        at: 1,
+        clientAt: 1,
+      })),
+    };
+    const past = applyEvents(full, [event(MAX_STORED_EVENTS + 1, "window_blur")], 2);
+    expect(past.blurs).toBe(1);
+    expect(past.events).toHaveLength(MAX_STORED_EVENTS);
+  });
+
+  it("uses 0 for a device time it can't read", () => {
+    const next = applyEvents(empty, [{ seq: 1, type: "tab_hidden", at: "soon" }], 5);
+    expect(next.events[0].clientAt).toBe(0);
   });
 });
 

@@ -92,7 +92,6 @@ export default function Dashboard() {
             submittedAt: data.submittedAt,
             startedAt: data.startedAt,
             tabSwitchCount: data.tabSwitchCount,
-            cameraFlags: data.cameraFlags || [],
           } as QuizResponse;
         });
 

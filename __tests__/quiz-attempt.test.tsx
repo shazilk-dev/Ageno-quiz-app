@@ -5,7 +5,7 @@
 //   npx vitest run __tests__/quiz-attempt.test.tsx
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Quiz } from "@/firebase/firestore";
+import type { PublicQuiz } from "@/lib/quiz-data";
 import type { AttemptSeed } from "@/hooks/useQuizAttempt";
 import type { StoredQuestion } from "@/lib/exam/normalize";
 import { scoreAttempt } from "@/lib/exam/scoring";
@@ -40,10 +40,12 @@ interface ServerOptions {
 }
 
 const serverResult = (
-  payload: { answers: Record<string, number | null> },
+  payload: { answers: Record<string, number | null>; events?: { type: string }[] },
   { multiplier = 1.5, review = true, autoCheck = true, late = false }: ServerOptions = {}
 ): SubmitResult => {
   const s = scoreAttempt({ questions: stored, answers: payload.answers, autoCheck, multiplier });
+  // Like the real server: the counts come from the events it was sent.
+  const count = (type: string) => (payload.events ?? []).filter((e) => e.type === type).length;
   return {
     responseId: "attempt-1",
     graded: s.graded,
@@ -56,6 +58,9 @@ const serverResult = (
     timeTakenSec: 42,
     late,
     answers: payload.answers,
+    tabSwitches: count("tab_hidden"),
+    blurs: count("window_blur"),
+    fullscreenExits: count("fullscreen_exit"),
     review:
       s.graded && review
         ? Object.fromEntries(stored.map((q) => [q.id, { correctIndex: q.correctIndex }]))
@@ -75,7 +80,7 @@ const quiz = {
   id: "quiz1",
   title: "Sample quiz",
   isAutoCheck: true,
-} as unknown as Quiz;
+} as unknown as PublicQuiz;
 
 const seed = (overrides: Partial<AttemptSeed> = {}): AttemptSeed => ({
   attemptId: "attempt-1",
@@ -303,8 +308,7 @@ describe("submitting", () => {
     expect(attemptId).toBe("attempt-1");
     expect(payload).toEqual({
       answers: { q1: 0, q2: null, q3: null },
-      tabSwitches: 0,
-      fullscreenExits: 0,
+      events: [],
     });
   });
 
@@ -524,7 +528,10 @@ describe("autosave and resume", () => {
           flagged: { q2: true },
           index: 1,
           tabSwitches: 3,
+          blurs: 0,
           fullscreenExits: 0,
+          eventSeq: 3,
+          pendingEvents: [],
         },
       }),
     });
@@ -577,8 +584,7 @@ describe("autosave to the server", () => {
       answers: { q1: 2, q2: null, q3: null },
       flagged: {},
       index: 0,
-      tabSwitches: 0,
-      fullscreenExits: 0,
+      events: [],
     });
 
     await advance(10_000);
@@ -593,7 +599,10 @@ describe("autosave to the server", () => {
           flagged: {},
           index: 0,
           tabSwitches: 0,
+          blurs: 0,
           fullscreenExits: 0,
+          eventSeq: 0,
+          pendingEvents: [],
         },
       }),
     });
@@ -617,6 +626,96 @@ describe("autosave to the server", () => {
     await advance(2_100);
     expect(saveProgress).toHaveBeenCalledTimes(2);
     expect(saveProgress.mock.calls[1][1].answers.q1).toBe(1);
+  });
+});
+
+describe("integrity events", () => {
+  const hideTab = () => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    fireEvent(document, new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+  };
+
+  it("numbers each event and sends it with the autosave, then doesn't send it again", async () => {
+    vi.useFakeTimers();
+    try {
+      renderAttempt();
+      hideTab();
+      act(() => void window.dispatchEvent(new Event("blur")));
+      await act(async () => void vi.advanceTimersByTime(2_100));
+
+      expect(saveProgress).toHaveBeenCalledTimes(1);
+      const events = saveProgress.mock.calls[0][1].events;
+      expect(events.map((e: { seq: number; type: string }) => [e.seq, e.type])).toEqual([
+        [1, "tab_hidden"],
+        [2, "window_blur"],
+      ]);
+
+      await act(async () => void vi.advanceTimersByTime(10_000));
+      expect(saveProgress).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an event until the server has it, and sends it again if the save failed", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      saveProgress.mockRejectedValueOnce(new Error("offline"));
+      renderAttempt();
+      hideTab();
+      await act(async () => void vi.advanceTimersByTime(2_100));
+      expect(saveProgress).toHaveBeenCalledTimes(1);
+
+      // The next change carries the unsent event along, with its original number.
+      fireEvent.click(radios()[0]);
+      await act(async () => void vi.advanceTimersByTime(2_100));
+      expect(saveProgress).toHaveBeenCalledTimes(2);
+      expect(saveProgress.mock.calls[1][1].events.map((e: { seq: number }) => e.seq)).toEqual([1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends events that haven't been saved yet with the submit", async () => {
+    renderAttempt();
+    hideTab();
+    act(() => void window.dispatchEvent(new Event("blur")));
+    openSubmitDialog();
+    await confirmSubmit();
+
+    const events = submitAttempt.mock.calls[0][1].events as { type: string }[];
+    expect(events.map((e) => e.type)).toEqual(["tab_hidden", "window_blur"]);
+    // The results show what the server counted.
+    expect(screen.getByText("Tab switches")).toBeTruthy();
+    expect(screen.getByText("Window focus lost")).toBeTruthy();
+  });
+
+  it("continues numbering after a resume and resends what the server may not have", async () => {
+    vi.useFakeTimers();
+    try {
+      renderAttempt({
+        seed: seed({
+          progress: {
+            answers: { q1: null, q2: null, q3: null },
+            flagged: {},
+            index: 0,
+            tabSwitches: 1,
+            blurs: 0,
+            fullscreenExits: 0,
+            eventSeq: 4,
+            pendingEvents: [{ seq: 4, type: "tab_hidden", at: 1 }],
+          },
+        }),
+      });
+      hideTab();
+      await act(async () => void vi.advanceTimersByTime(2_100));
+      const events = saveProgress.mock.calls[0][1].events as { seq: number }[];
+      expect(events.map((e) => e.seq)).toEqual([4, 5]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -669,7 +768,7 @@ describe("fullscreen", () => {
     });
   };
 
-  const strictQuiz = { ...quiz, examMode: "strict" } as Quiz;
+  const strictQuiz = { ...quiz, examMode: "strict" } as PublicQuiz;
 
   afterEach(() => {
     delete (document as unknown as Record<string, unknown>).fullscreenEnabled;
@@ -710,7 +809,9 @@ describe("fullscreen", () => {
     );
     openSubmitDialog();
     await confirmSubmit();
-    expect(submitAttempt.mock.calls[0][1].fullscreenExits).toBe(2);
+    const sent = submitAttempt.mock.calls[0][1].events as { type: string }[];
+    expect(sent.filter((e) => e.type === "fullscreen_exit")).toHaveLength(2);
+    // The results show what the server counted from those events.
     expect(screen.getByText("Left fullscreen")).toBeTruthy();
     expect(document.exitFullscreen).toHaveBeenCalled(); // the results are a normal window
   });
@@ -761,7 +862,8 @@ describe("fullscreen", () => {
 
     openSubmitDialog();
     await confirmSubmit();
-    expect(submitAttempt.mock.calls[0][1].fullscreenExits).toBe(0);
+    const sent = submitAttempt.mock.calls[0][1].events as { type: string }[];
+    expect(sent.filter((e) => e.type === "fullscreen_exit")).toHaveLength(0);
     expect(screen.queryByText("Left fullscreen")).toBeNull();
   });
 });

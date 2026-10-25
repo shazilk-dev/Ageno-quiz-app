@@ -1,17 +1,17 @@
 import { ArrowRight, Clock, Lock } from "lucide-react";
 import Link from "next/link";
 import { Card } from "@/components/ui";
-import type { Quiz } from "@/firebase/firestore";
+import type { PublicQuiz } from "@/lib/quiz-data";
 import { getDifficultyDuration } from "@/utils/difficulty-helpers";
 
 const DIFFICULTY_ORDER = ["easy", "medium", "hard"];
 
 interface QuizCardProps {
-  quiz: Quiz;
+  quiz: PublicQuiz;
 }
 
 /** "30 min", or "20–45 min" when the time limit depends on the chosen difficulty. */
-function durationLabel(quiz: Quiz): string | null {
+function durationLabel(quiz: PublicQuiz): string | null {
   const levels = quiz.availableDifficulties ?? [];
   const minutes = levels
     .filter(
@@ -30,7 +30,7 @@ function durationLabel(quiz: Quiz): string | null {
   return min === max ? `${min} min` : `${min}–${max} min`;
 }
 
-function levelsLabel(quiz: Quiz): string | null {
+function levelsLabel(quiz: PublicQuiz): string | null {
   const levels = [...(quiz.availableDifficulties ?? [])].sort(
     (a, b) =>
       (DIFFICULTY_ORDER.indexOf(a) + 1 || 99) -
@@ -51,7 +51,7 @@ export default function QuizCard({ quiz }: QuizCardProps) {
 
   return (
     <Link
-      href={`/${quiz.accessCode}`}
+      href={`/q/${quiz.id}`}
       className="group block h-full rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
       <Card interactive className="flex h-full flex-col p-5">

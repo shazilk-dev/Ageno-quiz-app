@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
+import { safeRedirectPath } from "@/lib/navigation";
 
 // Separate component that uses searchParams to avoid direct usage in the main component
 function SignInContent() {
@@ -22,7 +23,7 @@ function SignInContent() {
     // If we have a user, redirect away from the sign-in page
     if (user) {
       const redirectTo = searchParams.get("redirectTo");
-      router.replace(redirectTo || "/");
+      router.replace(safeRedirectPath(redirectTo));
     } else {
       // Only show the sign-in form if there's no authenticated user
       setCheckingSession(false);

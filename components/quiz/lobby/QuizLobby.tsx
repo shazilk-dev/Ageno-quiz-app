@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { Quiz } from "@/firebase/firestore";
+import type { PublicQuiz } from "@/lib/quiz-data";
 import {
   getDifficultyDuration,
   getDifficultyMultiplier,
@@ -18,7 +18,7 @@ const LEVEL_ORDER = ["easy", "medium", "hard"];
 const capitalise = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
 
 interface QuizLobbyProps {
-  quiz: Quiz;
+  quiz: PublicQuiz;
   /** Questions in the chosen level (from the server's counts; the questions themselves aren't loaded here). */
   questionCount: number;
   /** Levels this quiz offers, already sorted for display. */
@@ -29,8 +29,14 @@ interface QuizLobbyProps {
   questionsState: QuestionsState;
   starting: boolean;
   startError: string | null;
-  signedIn: boolean;
-  onStart: () => void;
+  /** null while the sign-in state is still resolving. */
+  signedIn: boolean | null;
+  /** The code typed into the lobby, if it was asked for. */
+  onStart: (code?: string) => void;
+  /** A code entered earlier this session is on file. */
+  hasRememberedCode: boolean;
+  /** The server refused the code. */
+  codeError: string | null;
   /** Offered next to a load failure, so a dropped connection doesn't need a page reload. */
   onRetryQuestions?: () => void;
   /** A strict quiz on a browser that can't do fullscreen: it can't be started here. */
@@ -49,6 +55,8 @@ export default function QuizLobby({
   startError,
   signedIn,
   onStart,
+  hasRememberedCode,
+  codeError,
   onRetryQuestions,
   fullscreenBlocked = false,
 }: QuizLobbyProps) {
@@ -115,8 +123,9 @@ export default function QuizLobby({
         />
         <LobbyStartCard
           quizId={quiz.id}
-          accessCode={quiz.accessCode}
-          requiresAccessCode={quiz.requiresAccessCode !== false}
+          requiresAccessCode={quiz.requiresAccessCode}
+          hasRememberedCode={hasRememberedCode}
+          codeError={codeError}
           difficultyOptions={options}
           selectedDifficulty={selectedDifficulty}
           onSelectDifficulty={onSelectDifficulty}

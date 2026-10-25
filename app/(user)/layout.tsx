@@ -1,10 +1,17 @@
 "use client";
 
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 import SiteFrame from "@/components/layout/SiteFrame";
+import { Skeleton } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 
+/**
+ * Pages that belong to a signed-in person (My quizzes, leaderboard, profile). Everyone gets the same
+ * rule on every device: while the sign-in state resolves you see a placeholder, and if there is no one
+ * signed in you are sent to sign in and brought back here afterwards. The data behind these pages is
+ * checked on the server too, so this is about not showing an empty page, not about security.
+ */
 export default function UserLayout({
   children,
 }: {
@@ -12,63 +19,27 @@ export default function UserLayout({
 }) {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [loadingTimeout, setLoadingTimeout] = useState(false);
-  const [isMobileBrowser, setIsMobileBrowser] = useState(false);
+  const pathname = usePathname();
 
-  // Detect mobile browsers
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-      setIsMobileBrowser(isMobile);
-      
-      // Use a shorter timeout for mobile browsers
-      const timeoutDuration = isMobile ? 1000 : 2000;
-      
-      const timeout = setTimeout(() => {
-        setLoadingTimeout(true);
-      }, timeoutDuration);
-      
-      return () => clearTimeout(timeout);
-    }
-  }, []);
-
-  // Redirect if not authenticated and loading is complete
-  useEffect(() => {
-    // Only redirect if we're confident the user is not authenticated
-    // Add a small delay to allow auth state to fully initialize
     if (!loading && !user) {
-      const redirectTimeout = setTimeout(() => {
-        router.push("/sign-in");
-      }, 500); // Small delay to ensure auth state is stable
-      
-      return () => clearTimeout(redirectTimeout);
+      router.replace(`/sign-in?redirectTo=${encodeURIComponent(pathname)}`);
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, pathname]);
 
-  // Show content if:
-  // 1. User is authenticated, OR
-  // 2. Loading timeout expired (prevent indefinite spinner), OR
-  // 3. On mobile browsers we're more lenient (to avoid stuck states)
-  if (user || loadingTimeout || isMobileBrowser) {
-    return (
-      <SiteFrame>
-        <div className="container mx-auto px-4 py-8 flex-grow">{children}</div>
-      </SiteFrame>
-    );
-  }
-
-  // Show loading state only if we haven't exceeded the timeout
-  if (loading && !loadingTimeout) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mr-3"></div>
-        <p className="text-blue-500">Loading...</p>
+  return (
+    <SiteFrame>
+      <div className="container mx-auto flex-grow px-4 py-8">
+        {user ? (
+          children
+        ) : (
+          <div aria-busy="true" className="space-y-4">
+            <Skeleton className="h-9 w-56" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        )}
       </div>
-    );
-  }
-
-  // Default case: don't render anything
-  return null;
+    </SiteFrame>
+  );
 }

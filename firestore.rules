@@ -1,10 +1,11 @@
 rules_version = '2';
 
-// INTERIM RULES (roadmap P5.1b). They match what the browser does today: quiz taking still reads the
-// questions and writes `responses` from the client. P5.2 moves that to server routes (Admin SDK), and
-// P5.5 replaces this file with the final lockdown (no client reads of answers, no client writes to scores).
-// Known gaps until then: questions are readable by anyone (answers included), and a player can still
-// create a response for themselves with a score of their choosing.
+// FINAL RULES (roadmap P5.5). Players never touch Firestore for quizzes, questions, attempts or results:
+// everything they need goes through the server routes under app/api (Admin SDK, which bypasses these
+// rules). From the browser only two things are allowed:
+//   - a signed-in person reading and updating their own profile and reading their own activity log, and
+//   - admins, who run the admin screens with the client SDK.
+// Anything not matched below is denied.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAuthenticated() {
@@ -21,23 +22,9 @@ service cloud.firestore {
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin");
     }
 
-    // Guests are not Firebase-authenticated; their responses carry the userId "anonymous".
-    function submitterId() {
-      return isAuthenticated() ? request.auth.uid : "anonymous";
-    }
-
-    function ownsResponse(responseId) {
-      return exists(/databases/$(database)/documents/responses/$(responseId)) &&
-        get(/databases/$(database)/documents/responses/$(responseId)).data.userId == submitterId();
-    }
-
-    function validScore(score) {
-      return score == null || (score is number && score >= 0 && score <= 100);
-    }
-
     match /users/{userId} {
-      // Signed-in only (the leaderboard shows other players' names). Was public.
-      allow read: if isAuthenticated();
+      // Own profile only. The leaderboard shows names through the server, not through this collection.
+      allow read: if isOwner(userId) || isAdmin();
 
       // Self-registration can't pick its own role.
       allow create: if isOwner(userId) &&
@@ -52,38 +39,36 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Quizzes and everything under them (questions, questions_easy|medium|hard, ...).
+    // Quizzes, their questions (with the answer key) and everything else under them: admins only.
+    // Players get the quiz, and later its questions without the key, from the server.
     match /quizzes/{quizId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if isAdmin();
 
       match /{subCollection}/{docId} {
-        allow read: if true;
-        allow write: if isAdmin();
+        allow read, write: if isAdmin();
       }
     }
 
-    // One response per attempt (the attempt id is the document id).
+    // Results are written by the server when an attempt is submitted, so no one can create or change a
+    // score from a browser. A person can read their own; admins can read and delete.
     match /responses/{responseId} {
-      allow read: if isAuthenticated();
-
-      allow create: if request.resource.data.userId == submitterId() &&
-        validScore(request.resource.data.score);
-
-      // A retry rewrites the same document; the owner can't change what it says about the result.
-      allow update: if isAdmin() ||
-        (isOwner(resource.data.userId) &&
-         request.resource.data.userId == resource.data.userId &&
-         request.resource.data.quizId == resource.data.quizId &&
-         request.resource.data.score == resource.data.score);
-
+      allow read: if isAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create, update: if false;
       allow delete: if isAdmin();
 
       match /answers/{answerId} {
-        allow read: if isAuthenticated();
-        allow create, update: if isAdmin() || ownsResponse(responseId);
+        allow read: if isAdmin() ||
+          (isAuthenticated() &&
+           get(/databases/$(database)/documents/responses/$(responseId)).data.userId == request.auth.uid);
+        allow create, update: if false;
         allow delete: if isAdmin();
       }
+    }
+
+    // Attempts hold the questions with their answer key and the clock. Server only.
+    match /attempts/{attemptId} {
+      allow read, write: if false;
     }
 
     match /userActivities/{activityId} {

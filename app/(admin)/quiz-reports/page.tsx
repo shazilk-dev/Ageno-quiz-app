@@ -280,7 +280,8 @@ export default function QuizReportsPage() {
       "Time Taken",
       "Submitted At",
       "Tab Switches",
-      "Camera Flags",
+      "Left Fullscreen",
+      "Focus Lost",
     ];
 
     const rows = filteredResponses.map((response: QuizResponse) => [
@@ -292,7 +293,8 @@ export default function QuizReportsPage() {
       calculateTimeTaken(response.startedAt, response.submittedAt),
       formatDate(response.submittedAt),
       response.tabSwitchCount || 0,
-      (response.cameraFlags || []).length,
+      response.fullscreenExits || 0,
+      response.blurCount || 0,
     ]);
 
     const csvContent = [
@@ -492,7 +494,10 @@ export default function QuizReportsPage() {
                     Tab Switches
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Camera Issues
+                    Left Fullscreen
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Focus Lost
                   </th>
                 </tr>
               </thead>
@@ -539,16 +544,11 @@ export default function QuizReportsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {response.tabSwitchCount || 0}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {(response.cameraFlags || []).length > 0 ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                          {response.cameraFlags?.length} issues
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          None
-                        </span>
-                      )}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {response.fullscreenExits || 0}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {response.blurCount || 0}
                     </td>
                   </tr>
                 ))}

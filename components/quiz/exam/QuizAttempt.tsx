@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Quiz } from "@/firebase/firestore";
+import type { PublicQuiz } from "@/lib/quiz-data";
 import { useFullscreen } from "@/hooks/useFullscreen";
 import { useQuizAttempt, type AttemptSeed } from "@/hooks/useQuizAttempt";
 import { exitFullscreen, isFullscreenSupported } from "@/lib/exam/fullscreen";
@@ -13,7 +13,7 @@ import ResultsView from "./ResultsView";
 import SubmitDialog from "./SubmitDialog";
 
 interface QuizAttemptProps {
-  quiz: Quiz;
+  quiz: PublicQuiz;
   seed: AttemptSeed;
   userId: string | null;
   /** Starts a new attempt. Rejects with a message for the person if it can't. */

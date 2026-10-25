@@ -1,27 +1,29 @@
 /**
- * Remembers, for this browser session only, that a visitor entered the right access code for a quiz,
- * so the lobby doesn't ask twice. This is a convenience, not security: real verification moves to the
- * server in P5.4.
+ * Remembers, for this browser session only, the access code someone entered for a quiz, so the lobby
+ * doesn't ask twice. It is only a convenience: the server checks the code every time an attempt starts.
  */
-const storageKey = (quizId: string) => `ageno:quiz:verified:${quizId}`;
+const storageKey = (quizId: string) => `ageno:quiz:code:${quizId}`;
 
-export function isCodeVerified(quizId: string): boolean {
+export function getRememberedCode(quizId: string): string | null {
   try {
-    return sessionStorage.getItem(storageKey(quizId)) === "1";
+    return sessionStorage.getItem(storageKey(quizId)) || null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-export function markCodeVerified(quizId: string): void {
+export function rememberCode(quizId: string, code: string): void {
   try {
-    sessionStorage.setItem(storageKey(quizId), "1");
+    sessionStorage.setItem(storageKey(quizId), code);
   } catch {
     // Storage can be unavailable (private windows); the lobby just asks again.
   }
 }
 
-/** Codes are compared without regard to case or surrounding spaces. */
-export function codeMatches(typed: string, actual: string): boolean {
-  return typed.trim().toLowerCase() === actual.trim().toLowerCase();
+export function forgetCode(quizId: string): void {
+  try {
+    sessionStorage.removeItem(storageKey(quizId));
+  } catch {
+    // Nothing to forget if storage is unavailable.
+  }
 }

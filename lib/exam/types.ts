@@ -11,6 +11,17 @@ export interface ExamQuestion {
   imageUrl?: string;
 }
 
+/** Things worth recording while someone takes an exam. The server counts them and stamps its own time. */
+export type IntegrityEventType = "tab_hidden" | "window_blur" | "fullscreen_exit";
+
+/** An event as the browser reports it. `seq` numbers them, so a resend is never counted twice. */
+export interface ClientIntegrityEvent {
+  seq: number;
+  type: IntegrityEventType;
+  /** The device's clock, for context only. */
+  at: number;
+}
+
 /** An attempt that is running, as the browser sees it. Used for both a fresh start and a resume. */
 export interface AttemptState {
   attemptId: string;
@@ -28,8 +39,12 @@ export interface AttemptState {
   answers: Record<string, number | null>;
   flagged: Record<string, true>;
   index: number;
+  /** What the server has recorded so far. */
   tabSwitches: number;
+  blurs: number;
   fullscreenExits: number;
+  /** The highest event number the server has accepted. */
+  eventSeq: number;
 }
 
 export interface ReviewItem {
@@ -56,6 +71,10 @@ export interface SubmitResult {
   late: boolean;
   /** The answers that were scored (after a late submit these can differ from what the browser held). */
   answers: Record<string, number | null>;
+  /** What the server recorded during the attempt. */
+  tabSwitches: number;
+  blurs: number;
+  fullscreenExits: number;
   /** Per question; null when the quiz owner turned the review off or the quiz isn't graded. */
   review: Record<string, ReviewItem> | null;
 }
@@ -64,8 +83,8 @@ export interface ProgressPatch {
   answers?: Record<string, number | null>;
   flagged?: Record<string, true>;
   index?: number;
-  tabSwitches?: number;
-  fullscreenExits?: number;
+  /** Events not yet reported. The server derives its counts from these, never from a number we send. */
+  events?: ClientIntegrityEvent[];
 }
 
 /** Questions available per difficulty level, for the lobby. */
@@ -77,7 +96,12 @@ export interface AttemptProgress {
   flagged: Record<string, true>;
   index: number;
   tabSwitches: number;
+  blurs: number;
   fullscreenExits: number;
+  /** Where numbering of new events continues from. */
+  eventSeq: number;
+  /** Events recorded on this device that the server may not have yet. */
+  pendingEvents: ClientIntegrityEvent[];
 }
 
 /** Everything the exam needs to run one attempt. A fresh start, a resume and a retry are all just a seed. */

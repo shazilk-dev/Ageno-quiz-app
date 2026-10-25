@@ -1,6 +1,12 @@
 // utils/difficulty-helpers.ts
 import type { Quiz } from "@/firebase/firestore";
 
+/** The fields the helpers read, so both a full quiz and a player-facing one fit. */
+export type QuizTiming = Pick<
+  Quiz,
+  "duration" | "difficultySettings" | "availableDifficulties"
+>;
+
 /**
  * Gets the duration for the specified difficulty level with proper error handling
  * @param quiz The quiz object
@@ -8,7 +14,7 @@ import type { Quiz } from "@/firebase/firestore";
  * @returns Duration in minutes for the specified difficulty, or the quiz's general duration as fallback
  */
 export function getDifficultyDuration(
-  quiz: Quiz | null,
+  quiz: QuizTiming | null,
   difficulty: string
 ): number {
   if (!quiz) {
@@ -45,7 +51,7 @@ export function getDifficultyDuration(
  * @returns Point multiplier for the specified difficulty, or 1.0 as fallback
  */
 export function getDifficultyMultiplier(
-  quiz: Quiz | null,
+  quiz: QuizTiming | null,
   difficulty: string
 ): number {
   if (!quiz) {
@@ -78,7 +84,7 @@ export function getDifficultyMultiplier(
  */
 export function applyDifficultyMultiplier(
   rawScore: number,
-  quiz: Quiz | null,
+  quiz: QuizTiming | null,
   difficulty: string
 ): number {
   const multiplier = getDifficultyMultiplier(quiz, difficulty);
@@ -92,7 +98,7 @@ export function applyDifficultyMultiplier(
  * @param quiz The quiz object
  * @returns Boolean indicating if the quiz has multiple available difficulties
  */
-export function hasMultipleDifficulties(quiz: Quiz | null): boolean {
+export function hasMultipleDifficulties(quiz: QuizTiming | null): boolean {
   if (!quiz || !quiz.availableDifficulties) {
     return false;
   }
@@ -108,7 +114,7 @@ export function hasMultipleDifficulties(quiz: Quiz | null): boolean {
  *          multiplier (e.g. "1.5x"), and whether custom settings exist for this difficulty
  */
 export function getDifficultyDisplayInfo(
-  quiz: Quiz | null,
+  quiz: QuizTiming | null,
   difficulty: string
 ) {
   if (!quiz) {
@@ -140,7 +146,7 @@ export function getDifficultyDisplayInfo(
  * @param quiz The quiz object
  * @returns The recommended difficulty level (prefers 'medium' if available)
  */
-export function getRecommendedDifficulty(quiz: Quiz | null): string {
+export function getRecommendedDifficulty(quiz: QuizTiming | null): string {
   if (!quiz || !quiz.availableDifficulties || quiz.availableDifficulties.length === 0) {
     return 'medium'; // Default fallback if no available difficulties
   }

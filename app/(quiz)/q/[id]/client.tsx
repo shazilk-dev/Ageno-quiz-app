@@ -19,6 +19,7 @@ import {
   exitFullscreen,
   isFullscreenSupported,
 } from "@/lib/exam/fullscreen";
+import { forgetCode, getRememberedCode, rememberCode } from "@/lib/quiz-access";
 import { seedFromServer } from "@/lib/exam/seed";
 import {
   attemptKey,
@@ -29,11 +30,11 @@ import {
 import type { AttemptSeed } from "@/lib/exam/types";
 
 interface ClientProps {
-  code: string;
+  quizId: string;
 }
 
 const QUESTIONS_FAILED =
-  "We couldn't load the questions. Check your connection and try again.";
+  "We couldn't load this quiz. Check your connection and try again.";
 const FULLSCREEN_DENIED =
   "Your browser didn't allow fullscreen, which this quiz needs. Allow it for this site (the icon at the left of the address bar) and press Start again. The F11 key isn't enough.";
 const ATTEMPT_ENDED =
@@ -42,17 +43,21 @@ const ATTEMPT_ENDED =
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : "Something went wrong. Try again.";
 
+const isCodeError = (error: unknown): error is ApiRequestError =>
+  error instanceof ApiRequestError &&
+  (error.code === "access_code_invalid" || error.code === "access_code_required");
+
 /**
  * Wires the quiz route together: load the quiz, show the lobby (or "resume your attempt" when this
  * device holds an unfinished one), run the attempt, show the results. The exam itself lives in
- * `components/quiz/exam/` and `hooks/useQuizAttempt.ts`; the questions, the clock and the scoring
- * come from the attempt routes (`lib/exam/api.ts`).
+ * `components/quiz/exam/` and `hooks/useQuizAttempt.ts`; the quiz, the questions, the access-code check,
+ * the clock and the scoring all come from the server (`lib/quizzes-api.ts`, `lib/exam/api.ts`).
  */
-export default function QuizClient({ code }: ClientProps) {
+export default function QuizClient({ quizId }: ClientProps) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const userId = user?.uid ?? null;
-  const loader = useQuizLoader(code);
+  const loader = useQuizLoader(quizId);
   const { quiz } = loader;
 
   // `userId` is a snapshot from when the attempt began, so its autosave key can't change mid-exam.
@@ -62,6 +67,7 @@ export default function QuizClient({ code }: ClientProps) {
   } | null>(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
 
@@ -84,7 +90,7 @@ export default function QuizClient({ code }: ClientProps) {
   if (loader.status === "notFound" || !quiz || !storageKey) {
     return <QuizNotFound />;
   }
-  if (quiz.active === false) return <QuizInactive title={quiz.title} />;
+  if (!loader.active) return <QuizInactive title={quiz.title} />;
 
   const begin = (seed: AttemptSeed) => setAttempt({ seed, userId });
   const strict = quiz.examMode === "strict";
@@ -100,7 +106,11 @@ export default function QuizClient({ code }: ClientProps) {
           // From the click, before anything else: browsers only allow fullscreen from a user gesture.
           const fullscreen = enterFullscreen();
           try {
-            const state = await startAttempt(quiz.id, attempt.seed.difficulty);
+            const state = await startAttempt(
+              quiz.id,
+              attempt.seed.difficulty,
+              getRememberedCode(quiz.id) ?? undefined
+            );
             await fullscreen;
             begin(seedFromServer(state));
           } catch (error) {
@@ -117,7 +127,7 @@ export default function QuizClient({ code }: ClientProps) {
   if (savedCheck?.key !== storageKey) return <LobbySkeleton />;
 
   const saved = savedCheck.saved;
-  if (saved) {
+  if (saved && user) {
     const handleResume = async () => {
       setResuming(true);
       setResumeError(null);
@@ -161,10 +171,12 @@ export default function QuizClient({ code }: ClientProps) {
     );
   }
 
-  const handleStart = async () => {
-    if (starting) return;
+  const handleStart = async (typedCode?: string) => {
+    if (starting || !user) return;
     setStarting(true);
     setStartError(null);
+    setCodeError(null);
+    const code = typedCode ?? getRememberedCode(quiz.id) ?? undefined;
 
     // First thing, straight from the click: browsers only allow fullscreen from a user gesture.
     const entered = await enterFullscreen();
@@ -177,10 +189,18 @@ export default function QuizClient({ code }: ClientProps) {
     }
 
     try {
-      begin(seedFromServer(await startAttempt(quiz.id, loader.difficulty)));
+      const state = await startAttempt(quiz.id, loader.difficulty, code);
+      if (code) rememberCode(quiz.id, code);
+      begin(seedFromServer(state));
     } catch (error) {
       void exitFullscreen();
-      setStartError(messageOf(error));
+      if (isCodeError(error)) {
+        // The server decides whether a code is right. Ask again.
+        forgetCode(quiz.id);
+        setCodeError(error.message);
+      } else {
+        setStartError(messageOf(error));
+      }
     } finally {
       setStarting(false);
     }
@@ -197,9 +217,7 @@ export default function QuizClient({ code }: ClientProps) {
     <QuizLobby
       quiz={quiz}
       questionCount={loader.questionCount}
-      difficulties={
-        quiz.availableDifficulties ?? ["easy", "medium", "hard"]
-      }
+      difficulties={quiz.availableDifficulties}
       selectedDifficulty={loader.difficulty}
       onSelectDifficulty={(level) => {
         setStartError(null);
@@ -211,11 +229,13 @@ export default function QuizClient({ code }: ClientProps) {
         startError ??
         (loader.questionsStatus === "error" ? QUESTIONS_FAILED : null)
       }
+      hasRememberedCode={getRememberedCode(quiz.id) !== null}
+      codeError={codeError}
       onRetryQuestions={() => {
         setStartError(null);
-        loader.reloadCounts();
+        loader.reload();
       }}
-      signedIn={!!user}
+      signedIn={authLoading ? null : !!user}
       onStart={handleStart}
       fullscreenBlocked={strict && !isFullscreenSupported()}
     />

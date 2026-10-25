@@ -3,26 +3,29 @@
 import Link from "next/link";
 import { type FormEvent, useId, useState } from "react";
 import { Alert, Button, Card } from "@/components/ui";
-import { codeMatches, isCodeVerified, markCodeVerified } from "@/lib/quiz-access";
 import { cn } from "@/lib/utils";
 import DifficultyOptions, { type DifficultyOption } from "./DifficultyOptions";
 
 interface LobbyStartCardProps {
   quizId: string;
-  /** The quiz's real code. Compared here only until verification moves to the server (P5.4). */
-  accessCode: string;
   requiresAccessCode: boolean;
+  /** A code entered earlier this session is on file, so the field isn't needed unless the server refuses it. */
+  hasRememberedCode: boolean;
+  /** The server said the code was wrong or missing. */
+  codeError: string | null;
   difficultyOptions: DifficultyOption[];
   selectedDifficulty: string;
   onSelectDifficulty: (value: string) => void;
-  /** Questions for the chosen level are still loading. */
+  /** The quiz is still loading. */
   loadingQuestions: boolean;
   /** The chosen level has questions to ask. */
   hasQuestions: boolean;
   starting: boolean;
   startError: string | null;
-  signedIn: boolean;
-  onStart: () => void;
+  /** null while the sign-in state is still resolving. */
+  signedIn: boolean | null;
+  /** Called with the code typed into the field, if the field was showing. */
+  onStart: (code?: string) => void;
   /** Shown beside the load error. */
   onRetry?: () => void;
   fullscreenBlocked?: boolean;
@@ -30,12 +33,14 @@ interface LobbyStartCardProps {
 
 /**
  * Right column: pick a difficulty, enter the code if the quiz needs one, start. An open quiz starts in
- * one click; a code-protected one in one Enter.
+ * one click; a code-protected one in one Enter. Starting needs an account, so visitors who aren't signed
+ * in get a sign-in button that brings them back to this quiz.
  */
 export default function LobbyStartCard({
   quizId,
-  accessCode,
   requiresAccessCode,
+  hasRememberedCode,
+  codeError,
   difficultyOptions,
   selectedDifficulty,
   onSelectDifficulty,
@@ -49,31 +54,27 @@ export default function LobbyStartCard({
   fullscreenBlocked = false,
 }: LobbyStartCardProps) {
   const codeId = useId();
-  const [verified, setVerified] = useState(
-    () => !requiresAccessCode || isCodeVerified(quizId)
-  );
   const [code, setCode] = useState("");
-  const [codeError, setCodeError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  const busy = loadingQuestions || starting;
-  const blocked =
-    fullscreenBlocked || (!loadingQuestions && !hasQuestions);
+  const showCodeField =
+    signedIn === true && requiresAccessCode && (!hasRememberedCode || !!codeError);
+  const shownError = localError ?? codeError;
+
+  const busy = loadingQuestions || starting || signedIn === null;
+  const blocked = fullscreenBlocked || (!loadingQuestions && !hasQuestions);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (busy || blocked) return;
+    if (busy || blocked || signedIn !== true) return;
 
-    if (!verified) {
+    if (showCodeField) {
       if (!code.trim()) {
-        setCodeError("Enter the access code you were given.");
+        setLocalError("Enter the access code you were given.");
         return;
       }
-      if (!codeMatches(code, accessCode)) {
-        setCodeError("That code doesn't match. Check it and try again.");
-        return;
-      }
-      markCodeVerified(quizId);
-      setVerified(true);
+      onStart(code.trim());
+      return;
     }
     onStart();
   };
@@ -90,7 +91,7 @@ export default function LobbyStartCard({
           />
         )}
 
-        {!verified && (
+        {showCodeField && (
           <div>
             <label htmlFor={codeId} className="text-label mb-2 block">
               Access code
@@ -101,26 +102,26 @@ export default function LobbyStartCard({
               value={code}
               onChange={(event) => {
                 setCode(event.target.value);
-                if (codeError) setCodeError(null);
+                if (localError) setLocalError(null);
               }}
               placeholder="Enter access code"
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck={false}
-              aria-invalid={codeError ? true : undefined}
-              aria-describedby={codeError ? `${codeId}-error` : undefined}
+              aria-invalid={shownError ? true : undefined}
+              aria-describedby={shownError ? `${codeId}-error` : undefined}
               className={cn(
                 "h-12 w-full rounded-md border bg-bg px-4 font-mono text-base text-text uppercase tracking-[0.12em] transition-fast placeholder:font-sans placeholder:text-text-muted/70 placeholder:normal-case placeholder:tracking-normal hover:border-border-strong focus-visible:border-accent",
-                codeError ? "border-error" : "border-border"
+                shownError ? "border-error" : "border-border"
               )}
             />
-            {codeError && (
+            {shownError && (
               <p
                 id={`${codeId}-error`}
                 role="alert"
                 className="mt-2 text-error text-sm"
               >
-                {codeError}
+                {shownError}
               </p>
             )}
           </div>
@@ -159,31 +160,34 @@ export default function LobbyStartCard({
         )}
 
         <div>
-          <Button
-            type="submit"
-            size="lg"
-            className="w-full"
-            loading={busy}
-            disabled={blocked}
-          >
-            {loadingQuestions ? "Loading questions" : "Start quiz"}
-          </Button>
-          <p className="mt-3 text-center text-sm text-text-muted">
-            Your time starts when you press Start.
-          </p>
+          {signedIn === false ? (
+            <>
+              <Button asChild size="lg" className="w-full" disabled={blocked}>
+                <Link href={`/sign-in?redirectTo=${encodeURIComponent(`/q/${quizId}`)}`}>
+                  Sign in to start
+                </Link>
+              </Button>
+              <p className="mt-3 text-center text-sm text-text-muted">
+                You need an account to take a quiz, so your results are saved.
+              </p>
+            </>
+          ) : (
+            <>
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full"
+                loading={busy}
+                disabled={blocked}
+              >
+                {loadingQuestions ? "Loading quiz" : "Start quiz"}
+              </Button>
+              <p className="mt-3 text-center text-sm text-text-muted">
+                Your time starts when you press Start.
+              </p>
+            </>
+          )}
         </div>
-
-        {!signedIn && (
-          <p className="border-border border-t pt-3 text-center text-sm text-text-muted">
-            <Link
-              href="/sign-in"
-              className="text-link underline-offset-4 hover:underline"
-            >
-              Sign in
-            </Link>{" "}
-            to save this attempt to your account.
-          </p>
-        )}
       </form>
     </Card>
   );

@@ -5,24 +5,19 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useId, useState } from "react";
 import { Button } from "@/components/ui";
-import { getQuizByCode, type Quiz } from "@/firebase/firestore";
-import { markCodeVerified } from "@/lib/quiz-access";
+import { ApiRequestError } from "@/lib/api-client";
+import { rememberCode } from "@/lib/quiz-access";
+import { resolveAccessCode } from "@/lib/quizzes-api";
 import { cn } from "@/lib/utils";
 
 interface JoinCodeFormProps {
-  /** Quizzes already loaded on the page. A code is matched against these first, so joining costs no extra read. */
-  quizzes: Quiz[];
   /** null while the auth state is still resolving. */
   signedIn: boolean | null;
   className?: string;
 }
 
-/** Join by code in one action: type, press Enter, land in the quiz lobby. */
-export default function JoinCodeForm({
-  quizzes,
-  signedIn,
-  className,
-}: JoinCodeFormProps) {
+/** Join by code in one action: type, press Enter, land in the quiz lobby. The server looks the code up. */
+export default function JoinCodeForm({ signedIn, className }: JoinCodeFormProps) {
   const router = useRouter();
   const inputId = useId();
   const messageId = `${inputId}-message`;
@@ -40,37 +35,20 @@ export default function JoinCodeForm({
     }
 
     setError(null);
-
-    const known = quizzes.find(
-      (quiz) => quiz.accessCode.toLowerCase() === value.toLowerCase()
-    );
-    if (known) {
-      markCodeVerified(known.id);
-      setJoining(true);
-      router.push(`/${known.accessCode}`);
-      return;
-    }
-
-    // The list is empty only when it hasn't loaded, so ask Firestore directly in that case.
-    if (quizzes.length > 0) {
-      setError("We couldn't find a quiz with that code. Check it and try again.");
-      return;
-    }
-
     setJoining(true);
     try {
-      const quiz = await getQuizByCode(value);
-      if (!quiz) {
-        setError(
-          "We couldn't find a quiz with that code. Check it and try again."
-        );
-        setJoining(false);
-        return;
-      }
-      markCodeVerified(quiz.id);
-      router.push(`/${quiz.accessCode}`);
-    } catch {
-      setError("Something went wrong. Please try again.");
+      const quizId = await resolveAccessCode(value);
+      // They already proved they know the code, so the lobby won't ask again this session.
+      rememberCode(quizId, value);
+      router.push(`/q/${quizId}`);
+    } catch (err) {
+      setError(
+        err instanceof ApiRequestError && err.status === 404
+          ? "We couldn't find a quiz with that code. Check it and try again."
+          : err instanceof ApiRequestError
+            ? err.message
+            : "Something went wrong. Please try again."
+      );
       setJoining(false);
     }
   };
@@ -128,12 +106,12 @@ export default function JoinCodeForm({
           signedIn === false && (
             <p className="text-text-muted">
               <Link
-                href="/sign-in"
+                href="/sign-in?redirectTo=/join"
                 className="text-link underline-offset-4 hover:underline"
               >
                 Sign in
               </Link>{" "}
-              to save your progress.
+              to take a quiz.
             </p>
           )
         )}

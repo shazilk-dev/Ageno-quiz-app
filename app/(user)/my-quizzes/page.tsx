@@ -3,13 +3,13 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
-import { getUserQuizAttempts, QuizAttempt } from "@/firebase/firestore";
+import { fetchMyAttempts, type MyAttempt } from "@/lib/quizzes-api";
 import { formatDistanceToNow, format } from "date-fns";
 
 export default function MyQuizzes() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
+  const [attempts, setAttempts] = useState<MyAttempt[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -21,13 +21,6 @@ export default function MyQuizzes() {
     mostRecentAttempt: null as Date | null,
   });
 
-  useEffect(() => {
-    // Redirect if not logged in
-    if (!loading && !user) {
-      router.push("/sign-in");
-    }
-  }, [user, loading, router]);
-
   const fetchAttempts = useCallback(async () => {
     if (!user) return;
 
@@ -35,8 +28,7 @@ export default function MyQuizzes() {
       setIsLoading(true);
       setError(null);
 
-      // Pass the user ID from React context to ensure it works even if Firebase Auth isn't fully initialized
-      const userAttempts = await getUserQuizAttempts(user.uid);
+      const userAttempts = await fetchMyAttempts();
       setAttempts(userAttempts);
 
       // Calculate stats

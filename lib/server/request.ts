@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/firebase/admin";
 
-/** `userId` stored for people who aren't signed in (same value the old browser-side submit used). */
-export const GUEST_ID = "anonymous";
-
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -14,13 +11,27 @@ export class ApiError extends Error {
   }
 }
 
+/** Firestore document ids as this app creates them (auto ids and `quiz_<timestamp>`). */
+const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+export const isSafeId = (value: unknown): value is string =>
+  typeof value === "string" && SAFE_ID.test(value);
+
+export function assertSafeId(value: unknown, what: string): asserts value is string {
+  if (!isSafeId(value)) {
+    throw new ApiError(400, "invalid_id", `That ${what} isn't valid.`);
+  }
+}
+
 /**
- * Who is calling. No `Authorization` header means a guest; a header that doesn't verify is a 401 (so
- * an expired sign-in is never quietly treated as a guest, which would file the attempt under no one).
+ * Who is calling. Everything that belongs to a person needs a signed-in user: no `Authorization` header
+ * is a 401, and so is one that doesn't verify (an expired sign-in must never pass as "someone else").
  */
-export async function getRequestUserId(request: Request): Promise<string> {
+export async function requireUserId(request: Request): Promise<string> {
   const header = request.headers.get("authorization");
-  if (!header) return GUEST_ID;
+  if (!header) {
+    throw new ApiError(401, "sign_in_required", "Sign in to continue.");
+  }
 
   const token = /^Bearer\s+(.+)$/i.exec(header)?.[1];
   if (!token) {
@@ -47,10 +58,11 @@ export async function readJsonBody(
   throw new ApiError(400, "invalid_body", "The request body must be a JSON object.");
 }
 
-export function json(body: unknown, status = 200) {
+/** Responses are private to the caller unless a route says otherwise (`cache` is for public data only). */
+export function json(body: unknown, status = 200, cache = "no-store") {
   return NextResponse.json(body, {
     status,
-    headers: { "Cache-Control": "no-store" },
+    headers: { "Cache-Control": cache },
   });
 }
 

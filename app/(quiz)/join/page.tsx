@@ -9,8 +9,10 @@ import QuizToolbar, {
 } from "@/components/join/QuizToolbar";
 import { Container } from "@/components/layout/Container";
 import QuizCard from "@/components/QuizCard";
-import { Alert, Button, Card, EmptyState, Skeleton } from "@/components/ui";import { useAuth } from "@/contexts/auth-context";
-import { getActiveQuizzes, type Quiz } from "@/firebase/firestore";
+import { Alert, Button, Card, EmptyState, Skeleton } from "@/components/ui";
+import { useAuth } from "@/contexts/auth-context";
+import type { PublicQuiz } from "@/lib/quiz-data";
+import { fetchQuizzes } from "@/lib/quizzes-api";
 
 const VIEW_KEY = "ageno:join:view";
 const GRID ="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3";
@@ -32,13 +34,11 @@ function QuizCardSkeleton() {
   );
 }
 
-function createdTime(quiz: Quiz): number {
-  return quiz.createdAt instanceof Date ? quiz.createdAt.getTime() : 0;
-}
+const createdTime = (quiz: PublicQuiz): number => quiz.createdAt.getTime();
 
 export default function JoinQuiz() {
   const { user, loading: authLoading } = useAuth();
-  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [quizzes, setQuizzes] = useState<PublicQuiz[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [search, setSearch] = useState("");
@@ -49,7 +49,7 @@ export default function JoinQuiz() {
     setIsLoading(true);
     setLoadFailed(false);
     try {
-      setQuizzes(await getActiveQuizzes());
+      setQuizzes(await fetchQuizzes());
     } catch (err) {
       console.error("Error fetching quizzes:", err);
       setLoadFailed(true);
@@ -91,8 +91,7 @@ export default function JoinQuiz() {
     return quizzes.filter(
       (quiz) =>
         quiz.title?.toLowerCase().includes(term) ||
-        quiz.description?.toLowerCase().includes(term) ||
-        quiz.accessCode?.toLowerCase().includes(term)
+        quiz.description?.toLowerCase().includes(term)
     );
   }, [search, quizzes]);
 
@@ -132,7 +131,6 @@ export default function JoinQuiz() {
             </p>
           </div>
           <JoinCodeForm
-            quizzes={quizzes}
             signedIn={authLoading ? null : !!user}
             className="w-full lg:w-auto"
           />

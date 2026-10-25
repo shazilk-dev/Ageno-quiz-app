@@ -29,10 +29,14 @@ export function seedFromServer(
           flagged: saved?.flagged ?? state.flagged,
           index: saved?.index ?? state.index,
           tabSwitches: Math.max(saved?.tabSwitches ?? 0, state.tabSwitches),
+          blurs: Math.max(saved?.blurs ?? 0, state.blurs),
           fullscreenExits: Math.max(
             saved?.fullscreenExits ?? 0,
             state.fullscreenExits
           ),
+          eventSeq: Math.max(saved?.eventSeq ?? 0, state.eventSeq),
+          // Whatever this device recorded and the server may not have heard yet; the server ignores repeats.
+          pendingEvents: saved?.pendingEvents ?? [],
         }
       : undefined,
   };

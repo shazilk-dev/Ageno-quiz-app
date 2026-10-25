@@ -1,7 +1,7 @@
 import { submitAttempt } from "@/lib/server/attempts";
 import {
   errorResponse,
-  getRequestUserId,
+  requireUserId,
   json,
   readJsonBody,
 } from "@/lib/server/request";
@@ -15,7 +15,7 @@ type Context = { params: Promise<{ id: string }> };
 export async function POST(request: Request, { params }: Context) {
   try {
     const { id } = await params;
-    const userId = await getRequestUserId(request);
+    const userId = await requireUserId(request);
     const body = await readJsonBody(request);
     return json(await submitAttempt(id, userId, body));
   } catch (error) {

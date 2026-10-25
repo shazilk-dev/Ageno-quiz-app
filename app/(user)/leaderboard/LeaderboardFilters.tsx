@@ -1,10 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "@/firebase/client";
-
 interface LeaderboardFiltersProps {
+  /** Quizzes to filter by, from the leaderboard response. */
+  categories: Array<{ id: string; title: string }>;
   timeFrame: "all" | "week" | "month";
   category: string;
   difficulty: string;
@@ -15,50 +13,12 @@ interface LeaderboardFiltersProps {
 }
 
 export default function LeaderboardFilters({
+  categories,
   timeFrame,
   category,
   difficulty,
   onFilterChange,
 }: LeaderboardFiltersProps) {
-  const [categories, setCategories] = useState<
-    Array<{ id: string; title: string }>
-  >([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Fetch categories from Firestore
-  useEffect(() => {
-    const fetchCategories = async () => {
-      try {
-        setIsLoading(true);
-        const quizzesCollection = collection(db, "quizzes");
-        const quizSnapshot = await getDocs(quizzesCollection);
-
-        const uniqueCategories = new Map<string, string>();
-
-        quizSnapshot.docs.forEach((doc) => {
-          const data = doc.data();
-          // Use either title or id as the category identifier
-          const title = data.title || doc.id;
-          uniqueCategories.set(doc.id, title);
-        });
-
-        const categoryArray = Array.from(uniqueCategories.entries()).map(
-          ([id, title]) => ({
-            id,
-            title,
-          })
-        );
-
-        setCategories(categoryArray);
-      } catch (error) {
-        console.error("Error fetching categories:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchCategories();
-  }, []);
   return (
     <div className="bg-white p-4 rounded-xl shadow-sm mb-6">
       <div className="mb-3">
@@ -125,7 +85,6 @@ export default function LeaderboardFilters({
             value={category}
             onChange={(e) => onFilterChange("category", e.target.value)}
             className="w-full rounded-lg border-gray-300 py-2 px-3 bg-white border text-gray-700 shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            disabled={isLoading}
           >
             <option value="">All Quizzes</option>
             {categories.map((cat) => (

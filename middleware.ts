@@ -1,20 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
+import { devRoutesEnabled, isDevRoute } from "@/lib/dev-routes";
 
-// Define public paths that don't require authentication
-const PUBLIC_PATHS = [
+/**
+ * First line of defence only. It runs on the edge, where the Firebase Admin SDK doesn't, so it can see
+ * that a `session` cookie exists but not whether it is genuine. The real checks are on the server:
+ * the admin layout verifies the session cookie and the role (`app/(admin)/layout.tsx`), and every API
+ * route verifies the caller's token itself.
+ */
+
+// Pages anyone can open without signing in. Quiz lobbies (/q/...) are viewable; starting needs sign-in.
+const PUBLIC_PATHS = new Set([
   "/",
   "/sign-in",
   "/sign-up",
   "/reset-password",
   "/verify-email",
-  "/api/auth/session",
-  "/api/auth/session/check",
-  "/quiz/join",
   "/join",
-  "/leaderboard",
+]);
+
+const PUBLIC_PREFIXES = [
+  "/q/",
+  "/api/auth/session",
+  "/api/auth/user/public",
+  // These check the caller's ID token themselves.
+  "/api/attempts",
+  "/api/quizzes",
+  "/api/leaderboard",
+  "/api/my-attempts",
 ];
 
-// Static assets patterns to bypass middleware
+// The admin screens as they are served (route groups don't appear in URLs).
+const ADMIN_PREFIXES = [
+  "/dashboard",
+  "/quizzes",
+  "/users",
+  "/quiz-reports",
+  "/settings",
+];
+
+// Static assets bypass the checks.
 const STATIC_FILE_PATTERNS = [
   /^\/_next\//,
   /^\/favicon\.ico$/,
@@ -24,65 +48,52 @@ const STATIC_FILE_PATTERNS = [
   /\.(svg|png|jpg|jpeg|gif|webp|ico|ttf|woff|woff2|eot|otf|css|js|json|map)$/,
 ];
 
-// Function to check if a path is public
-const isPublicPath = (pathname: string): boolean => {
-  // Check against exact matches in PUBLIC_PATHS
-  if (PUBLIC_PATHS.includes(pathname)) {
-    return true;
-  }
-  
-  // Check against static file patterns
-  if (STATIC_FILE_PATTERNS.some(pattern => pattern.test(pathname))) {
-    return true;
-  }
-  
-  // Check path prefixes
-  if (
-    pathname.startsWith("/api/auth/session") ||
-    pathname.startsWith("/api/auth/user/public") ||
-    // These check the caller's ID token themselves (guests are allowed to take open quizzes).
-    pathname.startsWith("/api/attempts") ||
-    pathname.startsWith("/api/quizzes/") ||
-    pathname.startsWith("/join") ||
-    pathname.startsWith("/quiz/join") ||
-    pathname.startsWith("/leaderboard") ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/(dev)") || // Allow access to development routes
-    pathname.includes("/auth-test") || // Explicitly allow access to auth-test page
-    pathname.includes("/useauth-test") // Explicitly allow access to useauth-test page
-  ) {
-    return true;
-  }
-  
-  // Check for valid quiz code pattern (6+ alphanumeric characters)
-  const QUIZ_CODE_PATTERN = /^\/[A-Za-z0-9]{6,}$/;
-  if (QUIZ_CODE_PATTERN.test(pathname)) {
-    return true;
-  }
-  
-  return false;
-};
+// Older shared links look like /<ACCESSCODE>. Codes are capitals and digits, which keeps ordinary pages
+// such as /profile out of this rule.
+const LEGACY_QUIZ_CODE = /^\/[A-Z0-9]{5,10}$/;
 
-// Check if a path is an admin path
-const isAdminPath = (pathname: string): boolean => {
-  return (
-    pathname.startsWith("/admin") ||
-    pathname.includes("/admin/") ||
-    pathname.startsWith("/(admin)")
-  );
-};
+/** True for the path itself or anything below it ("/quizzes" and "/quizzes/abc", but not "/quizzes-extra"). */
+const matchesPrefix = (pathname: string, prefixes: string[]) =>
+  prefixes.some((prefix) => {
+    const base = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+    return pathname === base || pathname.startsWith(`${base}/`);
+  });
+
+const isAdminPath = (pathname: string) => matchesPrefix(pathname, ADMIN_PREFIXES);
+
+const isPublicPath = (pathname: string): boolean =>
+  PUBLIC_PATHS.has(pathname) ||
+  STATIC_FILE_PATTERNS.some((pattern) => pattern.test(pathname)) ||
+  matchesPrefix(pathname, PUBLIC_PREFIXES) ||
+  LEGACY_QUIZ_CODE.test(pathname);
 
 export async function middleware(request: NextRequest) {
   const session = request.cookies.get("session")?.value;
   const userRole = request.cookies.get("user_role")?.value;
-  const pathname = request.nextUrl.pathname;
+  const { pathname, search } = request.nextUrl;
 
-  // 1. Allow access to public paths without authentication
-  if (isPublicPath(pathname)) {
-    return NextResponse.next();
+  // 0. Development-only pages and endpoints don't exist in production.
+  if (isDevRoute(pathname) && !devRoutesEnabled()) {
+    return new NextResponse("Not found", { status: 404 });
   }
 
-  // 2. Check if session exists
+  // Server components can't see the URL, so pass it on (the admin layout uses it to come back here).
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", pathname + search);
+  const next = () => NextResponse.next({ request: { headers: requestHeaders } });
+
+  // 1. Admin screens: needs a session, and the role cookie is a cheap hint. It is not trusted: the admin
+  //    layout verifies the session cookie and the role on the server before rendering anything.
+  if (isAdminPath(pathname)) {
+    if (!session) return redirectToSignIn(request);
+    if (userRole !== "admin") return NextResponse.redirect(new URL("/", request.url));
+    return next();
+  }
+
+  // 2. Public pages.
+  if (isPublicPath(pathname)) return next();
+
+  // 3. Everything else needs a session.
   if (!session) {
     // For API routes, return 401 instead of redirect
     if (pathname.startsWith("/api/")) {
@@ -91,26 +102,10 @@ export async function middleware(request: NextRequest) {
         { status: 401 }
       );
     }
-    
     return redirectToSignIn(request);
   }
 
-  // 3. Check admin access
-  if (isAdminPath(pathname) && userRole !== "admin") {
-    // For API routes, return 403 instead of redirect
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        { error: "Insufficient permissions" },
-        { status: 403 }
-      );
-    }
-    
-    // Redirect non-admin users to home
-    return NextResponse.redirect(new URL("/", request.url));
-  }
-
-  // User is authenticated and authorized
-  return NextResponse.next();
+  return next();
 }
 
 /**
@@ -119,18 +114,12 @@ export async function middleware(request: NextRequest) {
 function redirectToSignIn(request: NextRequest) {
   const url = request.nextUrl.clone();
   url.pathname = "/sign-in";
-  
-  // Get original path with query parameters
-  const fullPath = request.nextUrl.pathname + 
-    (request.nextUrl.search ? request.nextUrl.search : "");
-  
-  // Properly encode the redirect path
+
+  const fullPath = request.nextUrl.pathname + request.nextUrl.search;
   url.search = `redirectTo=${encodeURIComponent(fullPath)}`;
-  
-  // Return response with cache-control headers to prevent caching redirects
+
   const response = NextResponse.redirect(url);
   response.headers.set("Cache-Control", "no-store, max-age=0");
-  
   return response;
 }
 
@@ -141,8 +130,8 @@ export const config = {
   matcher: [
     // Match all request paths except for static assets
     "/((?!_next/static|_next/image|favicon.ico).*)",
-    
+
     // Also explicitly include API routes
-    "/api/:path*"
+    "/api/:path*",
   ],
 };

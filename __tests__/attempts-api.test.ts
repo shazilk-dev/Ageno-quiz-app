@@ -1,5 +1,6 @@
-// Integration tests for the attempt routes (start, resume, autosave, submit) and the lobby's question
-// counts, run against the Firestore emulator through the real route handlers. They need the emulator:
+// Integration tests for the server routes players use: public quizzes, access codes, attempts (start,
+// resume, autosave, submit), the leaderboard and "my attempts". They run the real route handlers against
+// the Firestore emulator:
 //   npx firebase emulators:exec --only firestore --project demo-ageno-attempts "npx vitest run __tests__/attempts-api.test.ts"
 // Without FIRESTORE_EMULATOR_HOST they are skipped.
 import { describe, expect, it, vi } from "vitest";
@@ -20,11 +21,16 @@ vi.mock("@/firebase/admin", async () => {
   };
 });
 
+import { Timestamp } from "firebase-admin/firestore";
 import { db } from "@/firebase/admin";
 import { GET as getAttemptRoute, PATCH as patchRoute } from "@/app/api/attempts/[id]/route";
 import { POST as submitRoute } from "@/app/api/attempts/[id]/submit/route";
 import { POST as startRoute } from "@/app/api/attempts/start/route";
-import { GET as summaryRoute } from "@/app/api/quizzes/[quizId]/summary/route";
+import { GET as leaderboardRoute } from "@/app/api/leaderboard/route";
+import { GET as myAttemptsRoute } from "@/app/api/my-attempts/route";
+import { GET as quizRoute } from "@/app/api/quizzes/[quizId]/route";
+import { POST as resolveRoute } from "@/app/api/quizzes/resolve/route";
+import { GET as listRoute } from "@/app/api/quizzes/route";
 import {
   SUBMIT_GRACE_MS,
   getAttempt,
@@ -56,7 +62,6 @@ const QUESTIONS: Record<string, Record<string, unknown>> = {
     imageUrl: "https://example.com/three.png",
   },
 };
-const RIGHT = { q1: 1, q2: 0, q3: 2 };
 
 let counter = 0;
 const unique = (prefix: string) => `${prefix}${Date.now().toString(36)}${++counter}`;
@@ -70,10 +75,13 @@ async function seedQuiz(
     title: "Sample",
     description: "",
     isAutoCheck: true,
+    isPublic: true,
+    requiresAccessCode: false,
     duration: 10,
-    accessCode: id.toUpperCase(),
+    accessCode: unique("CODE").toUpperCase(),
     availableDifficulties: ["easy", "medium", "hard"],
     difficultySettings: { hard: { duration: 5, pointsMultiplier: 1.5 } },
+    createdAt: Timestamp.now(),
     ...quiz,
   });
   const collection = legacy ? "questions" : `questions_${level}`;
@@ -97,7 +105,7 @@ const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 
 const start = (body: unknown, user?: string) =>
   startRoute(request("/api/attempts/start", "POST", user, body));
-const startOk = async (quizId: string, difficulty = "medium", user?: string) => {
+const startOk = async (quizId: string, difficulty = "medium", user = "alice") => {
   const response = await start({ quizId, difficulty }, user);
   expect(response.status).toBe(201);
   return (await response.json()) as AttemptState;
@@ -110,30 +118,93 @@ const get = (id: string, user?: string) =>
   getAttemptRoute(request(`/api/attempts/${id}`, "GET", user), ctx(id));
 
 const errorCode = async (response: Response) => (await response.json()).error;
+const ev = (seq: number, type: string, at = 1_000) => ({ seq, type, at });
 
-describe.skipIf(!emulator)("question counts for the lobby", () => {
-  it("counts each level and shows no question content", async () => {
-    const id = await seedQuiz({}, { level: "easy" });
-    await db.doc(`quizzes/${id}/questions_hard/h1`).set(QUESTIONS.q1);
-    const response = await summaryRoute(request(`/api/quizzes/${id}/summary`, "GET"), {
-      params: Promise.resolve({ quizId: id }),
-    });
+describe.skipIf(!emulator)("public quiz routes", () => {
+  it("lists switched-on, visible quizzes and never includes an access code or the owner", async () => {
+    const open = await seedQuiz({ title: "Listed", accessCode: "LISTED1", createdBy: "owner-secret-id" });
+    const off = await seedQuiz({ title: "Switched off", active: false });
+    const hidden = await seedQuiz({ title: "Hidden", isPublic: false });
+
+    const response = await listRoute();
     const text = await response.text();
-    expect(JSON.parse(text)).toEqual({ counts: { easy: 3, medium: 0, hard: 1 } });
-    expect(text).not.toContain("One");
+    const ids = (JSON.parse(text).quizzes as { id: string }[]).map((q) => q.id);
+
+    expect(response.status).toBe(200);
+    expect(ids).toContain(open);
+    expect(ids).not.toContain(off);
+    expect(ids).not.toContain(hidden);
+    // (`requiresAccessCode` is fine: it says a code is needed, not what it is.)
+    for (const secret of ['"accessCode"', "LISTED1", "owner-secret-id", "createdBy", "isAutoCheck", "orrect"]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(response.headers.get("cache-control")).toContain("s-maxage");
+  });
+
+  it("describes what a quiz needs: code required, levels, timing", async () => {
+    const id = await seedQuiz({ requiresAccessCode: true, examMode: "strict" });
+    const { quizzes } = await (await listRoute()).json();
+    expect(quizzes.find((q: { id: string }) => q.id === id)).toMatchObject({
+      id,
+      title: "Sample",
+      requiresAccessCode: true,
+      examMode: "strict",
+      duration: 10,
+      availableDifficulties: ["easy", "medium", "hard"],
+      difficultySettings: { hard: { duration: 5, pointsMultiplier: 1.5 } },
+    });
+  });
+
+  it("returns one quiz with its question counts and no question content or code", async () => {
+    const id = await seedQuiz({ accessCode: "ONE1X" }, { level: "easy" });
+    await db.doc(`quizzes/${id}/questions_hard/h1`).set(QUESTIONS.q1);
+    const response = await quizRoute(request("/x", "GET"), { params: Promise.resolve({ quizId: id }) });
+    const text = await response.text();
+    const body = JSON.parse(text);
+
+    expect(body.counts).toEqual({ easy: 3, medium: 0, hard: 1 });
+    expect(body.active).toBe(true);
+    expect(body.quiz.id).toBe(id);
+    for (const secret of ["One", "ONE1X", '"accessCode"', "orrect"]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(response.headers.get("cache-control")).toContain("s-maxage");
   });
 
   it("falls back to the legacy collection for levels with no questions, like the exam does", async () => {
     const id = await seedQuiz({}, { legacy: true });
-    const response = await summaryRoute(request("/x", "GET"), { params: Promise.resolve({ quizId: id }) });
+    const response = await quizRoute(request("/x", "GET"), { params: Promise.resolve({ quizId: id }) });
     expect((await response.json()).counts).toEqual({ easy: 3, medium: 3, hard: 3 });
   });
 
-  it("404s for an unknown quiz and rejects odd ids", async () => {
-    const missing = await summaryRoute(request("/x", "GET"), { params: Promise.resolve({ quizId: "nope" }) });
+  it("says when a quiz is switched off, 404s for an unknown one and rejects odd ids", async () => {
+    const off = await seedQuiz({ active: false });
+    const info = await quizRoute(request("/x", "GET"), { params: Promise.resolve({ quizId: off }) });
+    expect((await info.json()).active).toBe(false);
+
+    const missing = await quizRoute(request("/x", "GET"), { params: Promise.resolve({ quizId: "nope" }) });
     expect(missing.status).toBe(404);
-    const odd = await summaryRoute(request("/x", "GET"), { params: Promise.resolve({ quizId: "a/b" }) });
+    const odd = await quizRoute(request("/x", "GET"), { params: Promise.resolve({ quizId: "a/b" }) });
     expect(odd.status).toBe(400);
+  });
+
+  it("turns an access code into the quiz it belongs to, however it is typed", async () => {
+    const id = await seedQuiz({ accessCode: "RESOLVE7" });
+    for (const typed of ["RESOLVE7", "resolve7", " Resolve7 "]) {
+      const response = await resolveRoute(request("/api/quizzes/resolve", "POST", undefined, { code: typed }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ quizId: id });
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+  });
+
+  it("answers 404 for a code nobody has and 400 for an empty one", async () => {
+    const none = await resolveRoute(request("/x", "POST", undefined, { code: "NOSUCHCODE" }));
+    expect(none.status).toBe(404);
+    for (const code of ["", "   ", undefined, 42, "x".repeat(100)]) {
+      const bad = await resolveRoute(request("/x", "POST", undefined, { code }));
+      expect(bad.status).toBe(400);
+    }
   });
 });
 
@@ -156,52 +227,80 @@ describe.skipIf(!emulator)("starting an attempt", () => {
     expect(state.startedAt).toBeGreaterThanOrEqual(before - 1);
     expect(Math.abs(state.serverNow - Date.now())).toBeLessThan(5_000);
     expect(state.answers).toEqual({ q1: null, q2: null, q3: null });
+    expect(state).toMatchObject({ tabSwitches: 0, blurs: 0, fullscreenExits: 0, eventSeq: 0 });
   });
 
   it("uses the level's own duration", async () => {
     const quizId = await seedQuiz({}, { level: "hard" });
-    expect((await startOk(quizId, "hard", "alice")).durationSec).toBe(300);
+    expect((await startOk(quizId, "hard")).durationSec).toBe(300);
   });
 
-  it("lets a guest in, and keeps an attempt for a guest out of a signed-in user's hands", async () => {
+  it("needs a signed-in user: no token is a 401, and so is a bad one", async () => {
     const quizId = await seedQuiz();
-    const guest = await startOk(quizId);
-    expect((await get(guest.attemptId)).status).toBe(200);
-    expect((await get(guest.attemptId, "alice")).status).toBe(404);
-  });
+    const none = await start({ quizId, difficulty: "medium" });
+    expect(none.status).toBe(401);
+    expect(await errorCode(none)).toBe("sign_in_required");
 
-  it("refuses a bad token rather than treating the person as a guest", async () => {
-    const quizId = await seedQuiz();
-    const response = await startRoute(
+    const bad = await startRoute(
       new Request("http://localhost/api/attempts/start", {
         method: "POST",
         headers: { authorization: "Bearer not-a-real-token" },
         body: JSON.stringify({ quizId, difficulty: "medium" }),
       })
     );
-    expect(response.status).toBe(401);
-    expect(await errorCode(response)).toBe("invalid_token");
+    expect(bad.status).toBe(401);
+    expect(await errorCode(bad)).toBe("invalid_token");
+  });
+
+  it("checks the access code on the server, however it is typed", async () => {
+    const quizId = await seedQuiz({ requiresAccessCode: true, accessCode: "SECRET42" });
+
+    const missing = await start({ quizId, difficulty: "medium" }, "alice");
+    expect(missing.status).toBe(403);
+    expect(await errorCode(missing)).toBe("access_code_required");
+
+    const wrong = await start({ quizId, difficulty: "medium", accessCode: "NOPE" }, "alice");
+    expect(wrong.status).toBe(403);
+    expect(await errorCode(wrong)).toBe("access_code_invalid");
+    const wrongType = await start({ quizId, difficulty: "medium", accessCode: 42 }, "alice");
+    expect(wrongType.status).toBe(403);
+
+    for (const typed of ["SECRET42", "secret42", "  Secret42 "]) {
+      const ok = await start({ quizId, difficulty: "medium", accessCode: typed }, "alice");
+      expect(ok.status).toBe(201);
+    }
+  });
+
+  it("doesn't ask for a code when the quiz is open, or says so but has no code to match", async () => {
+    const open = await seedQuiz({ requiresAccessCode: false });
+    expect((await start({ quizId: open, difficulty: "medium" }, "alice")).status).toBe(201);
+    const noCode = await seedQuiz({ requiresAccessCode: true, accessCode: "" });
+    expect((await start({ quizId: noCode, difficulty: "medium" }, "alice")).status).toBe(201);
   });
 
   it("rejects a missing quiz, an inactive one, an empty level, a bad level and a bad body", async () => {
-    expect((await start({ quizId: "doesnotexist", difficulty: "medium" })).status).toBe(404);
+    expect((await start({ quizId: "doesnotexist", difficulty: "medium" }, "alice")).status).toBe(404);
 
     const inactive = await seedQuiz({ active: false });
-    const closed = await start({ quizId: inactive, difficulty: "medium" });
+    const closed = await start({ quizId: inactive, difficulty: "medium" }, "alice");
     expect(closed.status).toBe(403);
     expect(await errorCode(closed)).toBe("quiz_inactive");
 
     const quizId = await seedQuiz();
-    const empty = await start({ quizId, difficulty: "easy" });
+    const empty = await start({ quizId, difficulty: "easy" }, "alice");
     expect(empty.status).toBe(422);
     expect(await errorCode(empty)).toBe("no_questions");
 
-    expect((await start({ quizId, difficulty: "../x" })).status).toBe(400);
-    expect((await start({ quizId, difficulty: "extreme" })).status).toBe(400);
-    expect((await start({ quizId: "a/b", difficulty: "medium" })).status).toBe(400);
-    expect((await start({})).status).toBe(400);
+    expect((await start({ quizId, difficulty: "../x" }, "alice")).status).toBe(400);
+    expect((await start({ quizId, difficulty: "extreme" }, "alice")).status).toBe(400);
+    expect((await start({ quizId: "a/b", difficulty: "medium" }, "alice")).status).toBe(400);
+    expect((await start({}, "alice")).status).toBe(400);
     const notJson = await startRoute(
-      new Request("http://localhost/api/attempts/start", { method: "POST", body: "nope" })
+      new Request("http://localhost/api/attempts/start", {
+        method: "POST",
+        headers: { authorization: "Bearer uid:alice" },
+        body: "nope",
+      })
     );
     expect(notJson.status).toBe(400);
   });
@@ -225,7 +324,12 @@ describe.skipIf(!emulator)("resuming and autosave", () => {
     const { attemptId } = await startOk(quizId, "medium", "erin");
     const saved = await patch(
       attemptId,
-      { answers: { q1: 1, q2: null, q3: 0 }, flagged: { q3: true }, index: 2, tabSwitches: 3 },
+      {
+        answers: { q1: 1, q2: null, q3: 0 },
+        flagged: { q3: true },
+        index: 2,
+        events: [ev(1, "tab_hidden"), ev(2, "tab_hidden"), ev(3, "window_blur")],
+      },
       "erin"
     );
     expect(saved.status).toBe(200);
@@ -237,7 +341,7 @@ describe.skipIf(!emulator)("resuming and autosave", () => {
     expect(state.answers).toEqual({ q1: 1, q2: null, q3: 0 });
     expect(state.flagged).toEqual({ q3: true });
     expect(state.index).toBe(2);
-    expect(state.tabSwitches).toBe(3);
+    expect(state).toMatchObject({ tabSwitches: 2, blurs: 1, fullscreenExits: 0, eventSeq: 3 });
   });
 
   it("only keeps whole option numbers for the attempt's own questions", async () => {
@@ -254,14 +358,48 @@ describe.skipIf(!emulator)("resuming and autosave", () => {
     expect(state.index).toBe(2);
   });
 
-  it("only lets the counters go up", async () => {
+  it("counts from the events it is sent, never from a number the browser claims", async () => {
     const quizId = await seedQuiz();
     const { attemptId } = await startOk(quizId, "medium", "erin");
-    await patch(attemptId, { tabSwitches: 5, fullscreenExits: 2 }, "erin");
-    await patch(attemptId, { tabSwitches: 1, fullscreenExits: 0 }, "erin");
+    await patch(attemptId, { tabSwitches: 99, fullscreenExits: 99, blurs: 99 }, "erin");
+    let state = (await (await get(attemptId, "erin")).json()) as AttemptState;
+    expect(state).toMatchObject({ tabSwitches: 0, blurs: 0, fullscreenExits: 0 });
+
+    await patch(attemptId, { events: [ev(1, "fullscreen_exit"), ev(2, "fullscreen_exit")] }, "erin");
+    state = (await (await get(attemptId, "erin")).json()) as AttemptState;
+    expect(state).toMatchObject({ fullscreenExits: 2, eventSeq: 2 });
+  });
+
+  it("stamps each event with the server's time and ignores one it already has", async () => {
+    const quizId = await seedQuiz();
+    const state = await startAttempt(quizId, "medium", "erin");
+    await saveProgress(state.attemptId, "erin", { events: [ev(1, "tab_hidden", 123)] }, { now: state.startedAt + 5_000 });
+    // A resend (the first response was lost) plus a new one: the repeat doesn't count twice.
+    await saveProgress(
+      state.attemptId,
+      "erin",
+      { events: [ev(1, "tab_hidden", 123), ev(2, "window_blur", 456)] },
+      { now: state.startedAt + 9_000 }
+    );
+
+    const stored = (await db.collection("attempts").doc(state.attemptId).get()).data()!;
+    expect(stored.events).toEqual([
+      { seq: 1, type: "tab_hidden", at: state.startedAt + 5_000, clientAt: 123 },
+      { seq: 2, type: "window_blur", at: state.startedAt + 9_000, clientAt: 456 },
+    ]);
+    expect(stored).toMatchObject({ tabSwitches: 1, blurs: 1, eventSeq: 2 });
+  });
+
+  it("skips malformed and unknown events", async () => {
+    const quizId = await seedQuiz();
+    const { attemptId } = await startOk(quizId, "medium", "erin");
+    await patch(
+      attemptId,
+      { events: [null, "x", ev(1, "teleport"), { seq: "2", type: "tab_hidden" }, ev(3, "tab_hidden")] },
+      "erin"
+    );
     const state = (await (await get(attemptId, "erin")).json()) as AttemptState;
-    expect(state.tabSwitches).toBe(5);
-    expect(state.fullscreenExits).toBe(2);
+    expect(state).toMatchObject({ tabSwitches: 1, eventSeq: 3 });
   });
 
   it("is private to the person who started it", async () => {
@@ -271,6 +409,9 @@ describe.skipIf(!emulator)("resuming and autosave", () => {
     expect((await patch(attemptId, { answers: { q1: 0 } }, "mallory")).status).toBe(404);
     expect((await get("doesnotexist", "erin")).status).toBe(404);
     expect((await get("a/b", "erin")).status).toBe(400);
+    // And all of it needs a sign-in.
+    expect((await get(attemptId)).status).toBe(401);
+    expect((await patch(attemptId, { answers: {} })).status).toBe(401);
   });
 
   it("stops saving once the deadline and the grace period have passed", async () => {
@@ -293,7 +434,10 @@ describe.skipIf(!emulator)("submitting", () => {
     const { attemptId } = await startOk(quizId, "medium", "frank");
     const response = await submit(
       attemptId,
-      { answers: { q1: 1, q2: 1, q3: null }, tabSwitches: 2, fullscreenExits: 1 },
+      {
+        answers: { q1: 1, q2: 1, q3: null },
+        events: [ev(1, "tab_hidden"), ev(2, "tab_hidden"), ev(3, "fullscreen_exit"), ev(4, "window_blur")],
+      },
       "frank"
     );
     const result = (await response.json()) as SubmitResult;
@@ -310,6 +454,9 @@ describe.skipIf(!emulator)("submitting", () => {
       multiplier: 1,
       late: false,
       answers: { q1: 1, q2: 1, q3: null },
+      tabSwitches: 2,
+      blurs: 1,
+      fullscreenExits: 1,
     });
     expect(result.review).toEqual({
       q1: { correctIndex: 1, explanation: "B is right." },
@@ -329,11 +476,19 @@ describe.skipIf(!emulator)("submitting", () => {
       answeredCount: 2,
       pointsMultiplier: 1,
       tabSwitchCount: 2,
+      blurCount: 1,
       fullscreenExits: 1,
       selectedDifficulty: "medium",
       late: false,
-      cameraFlags: [],
     });
+    expect(doc).not.toHaveProperty("cameraFlags");
+    expect(doc.integrityEvents.map((e: { type: string }) => e.type)).toEqual([
+      "tab_hidden",
+      "tab_hidden",
+      "fullscreen_exit",
+      "window_blur",
+    ]);
+    expect(doc.integrityEvents[0].at).toBeGreaterThan(0);
     expect(doc.startedAt.toMillis()).toBeLessThanOrEqual(doc.submittedAt.toMillis());
 
     const answers = await db.collection(`responses/${attemptId}/answers`).get();
@@ -341,6 +496,17 @@ describe.skipIf(!emulator)("submitting", () => {
     expect(Object.keys(byId).sort()).toEqual(["q1", "q2"]);
     expect(byId.q1).toEqual({ questionId: "q1", selectedIndex: 1, isCorrect: true });
     expect(byId.q2).toEqual({ questionId: "q2", selectedIndex: 1, isCorrect: false });
+  });
+
+  it("leaves out the integrity fields on a clean attempt", async () => {
+    const quizId = await seedQuiz();
+    const { attemptId } = await startOk(quizId, "medium", "clean");
+    await submit(attemptId, { answers: { q1: 1 } }, "clean");
+    const doc = (await db.collection("responses").doc(attemptId).get()).data()!;
+    expect(doc.tabSwitchCount).toBe(0);
+    expect(doc).not.toHaveProperty("blurCount");
+    expect(doc).not.toHaveProperty("fullscreenExits");
+    expect(doc).not.toHaveProperty("integrityEvents");
   });
 
   it("applies the level's multiplier, capped at 100", async () => {
@@ -358,17 +524,25 @@ describe.skipIf(!emulator)("submitting", () => {
     expect(halfResult).toMatchObject({ rawPercent: 33, score: 50 });
   });
 
-  it("ignores anything in the body that isn't an answer, count or flag (no score from the browser)", async () => {
+  it("ignores anything in the body that isn't an answer or an event (no score or counts from the browser)", async () => {
     const quizId = await seedQuiz();
     const { attemptId } = await startOk(quizId, "medium", "hank");
     const result = (await (
       await submit(
         attemptId,
-        { answers: { q1: 0, bogus: 1 }, score: 100, correct: 3, userId: "someone-else", multiplier: 9 },
+        {
+          answers: { q1: 0, bogus: 1 },
+          score: 100,
+          correct: 3,
+          userId: "someone-else",
+          multiplier: 9,
+          tabSwitches: 50,
+          fullscreenExits: 50,
+        },
         "hank"
       )
     ).json()) as SubmitResult;
-    expect(result).toMatchObject({ score: 0, correct: 0, multiplier: 1 });
+    expect(result).toMatchObject({ score: 0, correct: 0, multiplier: 1, tabSwitches: 0, fullscreenExits: 0 });
     expect((await db.collection("responses").doc(attemptId).get()).data()!.userId).toBe("hank");
   });
 
@@ -402,17 +576,22 @@ describe.skipIf(!emulator)("submitting", () => {
   it("does not read a submit that arrives after the deadline plus grace: the last autosave counts", async () => {
     const quizId = await seedQuiz();
     const state = await startAttempt(quizId, "medium", "kim");
-    await saveProgress(state.attemptId, "kim", { answers: { q1: 1 }, tabSwitches: 1 }, { now: state.deadline - 1_000 });
+    await saveProgress(
+      state.attemptId,
+      "kim",
+      { answers: { q1: 1 }, events: [ev(1, "tab_hidden")] },
+      { now: state.deadline - 1_000 }
+    );
 
     const result = await submitAttempt(
       state.attemptId,
       "kim",
-      { answers: { q1: 1, q2: 0, q3: 2 }, tabSwitches: 0 }, // a full set, sent too late
+      { answers: { q1: 1, q2: 0, q3: 2 }, events: [ev(2, "tab_hidden"), ev(3, "tab_hidden")] }, // sent too late
       { now: state.deadline + SUBMIT_GRACE_MS + 1 }
     );
     expect(result.late).toBe(true);
     expect(result.answers).toEqual({ q1: 1, q2: null, q3: null });
-    expect(result).toMatchObject({ correct: 1, answered: 1, score: 33 });
+    expect(result).toMatchObject({ correct: 1, answered: 1, score: 33, tabSwitches: 1 });
     expect(result.timeTakenSec).toBe(600); // never more than the time allowed
     expect((await db.collection("responses").doc(state.attemptId).get()).data()).toMatchObject({
       late: true,
@@ -466,24 +645,18 @@ describe.skipIf(!emulator)("submitting", () => {
     expect(raw).not.toContain("B is right");
   });
 
-  it("is private, and closed attempts can't be submitted", async () => {
+  it("is private, needs a sign-in, and closed attempts can't be submitted", async () => {
     const quizId = await seedQuiz();
     const first = await startOk(quizId, "medium", "pat");
     expect((await submit(first.attemptId, { answers: {} }, "mallory")).status).toBe(404);
-    expect((await submit(first.attemptId, { answers: {} })).status).toBe(404); // a guest isn't pat
+    const anonymous = await submit(first.attemptId, { answers: {} });
+    expect(anonymous.status).toBe(401);
 
     await startOk(quizId, "medium", "pat"); // closes the first one
     const closed = await submit(first.attemptId, { answers: { q1: 1 } }, "pat");
     expect(closed.status).toBe(409);
     expect(await errorCode(closed)).toBe("attempt_closed");
     expect((await db.collection("responses").doc(first.attemptId).get()).exists).toBe(false);
-  });
-
-  it("a guest's attempt is stored under the guest id", async () => {
-    const quizId = await seedQuiz();
-    const { attemptId } = await startOk(quizId);
-    await submit(attemptId, { answers: { q1: 1 } });
-    expect((await db.collection("responses").doc(attemptId).get()).data()!.userId).toBe("anonymous");
   });
 
   it("rejects answers that aren't an object", async () => {
@@ -502,5 +675,129 @@ describe.skipIf(!emulator)("submitting", () => {
     await patch(attemptId, { answers: { q1: 1, q2: 0, q3: 2 } }, "ray");
     const result = (await (await submit(attemptId, {}, "ray")).json()) as SubmitResult;
     expect(result).toMatchObject({ score: 100, answered: 3 });
+  });
+});
+
+describe.skipIf(!emulator)("leaderboard", () => {
+  const response = async (quizId: string, userId: string, score: number, extra: Record<string, unknown> = {}) => {
+    await db.collection("responses").doc(unique("r")).set({
+      quizId,
+      userId,
+      score,
+      selectedDifficulty: "medium",
+      startedAt: Timestamp.fromMillis(Date.now() - 120_000),
+      submittedAt: Timestamp.now(),
+      ...extra,
+    });
+  };
+  const leaderboard = (query: string, user?: string) =>
+    leaderboardRoute(request(`/api/leaderboard${query}`, "GET", user));
+
+  it("returns the top results for a quiz with names and titles already looked up", async () => {
+    const quizId = await seedQuiz({ title: "Board quiz" });
+    const named = unique("named");
+    const unnamed = unique("unnamed");
+    await db.collection("users").doc(named).set({ displayName: "Nadia", email: "nadia@example.com", role: "user" });
+    await db.collection("users").doc(unnamed).set({ email: "private@example.com", role: "user" });
+    await response(quizId, named, 90);
+    await response(quizId, unnamed, 95);
+    await response(quizId, "ghost-user-id", 50);
+
+    const res = await leaderboard(`?quizId=${quizId}`, "alice");
+    const text = await res.text();
+    const body = JSON.parse(text);
+
+    expect(res.status).toBe(200);
+    expect(body.rows.map((r: { score: number }) => r.score)).toEqual([95, 90, 50]);
+    expect(body.users[named]).toBe("Nadia");
+    expect(body.users[unnamed]).toBe(`User ${unnamed.slice(0, 6)}`);
+    expect(body.users["ghost-user-id"]).toBe("User ghost-");
+    expect(body.quizzes[quizId]).toBe("Board quiz");
+    // Display names only: no email ever leaves the server.
+    expect(text).not.toMatch(/example\.com|@/);
+    expect(res.headers.get("cache-control")).toContain("private");
+  });
+
+  it("filters by difficulty and by time frame", async () => {
+    const quizId = await seedQuiz();
+    await response(quizId, "u-easy", 70, { selectedDifficulty: "easy" });
+    await response(quizId, "u-hard", 60, { selectedDifficulty: "hard" });
+    await response(quizId, "u-old", 99, {
+      submittedAt: Timestamp.fromMillis(Date.now() - 60 * 24 * 3600_000),
+    });
+
+    const hard = await (await leaderboard(`?quizId=${quizId}&difficulty=hard`, "alice")).json();
+    expect(hard.rows.map((r: { userId: string }) => r.userId)).toEqual(["u-hard"]);
+
+    const week = await (await leaderboard(`?quizId=${quizId}&timeFrame=week`, "alice")).json();
+    expect(week.rows.map((r: { userId: string }) => r.userId).sort()).toEqual(["u-easy", "u-hard"]);
+
+    const all = await (await leaderboard(`?quizId=${quizId}&timeFrame=all`, "alice")).json();
+    expect(all.rows).toHaveLength(3);
+  });
+
+  it("lists the quizzes people can pick, for the filter", async () => {
+    const quizId = await seedQuiz({ title: "Pickable" });
+    const body = await (await leaderboard("", "alice")).json();
+    expect(body.quizzes[quizId]).toBe("Pickable");
+  });
+
+  it("needs a sign-in and rejects filters it doesn't understand", async () => {
+    expect((await leaderboard("")).status).toBe(401);
+    expect((await leaderboard("?timeFrame=century", "alice")).status).toBe(400);
+    expect((await leaderboard("?quizId=a/b", "alice")).status).toBe(400);
+    expect((await leaderboard("?difficulty=../x", "alice")).status).toBe(400);
+  });
+});
+
+describe.skipIf(!emulator)("my attempts", () => {
+  const myAttempts = (user?: string) =>
+    myAttemptsRoute(request("/api/my-attempts", "GET", user));
+
+  it("returns only the caller's own attempts, newest first, with quiz titles", async () => {
+    const quizA = await seedQuiz({ title: "Quiz A", description: "About A" });
+    const quizB = await seedQuiz({ title: "Quiz B" });
+    const me = unique("me");
+    const add = (quizId: string, userId: string, score: number | null, ago: number) =>
+      db.collection("responses").doc(unique("h")).set({
+        quizId,
+        userId,
+        score,
+        tabSwitchCount: 2,
+        fullscreenExits: 1,
+        selectedDifficulty: "hard",
+        startedAt: Timestamp.fromMillis(Date.now() - ago - 60_000),
+        submittedAt: Timestamp.fromMillis(Date.now() - ago),
+      });
+    await add(quizA, me, 40, 3_000_000);
+    await add(quizB, me, null, 1_000_000);
+    await add("missing-quiz", me, 10, 2_000_000);
+    await add(quizA, "somebody-else", 100, 500_000);
+
+    const res = await myAttempts(me);
+    const { attempts } = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(attempts.map((a: { quizTitle: string }) => a.quizTitle)).toEqual([
+      "Quiz B",
+      "Unknown quiz",
+      "Quiz A",
+    ]);
+    expect(attempts[2]).toMatchObject({
+      quizId: quizA,
+      quizDescription: "About A",
+      score: 40,
+      tabSwitchCount: 2,
+      fullscreenExits: 1,
+      selectedDifficulty: "hard",
+    });
+    expect(attempts[0].score).toBeNull();
+    expect(attempts[0].submittedAt).toBeGreaterThan(attempts[0].startedAt);
+    expect(res.headers.get("cache-control")).toContain("private");
+  });
+
+  it("returns an empty list for someone with no attempts, and needs a sign-in", async () => {
+    expect((await (await myAttempts(unique("nobody"))).json()).attempts).toEqual([]);
+    expect((await myAttempts()).status).toBe(401);
   });
 });

@@ -1,13 +1,17 @@
 import { Timestamp } from "firebase-admin/firestore";
 import type { DocumentSnapshot } from "firebase-admin/firestore";
 import { db } from "@/firebase/admin";
+import {
+  applyEvents,
+  type IntegrityState,
+  type StoredIntegrityEvent,
+} from "@/lib/exam/integrity";
 import { normalizeQuestion, type StoredQuestion } from "@/lib/exam/normalize";
 import { scoreAttempt } from "@/lib/exam/scoring";
 import type {
   AttemptState,
   ExamQuestion,
   ProgressPatch,
-  QuestionCounts,
   ReviewItem,
   SubmitResult,
 } from "@/lib/exam/types";
@@ -16,14 +20,14 @@ import {
   getDifficultyDuration,
   getDifficultyMultiplier,
 } from "@/utils/difficulty-helpers";
-import { ApiError, GUEST_ID } from "./request";
+import { accessCodeMatches } from "./quizzes";
+import { ApiError, assertSafeId } from "./request";
 
 /** Answers and the final submit are still accepted this long after the deadline (network and clock slack). */
 export const SUBMIT_GRACE_MS = 30_000;
 /** One attempt document holds a copy of the questions and its submit writes one doc per answer. */
 export const MAX_QUESTIONS = 400;
 
-const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const SAFE_LEVEL = /^[a-z]{1,20}$/;
 const DEFAULT_LEVELS = ["easy", "medium", "hard"];
 
@@ -45,6 +49,11 @@ interface AttemptDoc {
   index: number;
   tabSwitches: number;
   fullscreenExits: number;
+  /** Window focus lost, counted from the events below. Missing on attempts started before it existed. */
+  blurs?: number;
+  /** Timestamped by the server when received. Missing on attempts started before they existed. */
+  events?: StoredIntegrityEvent[];
+  eventSeq?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   submittedAt?: Timestamp;
@@ -61,11 +70,23 @@ type RawPatch = Partial<Record<keyof ProgressPatch, unknown>>;
 
 const attempts = () => db.collection("attempts");
 
-function assertSafeId(value: unknown, what: string): asserts value is string {
-  if (typeof value !== "string" || !SAFE_ID.test(value)) {
-    throw new ApiError(400, "invalid_id", `That ${what} isn't valid.`);
-  }
-}
+/** The attempt's integrity record, with defaults for attempts that predate it. */
+const integrityOf = (data: AttemptDoc): IntegrityState => ({
+  events: data.events ?? [],
+  eventSeq: data.eventSeq ?? 0,
+  tabSwitches: data.tabSwitches,
+  blurs: data.blurs ?? 0,
+  fullscreenExits: data.fullscreenExits,
+});
+
+/** The fields to store for an updated integrity record. */
+const integrityFields = (state: IntegrityState) => ({
+  events: state.events,
+  eventSeq: state.eventSeq,
+  tabSwitches: state.tabSwitches,
+  blurs: state.blurs,
+  fullscreenExits: state.fullscreenExits,
+});
 
 async function loadQuestions(
   quizId: string,
@@ -77,30 +98,6 @@ async function loadQuestions(
     ? (await db.collection(`quizzes/${quizId}/questions`).get()).docs
     : perLevel.docs;
   return docs.map((doc) => normalizeQuestion(doc.id, doc.data()));
-}
-
-/** Question counts per level, for the lobby. Counts only; no question content. */
-export async function getQuestionCounts(quizId: string): Promise<QuestionCounts> {
-  assertSafeId(quizId, "quiz");
-  const quizSnap = await db.collection("quizzes").doc(quizId).get();
-  if (!quizSnap.exists) throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
-
-  const levels = (
-    quizFromData(quizSnap.id, quizSnap.data() ?? {}, new Date())
-      .availableDifficulties ?? DEFAULT_LEVELS
-  ).filter((level) => SAFE_LEVEL.test(level));
-
-  const legacy = (await db.collection(`quizzes/${quizId}/questions`).count().get()).data().count;
-  const counts: QuestionCounts = {};
-  await Promise.all(
-    levels.map(async (level) => {
-      const perLevel = (
-        await db.collection(`quizzes/${quizId}/questions_${level}`).count().get()
-      ).data().count;
-      counts[level] = perLevel > 0 ? perLevel : legacy;
-    })
-  );
-  return counts;
 }
 
 const toExamQuestion = (question: StoredQuestion): ExamQuestion => ({
@@ -128,7 +125,9 @@ function toAttemptState(
     flagged: data.flagged,
     index: data.index,
     tabSwitches: data.tabSwitches,
+    blurs: data.blurs ?? 0,
     fullscreenExits: data.fullscreenExits,
+    eventSeq: data.eventSeq ?? 0,
   };
 }
 
@@ -170,11 +169,6 @@ function sanitizeFlags(
   return flags;
 }
 
-const counter = (value: unknown, current = 0): number =>
-  typeof value === "number" && Number.isFinite(value)
-    ? Math.max(current, Math.min(10_000, Math.trunc(value)))
-    : current;
-
 /** The attempt, if it exists and belongs to this caller. Someone else's attempt looks like a missing one. */
 function owned(snap: DocumentSnapshot, userId: string): AttemptDoc {
   const data = snap.data() as AttemptDoc | undefined;
@@ -199,7 +193,7 @@ export async function startAttempt(
   quizId: unknown,
   difficulty: unknown,
   userId: string,
-  { now = Date.now() }: Options = {}
+  { now = Date.now(), accessCode }: Options & { accessCode?: unknown } = {}
 ): Promise<AttemptState> {
   assertSafeId(quizId, "quiz");
   if (typeof difficulty !== "string" || !SAFE_LEVEL.test(difficulty)) {
@@ -218,7 +212,25 @@ export async function startAttempt(
     throw new ApiError(400, "invalid_difficulty", "This quiz doesn't have that level.");
   }
 
-  const questions = await loadQuestions(quizId, difficulty);
+  // The access code is checked here, on the server, and never sent to the browser.
+  if (quiz.requiresAccessCode !== false && quiz.accessCode) {
+    if (typeof accessCode !== "string" || !accessCode.trim()) {
+      throw new ApiError(403, "access_code_required", "Enter the access code you were given.");
+    }
+    if (!accessCodeMatches(accessCode, quiz.accessCode)) {
+      throw new ApiError(403, "access_code_invalid", "That access code doesn't match. Check it and try again.");
+    }
+  }
+
+  // Earlier unfinished attempts at this quiz by this person are closed below; look them up alongside the questions.
+  const [questions, previous] = await Promise.all([
+    loadQuestions(quizId, difficulty),
+    attempts()
+      .where("userId", "==", userId)
+      .where("quizId", "==", quizId)
+      .where("status", "==", "in_progress")
+      .get(),
+  ]);
   if (questions.length === 0) {
     throw new ApiError(422, "no_questions", "This level has no questions yet.");
   }
@@ -245,22 +257,18 @@ export async function startAttempt(
     index: 0,
     tabSwitches: 0,
     fullscreenExits: 0,
+    blurs: 0,
+    events: [],
+    eventSeq: 0,
     createdAt: stamp,
     updatedAt: stamp,
   };
 
   const ref = attempts().doc();
   const batch = db.batch();
-  if (userId !== GUEST_ID) {
-    const previous = await attempts()
-      .where("userId", "==", userId)
-      .where("quizId", "==", quizId)
-      .where("status", "==", "in_progress")
-      .get();
-    previous.forEach((doc) =>
-      batch.update(doc.ref, { status: "abandoned", updatedAt: stamp })
-    );
-  }
+  previous.forEach((doc) =>
+    batch.update(doc.ref, { status: "abandoned", updatedAt: stamp })
+  );
   batch.set(ref, data);
   await batch.commit();
 
@@ -279,7 +287,10 @@ export async function getAttempt(
   return toAttemptState(attemptId, data, now);
 }
 
-/** Autosave. Replaces answers and flags with what the browser holds; counters only ever go up. */
+/**
+ * Autosave. Replaces answers and flags with what the browser holds, and records the integrity events it
+ * reports (tab hidden, window blur, left fullscreen) with the server's own timestamps.
+ */
 export async function saveProgress(
   attemptId: unknown,
   userId: string,
@@ -309,12 +320,7 @@ export async function saveProgress(
         data.questions.length - 1
       );
     }
-    if (patch.tabSwitches !== undefined) {
-      update.tabSwitches = counter(patch.tabSwitches, data.tabSwitches);
-    }
-    if (patch.fullscreenExits !== undefined) {
-      update.fullscreenExits = counter(patch.fullscreenExits, data.fullscreenExits);
-    }
+    Object.assign(update, integrityFields(applyEvents(integrityOf(data), patch.events, now)));
     tx.update(ref, update);
   });
 }
@@ -346,10 +352,10 @@ export async function submitAttempt(
       !late && payload.answers !== undefined
         ? sanitizeAnswers(payload.answers, data.questions)
         : data.answers;
-    const tabSwitches = late ? data.tabSwitches : counter(payload.tabSwitches, data.tabSwitches);
-    const fullscreenExits = late
-      ? data.fullscreenExits
-      : counter(payload.fullscreenExits, data.fullscreenExits);
+    // Events reported with a late submit are not read either, like the answers.
+    const integrity = late
+      ? integrityOf(data)
+      : applyEvents(integrityOf(data), payload.events, now);
 
     const score = scoreAttempt({
       questions: data.questions,
@@ -386,6 +392,9 @@ export async function submitAttempt(
       ),
       late,
       answers,
+      tabSwitches: integrity.tabSwitches,
+      blurs: integrity.blurs,
+      fullscreenExits: integrity.fullscreenExits,
       review,
     };
 
@@ -402,11 +411,12 @@ export async function submitAttempt(
       totalQuestions: score.total,
       answeredCount: score.answered,
       pointsMultiplier: score.multiplier,
-      tabSwitchCount: tabSwitches,
-      cameraFlags: [],
+      tabSwitchCount: integrity.tabSwitches,
       selectedDifficulty: data.difficulty,
       late,
-      ...(fullscreenExits > 0 && { fullscreenExits }),
+      ...(integrity.blurs > 0 && { blurCount: integrity.blurs }),
+      ...(integrity.fullscreenExits > 0 && { fullscreenExits: integrity.fullscreenExits }),
+      ...(integrity.events.length > 0 && { integrityEvents: integrity.events }),
     });
 
     for (const question of data.questions) {
@@ -422,8 +432,7 @@ export async function submitAttempt(
     tx.update(attemptRef, {
       status: "submitted",
       answers,
-      tabSwitches,
-      fullscreenExits,
+      ...integrityFields(integrity),
       submittedAt,
       updatedAt: submittedAt,
       result,

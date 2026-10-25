@@ -1,7 +1,7 @@
 import { getAttempt, saveProgress } from "@/lib/server/attempts";
 import {
   errorResponse,
-  getRequestUserId,
+  requireUserId,
   json,
   readJsonBody,
 } from "@/lib/server/request";
@@ -15,7 +15,7 @@ type Context = { params: Promise<{ id: string }> };
 export async function GET(request: Request, { params }: Context) {
   try {
     const { id } = await params;
-    const userId = await getRequestUserId(request);
+    const userId = await requireUserId(request);
     return json(await getAttempt(id, userId));
   } catch (error) {
     return errorResponse(error);
@@ -26,7 +26,7 @@ export async function GET(request: Request, { params }: Context) {
 export async function PATCH(request: Request, { params }: Context) {
   try {
     const { id } = await params;
-    const userId = await getRequestUserId(request);
+    const userId = await requireUserId(request);
     const body = await readJsonBody(request);
     await saveProgress(id, userId, body);
     return json({ ok: true });

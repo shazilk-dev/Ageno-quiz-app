@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Container } from "@/components/layout/Container";
 import { Alert, Badge, Button, Card, FilterTabs } from "@/components/ui";
-import type { Quiz } from "@/firebase/firestore";
+import type { PublicQuiz } from "@/lib/quiz-data";
 import type { QuizAttemptApi } from "@/hooks/useQuizAttempt";
 import { formatClock, getQuestionStatus } from "@/lib/exam/answers";
 import QuestionReview from "./QuestionReview";
@@ -12,7 +12,7 @@ import QuestionReview from "./QuestionReview";
 type ReviewFilter = "all" | "incorrect" | "unanswered";
 
 interface ResultsViewProps {
-  quiz: Quiz;
+  quiz: PublicQuiz;
   attempt: QuizAttemptApi;
   difficulty: string;
   signedIn: boolean;
@@ -36,7 +36,7 @@ export default function ResultsView({
   onRetry,
   onExit,
 }: ResultsViewProps) {
-  const { questions, result, tabSwitches, fullscreenExits } = attempt;
+  const { questions, result } = attempt;
   const [filter, setFilter] = useState<ReviewFilter>("all");
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -85,9 +85,13 @@ export default function ResultsView({
   if (graded) facts.push(["Correct", `${result.correct} of ${result.total}`]);
   facts.push(["Time taken", timeTaken], ["Difficulty", capitalise(difficulty)]);
   if (unanswered > 0) facts.push(["Not answered", String(unanswered)]);
-  if (tabSwitches > 0) facts.push(["Tab switches", String(tabSwitches)]);
-  if (fullscreenExits > 0) {
-    facts.push(["Left fullscreen", String(fullscreenExits)]);
+  // What the server recorded, not what this browser counted.
+  if (result.tabSwitches > 0) {
+    facts.push(["Tab switches", String(result.tabSwitches)]);
+  }
+  if (result.blurs > 0) facts.push(["Window focus lost", String(result.blurs)]);
+  if (result.fullscreenExits > 0) {
+    facts.push(["Left fullscreen", String(result.fullscreenExits)]);
   }
 
   const handleRetry = async () => {

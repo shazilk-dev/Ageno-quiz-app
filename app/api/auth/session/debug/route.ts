@@ -2,12 +2,19 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { headers } from "next/headers";
 import { auth } from "@/firebase/admin";
+import { devRoutesEnabled } from "@/lib/dev-routes";
 
 /**
  * Debug endpoint to check session cookie state 
  * Provides extended diagnostics for mobile/browser debugging
  */
 export async function GET() {
+  // Development only: it describes the caller's cookies and session. The middleware already hides it in
+  // production; this keeps it hidden even if that ever changes.
+  if (!devRoutesEnabled()) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
   try {
     const cookiesStore = await cookies();
     const sessionCookie = cookiesStore.get("session")?.value;
