@@ -48,7 +48,6 @@ export default function SettingsPage() {
         setSettings(settingsDoc.data() as AppSettings);
       } else {
         // If settings document doesn't exist, we'll create it when saving
-        console.log("No settings document found, using defaults");
       }
     } catch (error) {
       console.error("Error fetching settings:", error);

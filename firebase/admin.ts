@@ -34,7 +34,6 @@ const initFirebaseAdmin = () => {
         }),
       });
 
-      console.log("Firebase Admin SDK initialized successfully");
     } catch (error) {
       console.error("Failed to initialize Firebase Admin:", error);
       throw error; // Rethrow to fail fast if we can't initialize Firebase

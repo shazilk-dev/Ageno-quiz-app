@@ -1,95 +1,79 @@
 // app/layout.tsx
 import "./globals.css";
-import { Inter } from "next/font/google";
+import { GeistMono } from "geist/font/mono";
+import { GeistSans } from "geist/font/sans";
+import localFont from "next/font/local";
 import { Metadata, Viewport } from "next";
+import { ToastProvider } from "@/components/ui/Toast";
 import { AuthProvider } from "@/contexts/auth-context";
 
-// Load Inter font with extended latin support
-const inter = Inter({ 
-  subsets: ["latin", "latin-ext"],
+// Self-hosted (app/fonts) so a slow or blocked font CDN can never take the app down.
+// Italic accent for 1-3 emotional words of a big heading only; never inside the exam.
+const instrumentSerif = localFont({
+  src: [
+    {
+      path: "./fonts/instrument-serif-latin-400-normal.woff2",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "./fonts/instrument-serif-latin-400-italic.woff2",
+      weight: "400",
+      style: "italic",
+    },
+  ],
+  variable: "--font-instrument-serif",
   display: "swap",
-  preload: true,
-  fallback: ["system-ui", "Arial", "sans-serif"]
 });
 
-// Enhanced metadata for better SEO
+const siteUrl = (
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : "http://localhost:3000")
+).replace(/\/$/, "");
+
+const description =
+  "Ageno Quiz is the assessment platform of Agenoverse. Join a quiz with an access code, take it on the clock and see how you did.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
-    default: "AgenoQuiz - Smart Quiz System",
-    template: "%s | AgenoQuiz"
+    default: "Ageno Quiz",
+    template: "%s | Ageno Quiz",
   },
-  description: "Secure, smart, and student-friendly quiz app for schools and teams. Create, manage, and analyze educational assessments with ease.",
-  applicationName: "AgenoQuiz",
+  description,
+  applicationName: "Ageno Quiz",
   authors: [{ name: "CodeRiders Development Team" }],
-  keywords: ["quiz", "education", "assessment", "learning", "exam", "test", "school", "teacher", "student"],
+  keywords: ["quiz", "assessment", "exam", "learning", "Agenoverse"],
   creator: "CodeRiders Development Team",
   publisher: "Agenoverse",
-  metadataBase: new URL("https://agenoquiz.example.com"),
   category: "education",
-  
-  // Open Graph metadata for social sharing
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://agenoquiz.example.com",
-    title: "AgenoQuiz - Smart Quiz System",
-    description: "Secure, smart, and student-friendly quiz app for schools and teams.",
-    siteName: "AgenoQuiz",
-    images: [
-      {
-        url: "/og-image.svg", // Replace with your actual OG image path
-        width: 1200,
-        height: 630,
-        alt: "AgenoQuiz - Smart Assessment Platform"
-      }
-    ],
+    title: "Ageno Quiz",
+    description,
+    siteName: "Ageno Quiz",
   },
-  
-  // Twitter card metadata
   twitter: {
     card: "summary_large_image",
-    title: "AgenoQuiz - Smart Quiz System",
-    description: "Secure, smart, and student-friendly quiz app for schools and teams.",
-    images: ["/twitter-image.png"], // Replace with your actual Twitter image path
+    title: "Ageno Quiz",
+    description,
   },
-  
-  icons: {
-    icon: "/favicon.ico",
-    shortcut: "/favicon-16x16.png",
-    apple: "/apple-touch-icon.png",
-    other: [
-      {
-        rel: "icon",
-        type: "image/png",
-        sizes: "32x32",
-        url: "/favicon-32x32.png",
-      },
-      {
-        rel: "icon",
-        type: "image/png",
-        sizes: "16x16",
-        url: "/favicon-16x16.png",
-      },
-      {
-        rel: "manifest",
-        url: "/site.webmanifest",
-      }
-    ],
-  },
-  
-  // Verification tags for search engines
-  verification: {
-    google: "google-site-verification-code", // Replace with actual verification code
-  },
+  // Icons come from app/icon.svg, app/favicon.ico and app/apple-icon.png.
+  // The OG image comes from app/opengraph-image.tsx.
 };
 
-// Improved viewport settings for better accessibility and mobile experience
+// Browser chrome (mobile address bar) matches the ink shell. A raw hex: viewport metadata cannot read CSS
+// variables, so this mirrors --color-ink in app/theme.css. `colorScheme: "dark"` joins it once every
+// screen is migrated (P7.6); until then most pages are still light.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1.0,
   maximumScale: 5.0, // Allow zooming for better accessibility
   userScalable: true, // Allow zooming for better accessibility
-  themeColor: "#6E45E1", // Match your brand's primary color
+  themeColor: "#0e1116",
 };
 
 export default function RootLayout({
@@ -98,20 +82,25 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning className="scroll-smooth">
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`scroll-smooth ${GeistSans.variable} ${GeistMono.variable} ${instrumentSerif.variable}`}
+    >
       <head>
-        <link rel="canonical" href="https://agenoquiz.example.com" />
         <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
       </head>
-      <body className={`${inter.className} antialiased text-gray-800 bg-white overscroll-none`}>
-        <main className="min-h-screen flex flex-col relative overflow-x-hidden">
-          <AuthProvider>{children}</AuthProvider>
-        </main>
+      <body className="font-sans antialiased text-gray-800 bg-white overscroll-none">
+        <div className="min-h-screen flex flex-col relative overflow-x-clip">
+          <ToastProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </ToastProvider>
+        </div>
         {/* Skip to main content link for accessibility */}
         <div className="fixed top-0 left-0 z-50">
-          <a 
-            href="#main-content" 
-            className="sr-only focus:not-sr-only focus:p-4 focus:block focus:bg-white focus:text-purple-600"
+          <a
+            href="#main-content"
+            className="sr-only focus:not-sr-only focus:p-4 focus:block focus:bg-white focus:text-teal-deep"
           >
             Skip to main content
           </a>

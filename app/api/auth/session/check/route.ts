@@ -61,9 +61,8 @@ export async function GET() {
         
         // If that succeeded, try to verify with revocation check
         try {
-          await auth.verifySessionCookie(sessionCookie, true);        } catch (revocationError: any) {
+          await auth.verifySessionCookie(sessionCookie, true);        } catch {
           // Session is valid but revoked, clear it
-          console.log("Token revoked but valid format: clearing session", revocationError?.code || 'unknown_code');
           return createClearedCookieResponse("token_revoked");
         }
       } catch (basicVerifyError) {

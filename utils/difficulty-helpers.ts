@@ -1,5 +1,5 @@
 // utils/difficulty-helpers.ts
-import { Quiz } from "@/firebase/firestore";
+import type { Quiz } from "@/firebase/firestore";
 
 /**
  * Gets the duration for the specified difficulty level with proper error handling
@@ -12,7 +12,6 @@ export function getDifficultyDuration(
   difficulty: string
 ): number {
   if (!quiz) {
-    console.log(`[getDifficultyDuration] No quiz provided, using default 30 minutes`);
     return 30; // Default duration if no quiz is provided
   }
 
@@ -28,17 +27,14 @@ export function getDifficultyDuration(
     const specificDuration = quiz.difficultySettings[
       difficulty as keyof typeof quiz.difficultySettings
     ]!.duration;
-    console.log(`[getDifficultyDuration] Using specific ${difficulty} duration: ${specificDuration} minutes`);
     return specificDuration;
   }
   // Use the quiz's base duration as the fallback
   if (quiz.duration) {
-    console.log(`[getDifficultyDuration] Using quiz base duration: ${quiz.duration} minutes for ${difficulty}`);
     return quiz.duration;
   }
 
   // Last resort fallback - should rarely get here, only if quiz.duration is missing
-  console.log(`[getDifficultyDuration] Using default fallback duration: 30 minutes`);
   return 30; // Ultimate fallback duration
 }
 

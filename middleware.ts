@@ -40,6 +40,9 @@ const isPublicPath = (pathname: string): boolean => {
   if (
     pathname.startsWith("/api/auth/session") ||
     pathname.startsWith("/api/auth/user/public") ||
+    // These check the caller's ID token themselves (guests are allowed to take open quizzes).
+    pathname.startsWith("/api/attempts") ||
+    pathname.startsWith("/api/quizzes/") ||
     pathname.startsWith("/join") ||
     pathname.startsWith("/quiz/join") ||
     pathname.startsWith("/leaderboard") ||

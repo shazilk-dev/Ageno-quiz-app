@@ -1,7 +1,6 @@
 "use client";
 
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
+import SiteFrame from "@/components/layout/SiteFrame";
 import { useAuth } from "@/contexts/auth-context";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -28,7 +27,6 @@ export default function UserLayout({
       const timeoutDuration = isMobile ? 1000 : 2000;
       
       const timeout = setTimeout(() => {
-        console.log(`UserLayout: Loading timeout (${timeoutDuration}ms) expired`);
         setLoadingTimeout(true);
       }, timeoutDuration);
       
@@ -42,7 +40,6 @@ export default function UserLayout({
     // Add a small delay to allow auth state to fully initialize
     if (!loading && !user) {
       const redirectTimeout = setTimeout(() => {
-        console.log("UserLayout: User not authenticated, redirecting to sign-in");
         router.push("/sign-in");
       }, 500); // Small delay to ensure auth state is stable
       
@@ -56,11 +53,9 @@ export default function UserLayout({
   // 3. On mobile browsers we're more lenient (to avoid stuck states)
   if (user || loadingTimeout || isMobileBrowser) {
     return (
-      <div className="flex flex-col min-h-screen">
-        <Header />
+      <SiteFrame>
         <div className="container mx-auto px-4 py-8 flex-grow">{children}</div>
-        <Footer />
-      </div>
+      </SiteFrame>
     );
   }
 

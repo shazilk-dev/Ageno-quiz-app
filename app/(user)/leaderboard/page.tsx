@@ -474,7 +474,7 @@ const LeaderboardPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-neutral-50">
-      <main className="container mx-auto px-4 py-12">
+      <div className="container mx-auto px-4 py-12">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-10">
             <h1 className="text-4xl text-black font-bold mb-4 bg-clip-text bg-gradient-to-r from-purple-primary to-tech-blue-light">
@@ -659,7 +659,7 @@ const LeaderboardPage = () => {
             showGlobalRanking={!category}
           />
         </div>
-      </main>
+      </div>
     </div>
   );
 };

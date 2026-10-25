@@ -48,9 +48,6 @@ export async function saveQuestionsByDifficulty(
     });
 
     await batch.commit();
-    console.log(
-      `Successfully saved ${questions.length} questions for difficulty: ${difficulty}`
-    );
   } catch (error) {
     console.error(
       `Error saving questions for difficulty ${difficulty}:`,
@@ -123,7 +120,6 @@ export async function saveAllQuestionsByDifficulty(
     );
 
     await Promise.all(savePromises);
-    console.log("Successfully saved all questions by difficulty");
   } catch (error) {
     console.error("Error saving all questions by difficulty:", error);
     throw error;

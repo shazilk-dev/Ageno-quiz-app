@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 import { sendVerificationEmail } from "@/lib/actions/auth.actions";
-import Header from "@/components/Header";
 
 // Component that uses searchParams (should be wrapped in Suspense)
 function VerifyEmailContent() {
@@ -98,7 +97,6 @@ function VerifyEmailContent() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-white to-neutral-50">
-        <Header />
         <div className="container mx-auto px-4 py-12 flex justify-center">
           <div className="animate-spin h-8 w-8 border-4 border-purple-primary border-t-transparent rounded-full"></div>
         </div>
@@ -108,9 +106,7 @@ function VerifyEmailContent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-neutral-50">
-      <Header />
-
-      <main className="container mx-auto px-4 py-12">
+      <div className="container mx-auto px-4 py-12">
         <div className="max-w-md mx-auto">
           <div className="bg-white p-8 rounded-xl shadow-sm">
             <div className="text-center mb-8">
@@ -285,7 +281,7 @@ function VerifyEmailContent() {
             )}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

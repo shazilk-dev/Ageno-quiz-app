@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { Metadata } from "next";
 import QuizClient from "./client";
 import SafeQuizLoader from "@/components/quiz/SafeQuizLoader";
-import AuthDebugger from "@/components/debug/AuthDebugger";
+import { LobbySkeleton } from "@/components/quiz/lobby/LobbyStates";
 
 // According to Next.js 15.3: dynamic route APIs are asynchronous
 type PageProps = {
@@ -19,14 +19,12 @@ export default async function Page({ params, searchParams }: PageProps) {
 
   return (
     <SafeQuizLoader>
-      <Suspense fallback={<div className="p-8 text-center">Loading quiz...</div>}>
+      <Suspense fallback={<LobbySkeleton />}>
         <QuizClient code={code} />
         {/* Example of using search if needed */}
         {search?.ref && (
           <div className="text-sm text-gray-500">Referral: {search.ref}</div>
         )}
-        {/* Add auth debugger in development only */}
-        {process.env.NODE_ENV === 'development' && <AuthDebugger />}
       </Suspense>
     </SafeQuizLoader>
   );
@@ -39,7 +37,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { code } = await params;
   return {
-    title: `Quiz ${code} | Ageno Quiz App`,
+    title: `Quiz ${code}`,
     description: `Take the quiz with code ${code}`,
   };
 }

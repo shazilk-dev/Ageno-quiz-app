@@ -42,6 +42,8 @@ export default function EditQuizPage() {
   const [duration, setDuration] = useState<number>(30); // Default duration in minutes
   const [accessCode, setAccessCode] = useState<string>("");
   const [isAutoCheck, setIsAutoCheck] = useState<boolean>(true);
+  const [showAnswerReview, setShowAnswerReview] = useState<boolean>(true);
+  const [examMode, setExamMode] = useState<"practice" | "strict">("practice");
   const [createdBy, setCreatedBy] = useState<string>("");
   const [createdAt, setCreatedAt] = useState<any>(null);
 
@@ -82,6 +84,8 @@ export default function EditQuizPage() {
         setDuration(quizData.duration || 30);
         setAccessCode(quizData.accessCode || "");
         setIsAutoCheck(quizData.isAutoCheck ?? true);
+        setShowAnswerReview(quizData.showAnswerReview !== false);
+        setExamMode(quizData.examMode === "strict" ? "strict" : "practice");
         setActiveDifficulty(quizData.difficulty || "medium");
         setCreatedBy(quizData.createdBy || "Unknown");
         setCreatedAt(quizData.createdAt || null);
@@ -314,6 +318,8 @@ export default function EditQuizPage() {
         difficulty: activeDifficulty, // Set the active difficulty as the quiz's main difficulty
         accessCode: accessCode || null, // If empty, store as null
         isAutoCheck,
+        showAnswerReview,
+        examMode,
         updatedAt: serverTimestamp(),
       });
 
@@ -364,7 +370,7 @@ export default function EditQuizPage() {
       await batch.commit();
 
       // Navigate back to the quiz management page
-      router.push("/admin/quizzes");
+      router.push("/quizzes");
     } catch (error: any) {
       console.error("Error updating quiz:", error);
       setError(error.message || "Failed to update quiz.");
@@ -391,7 +397,7 @@ export default function EditQuizPage() {
           <p className="text-red-600">{error}</p>
           <div className="mt-4">
             <Link
-              href="/admin/quizzes"
+              href="/quizzes"
               className="text-purple-600 hover:text-purple-800 font-medium"
             >
               Return to Quiz Management
@@ -407,7 +413,7 @@ export default function EditQuizPage() {
       <div className="mb-6">
         <div className="flex items-center mb-4">
           <Link
-            href="/admin/quizzes"
+            href="/quizzes"
             className="mr-4 text-gray-600 hover:text-gray-800"
           >
             <FiArrowLeft size={20} />
@@ -526,6 +532,47 @@ export default function EditQuizPage() {
                     Automatically grade quiz attempts
                   </p>
                 </div>
+              </div>
+              <div className="flex items-start pt-6">
+                <div className="flex items-center h-5">
+                  <input
+                    id="showAnswerReview"
+                    type="checkbox"
+                    checked={showAnswerReview}
+                    onChange={(e) => setShowAnswerReview(e.target.checked)}
+                    className="focus:ring-purple-500 h-4 w-4 text-purple-600 border-gray-300 rounded"
+                  />
+                </div>
+                <div className="ml-3 text-sm">
+                  <label
+                    htmlFor="showAnswerReview"
+                    className="font-medium text-gray-700"
+                  >
+                    Show answer review
+                  </label>
+                  <p className="text-gray-500">
+                    After submitting, people see each question with the correct answer
+                  </p>
+                </div>
+              </div>
+              <div className="pt-6">
+                <label
+                  htmlFor="examMode"
+                  className="block text-sm font-medium text-gray-700 mb-1"
+                >
+                  Exam mode
+                </label>
+                <select
+                  id="examMode"
+                  value={examMode}
+                  onChange={(e) =>
+                    setExamMode(e.target.value as "practice" | "strict")
+                  }
+                  className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                >
+                  <option value="practice">Practice: fullscreen is offered, leaving it is fine</option>
+                  <option value="strict">Strict: leaving fullscreen blocks the exam and is recorded</option>
+                </select>
               </div>              <div>
                 <label
                   htmlFor="difficulty"
@@ -730,7 +777,7 @@ export default function EditQuizPage() {
         <div className="mt-8 flex justify-end">
           <button
             type="button"
-            onClick={() => router.push("/admin/quizzes")}
+            onClick={() => router.push("/quizzes")}
             className="mr-4 px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
           >
             Cancel

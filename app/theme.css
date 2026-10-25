@@ -1,0 +1,205 @@
+/*
+ * Ageno Quiz theme: a port of the Agenoverse design tokens
+ * (D:\PROJECTS\agenoverse\web\src\styles\theme.css). Keep token names in step with that file.
+ *
+ * Tailwind 4 reads this `@theme` block to build utilities (bg-ink, text-accent, rounded-md, ...) AND emits
+ * every token below as a CSS custom property. `static` keeps unused tokens in the output so plain CSS can
+ * always var() them.
+ *
+ * MIGRATION STATE (docs/IMPROVEMENT_ROADMAP.md):
+ *  - Tailwind's default palette is NOT wiped yet (`--color-*: initial` comes in P7.6), because screens that
+ *    haven't been redesigned still use indigo-*, gray-* and so on.
+ *  - The tokens are dark by default, but <body> stays light until every screen is migrated. The site shell
+ *    (header, footer) opts into dark with data-theme="dark". New screens use the tokens (bg-bg, text-text).
+ */
+
+@theme static {
+	/* Brand colours */
+	--color-ink: #0e1116;
+	--color-bone: #f6f5f1;
+	--color-teal: #22c3b0;
+	--color-teal-deep: #0f8b7f;
+	--color-amber: #f5b544;
+
+	/* Semantic colours (dark by default; flipped by [data-theme="light"] below) */
+	--color-bg: var(--color-ink);
+	--color-bg-alt: #161b22;
+	--color-surface: #1c2028;
+	--color-surface-raised: #232831;
+	--color-text: var(--color-bone);
+	--color-text-muted: #a5a8ae;
+	/* Long-form reading text: stronger than muted, softer than full text. */
+	--color-text-body: #d4d6da;
+	--color-border: #2d333b;
+	--color-border-strong: #3d444e;
+	--color-accent: var(--color-teal);
+	--color-accent-deep: var(--color-teal-deep);
+	/* Accent for small TEXT and links. Same teal on dark; darker on bone (teal-deep is 3.8:1 there, this is 5.1:1). */
+	--color-link: var(--color-teal);
+	--color-warm: var(--color-amber);
+
+	/* Semantic states */
+	--color-success: #34d399;
+	--color-error: #f87171;
+	--color-warning: var(--color-amber);
+
+	/* Typography. --font-geist-* are set on <html> by the `geist` package. */
+	--font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+	--font-mono: var(--font-geist-mono), ui-monospace, monospace;
+	/* Italic accent for 1-3 emotional words in a heading (never inside the exam). --font-instrument-serif is set on <html>. */
+	--font-serif: var(--font-instrument-serif), ui-serif, Georgia, serif;
+
+	/* Fluid type scale */
+	--text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.8125rem);
+	--text-sm: clamp(0.8125rem, 0.775rem + 0.25vw, 0.875rem);
+	--text-base: clamp(0.9375rem, 0.9rem + 0.25vw, 1rem);
+	--text-lg: clamp(1.0625rem, 1rem + 0.375vw, 1.125rem);
+	--text-xl: clamp(1.1875rem, 1.1rem + 0.5vw, 1.3125rem);
+	--text-2xl: clamp(1.4375rem, 1.3rem + 0.75vw, 1.625rem);
+	--text-3xl: clamp(1.75rem, 1.5rem + 1.25vw, 2.125rem);
+	--text-4xl: clamp(2.125rem, 1.75rem + 2vw, 2.75rem);
+	--text-5xl: clamp(2.75rem, 2rem + 3.5vw, 3.75rem);
+	--text-6xl: clamp(3.25rem, 2rem + 5.5vw, 6rem);
+	/* Line heights: Tailwind's stock ratios, so text-* classes on screens not yet migrated keep their leading
+	   (Agenoverse sets leading-* explicitly instead). Review in P7.6. */
+	--text-xs--line-height: 1.333;
+	--text-sm--line-height: 1.429;
+	--text-base--line-height: 1.5;
+	--text-lg--line-height: 1.556;
+	--text-xl--line-height: 1.4;
+	--text-2xl--line-height: 1.333;
+	--text-3xl--line-height: 1.2;
+	--text-4xl--line-height: 1.111;
+	--text-5xl--line-height: 1;
+	--text-6xl--line-height: 1;
+
+	/* Radii */
+	--radius-sm: 6px;
+	--radius-md: 10px;
+	--radius-lg: 16px;
+	--radius-full: 9999px;
+
+	/* Motion */
+	--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+	--animate-rise: rise 700ms var(--ease-out-expo) both;
+	--animate-fade: fade 500ms ease-out both;
+	--animate-toast: toast-in 250ms var(--ease-out-expo) both;
+
+	@keyframes rise {
+		from {
+			opacity: 0;
+			transform: translateY(16px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	@keyframes toast-in {
+		from {
+			opacity: 0;
+			transform: translateY(12px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	@keyframes fade {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	/* Elevation: light-sourced, tinted by ink so it works on dark and bone. */
+	--shadow-float: 0 18px 40px -18px
+		color-mix(in oklab, var(--color-ink) 55%, transparent);
+	--shadow-glow:
+		0 0 0 1px color-mix(in oklab, var(--color-teal) 45%, transparent),
+		0 0 36px -6px color-mix(in oklab, var(--color-teal) 40%, transparent);
+}
+
+:root {
+	/* Spacing scale (mirrors Tailwind's 4px steps; use p-6, gap-8 etc. in markup) */
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-6: 1.5rem;
+	--space-8: 2rem;
+	--space-12: 3rem;
+	--space-16: 4rem;
+	--space-20: 5rem;
+	--space-24: 6rem;
+	--space-32: 8rem;
+
+	/* Layout */
+	--max-width: 1200px;
+	--nav-height: 64px;
+	--section-gap: var(--space-24);
+
+	/* Transitions */
+	--transition-fast: 150ms ease;
+	--transition-base: 250ms ease;
+	--transition-slow: 400ms ease;
+}
+
+/* Light sections (bone background). Add data-theme="light" to any wrapper. */
+[data-theme="light"] {
+	color-scheme: light;
+	--color-bg: var(--color-bone);
+	--color-bg-alt: #edeae4;
+	--color-surface: #ffffff;
+	--color-surface-raised: #ffffff;
+	--color-text: var(--color-ink);
+	--color-text-muted: #5c5f66;
+	--color-text-body: #2a2e35;
+	--color-border: #d4d1ca;
+	--color-border-strong: #bfbbb2;
+	--color-accent: var(--color-teal-deep);
+	--color-link: #0a756b;
+	/* The dark-mode state colours are too pale on bone (about 2.5:1). These clear AA. */
+	--color-error: #b42318;
+	--color-success: #067647;
+}
+
+/* Explicit dark: the site shell, and any dark card inside a light section. */
+[data-theme="dark"] {
+	color-scheme: dark;
+	--color-bg: var(--color-ink);
+	--color-bg-alt: #161b22;
+	--color-surface: #1c2028;
+	--color-surface-raised: #232831;
+	--color-text: var(--color-bone);
+	--color-text-muted: #a5a8ae;
+	--color-text-body: #d4d6da;
+	--color-border: #2d333b;
+	--color-border-strong: #3d444e;
+	--color-accent: var(--color-teal);
+	--color-link: var(--color-teal);
+}
+
+/* Paper. Print is always light, whatever section the content sits in. */
+@media print {
+	:root,
+	[data-theme="dark"],
+	[data-theme="light"] {
+		color-scheme: light;
+		--color-bg: #ffffff;
+		--color-bg-alt: #f3f3f1;
+		--color-surface: #ffffff;
+		--color-surface-raised: #ffffff;
+		--color-text: #111111;
+		--color-text-muted: #3d3d3d;
+		--color-text-body: #1a1a1a;
+		--color-border: #c4c4c0;
+		--color-border-strong: #8a8a86;
+		--color-accent: #0a756b;
+		--color-link: #0a756b;
+	}
+}

@@ -702,7 +702,7 @@ export default function QuizForm({
 
         // Redirect to quizzes list after a short delay
         setTimeout(() => {
-          router.push("/admin/quizzes");
+          router.push("/quizzes");
         }, 2000);
       }
     } catch (err) {

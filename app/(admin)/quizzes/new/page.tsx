@@ -43,6 +43,8 @@ export default function NewQuizPage() {
   const [isPublic, setIsPublic] = useState<boolean>(true);
   const [requiresAccessCode, setRequiresAccessCode] = useState<boolean>(false);
   const [isAutoCheck, setIsAutoCheck] = useState<boolean>(true);
+  const [showAnswerReview, setShowAnswerReview] = useState<boolean>(true);
+  const [examMode, setExamMode] = useState<"practice" | "strict">("practice");
 
   // Difficulty settings
   const [availableDifficulties] = useState<QuizDifficulty[]>(["easy", "medium", "hard"]);
@@ -274,6 +276,8 @@ export default function NewQuizPage() {
         createdAt: serverTimestamp(),
         createdBy: user?.uid || "unknown",
         isAutoCheck,
+        showAnswerReview,
+        examMode,
         isPublic,
         requiresAccessCode: Boolean(requiresAccessCode || (accessCode && accessCode.length > 0)),
         updatedAt: serverTimestamp(),
@@ -543,6 +547,34 @@ export default function NewQuizPage() {
                 <label htmlFor="isAutoCheck" className="ml-2 text-gray-700">
                   Auto-check Answers
                 </label>
+              </div>
+
+              <div className="flex items-center">
+                <input
+                  id="showAnswerReview"
+                  type="checkbox"
+                  checked={showAnswerReview}
+                  onChange={(e) => setShowAnswerReview(e.target.checked)}
+                  className="h-4 w-4 text-purple-600 border-gray-300 rounded"
+                />
+                <label htmlFor="showAnswerReview" className="ml-2 text-gray-700">
+                  Show answer review after submitting
+                </label>
+              </div>
+
+              <div>
+                <label htmlFor="examMode" className="block text-gray-700">
+                  Exam mode
+                </label>
+                <select
+                  id="examMode"
+                  value={examMode}
+                  onChange={(e) => setExamMode(e.target.value as "practice" | "strict")}
+                  className="mt-1 block w-full border-gray-300 rounded-md shadow-sm sm:text-sm"
+                >
+                  <option value="practice">Practice: fullscreen is offered, leaving it is fine</option>
+                  <option value="strict">Strict: leaving fullscreen blocks the exam and is recorded</option>
+                </select>
               </div>
             </div>
           </div>

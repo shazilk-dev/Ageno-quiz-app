@@ -159,12 +159,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         try {
           const response = await checkSession();
           if (response.isAuthenticated) {
-            console.log("Server session still active while user is signed out in Firebase. Clearing session...");
             // Server thinks we're still logged in but Firebase doesn't
             // Clear session to be safe
             await clearSession(true);
           } else if (response.reason === 'token_revoked') {
-            console.log("Session token was revoked. Clearing local data.");
             clearSessionData();
           }
         } catch (error) {

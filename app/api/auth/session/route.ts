@@ -175,10 +175,6 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    // Get the referer for logging purposes
-    const referer = request.headers.get('referer') || 'unknown';
-    console.log(`Session deletion requested from: ${referer}`);
-
     const cookiesStore = await cookies();
 
     // Clear session cookie
@@ -210,7 +206,6 @@ export async function DELETE(request: NextRequest) {
       console.warn("Could not revoke refresh tokens:", error);
     }
 
-    console.log("Session deleted successfully");
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
     console.error("Session deletion error:", error);

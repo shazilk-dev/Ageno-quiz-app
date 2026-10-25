@@ -35,10 +35,8 @@ export default function MyQuizzes() {
       setIsLoading(true);
       setError(null);
 
-      console.log("Fetching quiz attempts for user", user.uid);
       // Pass the user ID from React context to ensure it works even if Firebase Auth isn't fully initialized
       const userAttempts = await getUserQuizAttempts(user.uid);
-      console.log("Fetched attempts:", userAttempts.length);
       setAttempts(userAttempts);
 
       // Calculate stats

@@ -38,14 +38,12 @@ const ScoresByDifficultyChart: React.FC<ScoresByDifficultyChartProps> = ({
         // Create query based on conditions
         let dataQuery;
         if (quizId) {
-          console.log(`Fetching scores for quiz ID: ${quizId}`);
           dataQuery = query(
             responsesCollection,
             where("quizId", "==", quizId),
             orderBy("submittedAt", "desc")
           );
         } else {
-          console.log("Fetching scores for all quizzes");
           dataQuery = query(
             responsesCollection,
             orderBy("submittedAt", "desc")

@@ -1,103 +1,103 @@
 rules_version = '2';
 
+// INTERIM RULES (roadmap P5.1b). They match what the browser does today: quiz taking still reads the
+// questions and writes `responses` from the client. P5.2 moves that to server routes (Admin SDK), and
+// P5.5 replaces this file with the final lockdown (no client reads of answers, no client writes to scores).
+// Known gaps until then: questions are readable by anyone (answers included), and a player can still
+// create a response for themselves with a score of their choosing.
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
     function isAuthenticated() {
       return request.auth != null;
     }
-    
+
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
-    
+
     function isAdmin() {
-      return isAuthenticated() && 
-        (request.auth.token.role == "admin" || 
+      return isAuthenticated() &&
+        (request.auth.token.role == "admin" ||
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin");
     }
-    
-    // User document rules
+
+    // Guests are not Firebase-authenticated; their responses carry the userId "anonymous".
+    function submitterId() {
+      return isAuthenticated() ? request.auth.uid : "anonymous";
+    }
+
+    function ownsResponse(responseId) {
+      return exists(/databases/$(database)/documents/responses/$(responseId)) &&
+        get(/databases/$(database)/documents/responses/$(responseId)).data.userId == submitterId();
+    }
+
+    function validScore(score) {
+      return score == null || (score is number && score >= 0 && score <= 100);
+    }
+
     match /users/{userId} {
-      // Users can read their own data, admins can read any user
-      allow read: if isOwner(userId) || isAdmin();
-      
-      // New users can create their own document
-      allow create: if isOwner(userId);
-      
-      // Combined rule for user updates - either:
-      // 1. User updating their own data except role and customClaims fields
-      // 2. User updating only their activityLogs, updatedAt, lastLoginAt fields
-      // 3. Admin updating any fields
-      allow update: if (isOwner(userId) && 
-                      (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'customClaims']) || 
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activityLogs', 'updatedAt', 'lastLoginAt']))) || 
-                     isAdmin();
-      
-      // Only admins can delete user documents
+      // Signed-in only (the leaderboard shows other players' names). Was public.
+      allow read: if isAuthenticated();
+
+      // Self-registration can't pick its own role.
+      allow create: if isOwner(userId) &&
+        request.resource.data.get("role", "user") == "user" &&
+        (!("customClaims" in request.resource.data) ||
+         request.resource.data.customClaims.get("role", "user") == "user");
+
+      allow update: if isAdmin() ||
+        (isOwner(userId) &&
+         !request.resource.data.diff(resource.data).affectedKeys().hasAny(["role", "customClaims"]));
+
       allow delete: if isAdmin();
     }
-    
-    // Quiz questions rules
+
+    // Quizzes and everything under them (questions, questions_easy|medium|hard, ...).
     match /quizzes/{quizId} {
-      // Anyone can read public quizzes
-      allow read: if resource.data.isPublic == true || isAdmin();
-      
-      // Only admins can create, update, or delete quizzes
-      allow create, update, delete: if isAdmin();
-      
-      // Define rules for nested collections if needed
-      match /questions/{questionId} {
-        // Only admins can read, create, update, delete quiz questions
-        allow read, create, update, delete: if isAdmin();
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /{subCollection}/{docId} {
+        allow read: if true;
+        allow write: if isAdmin();
       }
-      
-      match /responses/{responseId} {
-        // Quiz owners and admins can read responses, users can read their own responses
-        allow read: if isAdmin() || 
-                      resource.data.userId == request.auth.uid;
-        
-        // Authenticated users can create responses for published quizzes
-        allow create: if isAuthenticated() && 
-                        get(/databases/$(database)/documents/quizzes/$(quizId)).data.isPublished == true;
-        
-        // Users can update only their own responses
-        allow update: if resource.data.userId == request.auth.uid;
-        
-        // Only admins can delete responses
+    }
+
+    // One response per attempt (the attempt id is the document id).
+    match /responses/{responseId} {
+      allow read: if isAuthenticated();
+
+      allow create: if request.resource.data.userId == submitterId() &&
+        validScore(request.resource.data.score);
+
+      // A retry rewrites the same document; the owner can't change what it says about the result.
+      allow update: if isAdmin() ||
+        (isOwner(resource.data.userId) &&
+         request.resource.data.userId == resource.data.userId &&
+         request.resource.data.quizId == resource.data.quizId &&
+         request.resource.data.score == resource.data.score);
+
+      allow delete: if isAdmin();
+
+      match /answers/{answerId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isAdmin() || ownsResponse(responseId);
         allow delete: if isAdmin();
       }
     }
-    
-    // Quiz session rules
-    match /sessions/{sessionId} {
-      // Quiz owners, session participants, and admins can read sessions
-      allow read: if isAuthenticated() && 
-                    (isAdmin() || 
-                     resource.data.participants[request.auth.uid] != null);
-      
-      // Only admins can create sessions
-      allow create: if isAdmin();
-      
-      // Only admins can update sessions
-      allow update: if isAdmin();
-      
-      // Only admins can delete sessions
-      allow delete: if isAdmin();
-    }
-    
-    // User activities (legacy) collection - gradually migrate to using in-document activityLogs
+
     match /userActivities/{activityId} {
-      // Users can read their own activities, admins can read any
-      allow read: if isAuthenticated() && 
+      allow read: if isAuthenticated() &&
                     (resource.data.userId == request.auth.uid || isAdmin());
-      
-      // Users can create activities for themselves
-      allow create: if isAuthenticated() && 
+
+      allow create: if isAuthenticated() &&
                       request.resource.data.userId == request.auth.uid;
-      
-      // No updates or deletes
+
       allow update, delete: if false;
+    }
+
+    match /settings/{settingId} {
+      allow read, write: if isAdmin();
     }
   }
 }

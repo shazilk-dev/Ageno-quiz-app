@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import AuthStateHandler from '../AuthStateHandler';
+import { LobbySkeleton } from './lobby/LobbyStates';
 
 interface SafeQuizLoaderProps {
   children: React.ReactNode;
@@ -23,7 +24,6 @@ export default function SafeQuizLoader({ children }: SafeQuizLoaderProps) {
       setIsMobileBrowser(isMobile);
       
       // Add to debug logs
-      console.log(`SafeQuizLoader: Mobile browser detected: ${isMobile}`);
       
       // Cache this info for cross-component usage
       try {
@@ -38,12 +38,7 @@ export default function SafeQuizLoader({ children }: SafeQuizLoaderProps) {
     <AuthStateHandler 
       maxWaitTime={isMobileBrowser ? 800 : 1500}
       skipAuthCheck={isMobileBrowser}
-      fallback={
-        <div className="min-h-screen flex flex-col items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-          <p className="text-blue-500">Loading quiz...</p>
-        </div>
-      }
+      fallback={<LobbySkeleton />}
     >
       {children}
     </AuthStateHandler>

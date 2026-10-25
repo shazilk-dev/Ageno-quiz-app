@@ -1330,7 +1330,7 @@ const ProfilePage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-neutral-50">
-      <main className="container mx-auto px-4 py-12">
+      <div className="container mx-auto px-4 py-12">
         <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="md:flex">
             {/* Sidebar */}
@@ -1482,7 +1482,7 @@ const ProfilePage = () => {
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };

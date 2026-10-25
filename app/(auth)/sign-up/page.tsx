@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Header from "@/components/Header";
 import { useAuth } from "@/contexts/auth-context";
 import { signOut } from "@/lib/actions/auth.actions";
 
@@ -183,7 +182,6 @@ const SignUp = () => {
   };
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-neutral-50">
-      <Header />
       
       {/* Background decorative elements */}
       <div className="fixed inset-0 overflow-hidden z-0 pointer-events-none">
@@ -192,7 +190,7 @@ const SignUp = () => {
         <div className="absolute top-2/3 left-[50%] w-64 h-64 rounded-full bg-gradient-to-bl from-purple-300/5 to-indigo-400/10 blur-3xl animate-float-slow-reverse"></div>
       </div>
       
-      <main className="container mx-auto px-4 py-12 relative z-10">
+      <div className="container mx-auto px-4 py-12 relative z-10">
         <div className="max-w-md mx-auto">
           <div className="p-8 rounded-2xl shadow-lg border border-gray-100 backdrop-blur-sm bg-white/95">
             {checkingSession ? (
@@ -463,7 +461,7 @@ const SignUp = () => {
             )}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };

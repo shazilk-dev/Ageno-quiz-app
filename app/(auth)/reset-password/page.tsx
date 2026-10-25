@@ -4,7 +4,6 @@ import { useState } from "react";
 // import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { resetPassword } from "@/lib/actions/auth.actions";
-import Header from "@/components/Header";
 
 const ResetPasswordPage = () => {
   const [email, setEmail] = useState("");
@@ -59,9 +58,8 @@ const ResetPasswordPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-neutral-50">
-      <Header />
 
-      <main className="container mx-auto px-4 py-12">
+      <div className="container mx-auto px-4 py-12">
         <div className="max-w-md mx-auto">
           <div className="bg-white p-8 rounded-xl shadow-sm">
             <div className="text-center mb-8">
@@ -163,7 +161,7 @@ const ResetPasswordPage = () => {
             </p>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };

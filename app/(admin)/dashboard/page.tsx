@@ -319,7 +319,7 @@ export default function Dashboard() {
           <div className="p-4 border-b border-gray-200 flex justify-between items-center">
             <h2 className="text-lg font-medium">Recent Quizzes</h2>
             <Link
-              href="/admin/quizzes"
+              href="/quizzes"
               className="text-sm text-purple-600 hover:text-purple-800"
             >
               View all
@@ -342,7 +342,7 @@ export default function Dashboard() {
                     {" "}
                     <button
                       onClick={() =>
-                        router.push(`/admin/quizzes/${quiz.id}/edit`)
+                        router.push(`/quizzes/${quiz.id}/edit`)
                       }
                       className="text-blue-600 hover:text-blue-800"
                     >
@@ -361,7 +361,7 @@ export default function Dashboard() {
               <div className="p-4 text-center text-gray-500">
                 No quizzes yet.{" "}
                 <Link
-                  href="/admin/quizzes/new"
+                  href="/quizzes/new"
                   className="text-purple-600 hover:text-purple-800"
                 >
                   Create one
@@ -377,7 +377,7 @@ export default function Dashboard() {
           <div className="p-4 border-b border-gray-200 flex justify-between items-center">
             <h2 className="text-lg font-medium">Recent Quiz Attempts</h2>
             <Link
-              href="/admin/quiz-reports"
+              href="/quiz-reports"
               className="text-sm text-purple-600 hover:text-purple-800"
             >
               View all

@@ -153,7 +153,6 @@ export async function GET(request: NextRequest) {
     // Get user ID from query params
     const targetUserId = request.nextUrl.searchParams.get("uid");
 
-    console.log("Attempting to fetch user with ID:", targetUserId);
 
     // Validate targetUserId format
     if (!targetUserId) {
