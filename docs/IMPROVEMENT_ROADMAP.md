@@ -3,9 +3,9 @@
 **Purpose:** turn Ageno Quiz into a professional, industry-level quiz and exam platform that belongs to the **Agenoverse** brand. The plan spans multiple sessions and tracks its own progress.
 
 - **Created:** 2026-10-23
-- **Last updated:** 2026-10-25 (Session 7)
-- **Current phase:** 5 (Integrity and security). P5.1, P5.2, P5.3 and P5.8 are done. P5.4, P5.5, P5.6, P5.7 and P5.9 are built and tested but **not deployed or checked in a browser yet**; the strict Firestore rules (P5.5) are written but the interim rules are still live.
-- **Next up:** the user deploys the app, checks it (Session 7, "Deploy order and checks"), then deploys `firestore.rules` and checks again; then tick P5.4–P5.7 and P5.9, close Phase 5, and start Phase 6. Decision pending: raw % or weighted score as the headline (P5.3).
+- **Last updated:** 2026-10-26 (Session 8)
+- **Current phase:** 6 (Data layer cleanup), not started. Phase 5 is closed (Session 8).
+- **Next up:** P6.1 (one question schema). Items carried over from Phase 5 are listed in the Session 8 log: the raw-vs-weighted score decision, rate limiting, the speed plan.
 
 ---
 
@@ -36,7 +36,7 @@ Decisions already made with the user:
 | 2 | Join page | Done |
 | 3 | Quiz lobby (intro) | Done |
 | 4 | Exam-taking experience | Done (awaiting the user's check with a real quiz) |
-| 5 | Integrity and security | In progress (P5.1–P5.3, P5.8 done; P5.4–P5.7, P5.9 built, awaiting deploy and a check) |
+| 5 | Integrity and security | Done |
 | 6 | Data layer cleanup | Not started |
 | 7 | App-wide polish and accessibility | Not started |
 | 8 | Agenoverse integration and pro exam features | Backlog |
@@ -343,11 +343,11 @@ Without this, Ageno Quiz isn't really an exam system. The live app works, so the
   - Fix the mismatched default multipliers: 1.0 in `client.tsx:377` vs 1.5/2.0 in `firestore.ts:577-581`.
   - Remove the fallback in `firestore.ts:464-471` that rebuilds questions from the user's own answers, which marks every answer correct.
   - **Decision needed:** keep "raw % × multiplier, capped at 100", where 50% on hard counts as 100%, or store the raw score and weighted points separately. The recommendation is to store both and show raw % as the score.
-- [ ] **P5.4 Separate the URL from the access code.** *(Built in Session 7, see its log; unticked until checked on a deployed build.)*
+- [x] **P5.4 Separate the URL from the access code.** *(Done in Session 7, checked on the deployed app in Session 8.)*
   - Move quizzes to `/q/{slug-or-id}`.
   - Verify the access code on the server, and never send it to `/join`.
   - `getActiveQuizzes` (`firestore.ts:187`) stops returning codes and filters on `isPublic && active`.
-- [ ] **P5.5 Rewrite `firestore.rules`.** *(Rules written and tested in the emulator in Session 7, **not deployed**. The leaderboard now reads through the server, so the "public projection" item is done.)*
+- [x] **P5.5 Rewrite `firestore.rules`.** *(Done: the strict rules were deployed on 2026-10-26, released ruleset `1fe269e9-5319-4277-a69f-dcbb5ae4f4ee`, and confirmed identical to `firestore.rules` in the repo. Anonymous reads of quizzes, users, responses, attempts and the answer key all return 403.)*
   - **Cover these collections:**
     - `responses` (top-level)
     - `questions_{easy,medium,hard}`: admin only, players get questions through the API
@@ -357,15 +357,15 @@ Without this, Ageno Quiz isn't really an exam system. The live app works, so the
   - Fix the `isPublished` vs `isPublic` mismatch.
   - The leaderboard reads other users' docs, so give it a public projection or denormalized display names.
   - Deploy the rules and verify them.
-- [ ] **P5.6 Middleware** (`middleware.ts`). *(Built in Session 7: server-side admin gate, real admin paths. Unticked until checked with a real admin login.)*
+- [x] **P5.6 Middleware** (`middleware.ts`). *(Done in Session 7, checked on the deployed app in Session 8.)*
   - The admin matcher checks for `/admin`, but the real admin routes are `/dashboard`, `/quizzes`, `/users`, `/quiz-reports` and `/settings`.
   - `QUIZ_CODE_PATTERN` (`:55`) treats those paths as public quiz codes. Once quizzes live under `/q/` (P5.4), that problem goes away.
   - Verify the session cookie on the server in the `(admin)` layout instead of trusting the `user_role` cookie.
-- [ ] **P5.7 Remove the mobile auth bypass.** *(Built in Session 7: same sign-in rule on every device; starting a quiz needs an account. Unticked until checked on a phone.)*
+- [x] **P5.7 Remove the mobile auth bypass.** *(Done in Session 7, checked on the deployed app in Session 8.)*
   - `SafeQuizLoader` passes `skipAuthCheck={isMobileBrowser}`.
   - `app/(user)/layout.tsx:57` skips the check on mobile too.
 - [x] **P5.8 Block dev routes in production:** `app/(dev)/*` and `/api/auth/session/debug`. *(Done in Session 7 and checked against a production build: all three return 404.)*
-- [ ] **P5.9 Server-side integrity signals.** (The browser side of fullscreen exits is already counted; see Session 5.) *(Built in Session 7: numbered events, server timestamps, server-derived counts. Unticked until a real attempt shows them in the reports.)*
+- [x] **P5.9 Server-side integrity signals.** (The browser side of fullscreen exits is already counted; see Session 5.) *(Done in Session 7, checked on the deployed app in Session 8.)*
   - Record tab switches, blur and leaving fullscreen as events on the attempt doc, timestamped when the server receives them.
   - Keep the "camera" stub out of the UI until it's real.
 
@@ -468,6 +468,25 @@ Add new entries at the top. Template:
 - Notes/blockers: …
 - Next up: P0.3
 ```
+
+### 2026-10-26 — Session 8 (Phase 5 closed)
+- Done: Phase 5 is closed. P5.4, P5.5, P5.6, P5.7 and P5.9 are ticked, so P5.1–P5.9 are all done.
+  - **What happened since Session 7:** the user pushed `d4b3bb2`, Vercel deployed it, the user checked the app and reported that it works, and then deployed the strict `firestore.rules`.
+  - **What I verified myself (read-only):** the live ruleset is `1fe269e9-5319-4277-a69f-dcbb5ae4f4ee` (released 2026-10-26 02:17 UTC), it is **identical to `firestore.rules` in the repo**, and anonymous requests to quizzes, users, responses, attempts and a question list (the answer key) all return 403. Rollback target if ever needed: the interim ruleset `58ee6f53-dc81-4c72-83a6-8f45b1cc3e79`.
+  - **What the user checked:** their report is that the deployed app works with the strict rules live. I did not get a per-screen list, so these specific things are **not individually confirmed**: a phone, a strict-mode quiz showing fullscreen exits and focus loss in the admin reports, and the "Window focus lost" line on the results. If any of them misbehaves, it is a bug to fix in a later session, not an open Phase 5 task.
+  - **Phase 5 "Done when", one by one:**
+    1. *No answer data reaches the browser before submit:* the lobby and attempt responses carry no key (tested against the emulator and a production build), and the key can't be read from Firestore either (403, live).
+    2. *A forged `addDoc` to `responses` is denied:* the live rules allow no create or update on `responses` or `answers` (20 rules tests, rules confirmed identical to the repo).
+    3. *A late submit is rejected:* a submit after deadline + 30s is not read; the attempt is finished from the last autosave and marked `late` (server tests).
+    4. *Non-admins are redirected away from admin routes without client JS:* the admin layout is a server component that verifies the session cookie and role; a forged `session` + `user_role=admin` cookie pair was refused against a production build.
+- **Carried over from Phase 5 (nothing here blocks Phase 6):**
+  - **Decision pending, P5.3:** show the raw percentage as the headline score, or keep the weighted one? Both are stored (`rawPercent`, `score`). Recommendation: raw % as the headline with the multiplier shown as separate points. The leaderboard's own 1.0/1.3/1.6 weighting on an already-weighted score should be fixed in the same change (`lib/leaderboard.ts`, P7.2).
+  - **Rate limiting:** `POST /api/quizzes/resolve` and `POST /api/attempts/start` have none, and codes are 5–6 capitals and digits. Belongs with the operations work (a shared store such as Upstash, since serverless instances don't share memory).
+  - **Speed plan** (discussed in Session 7's chat, not started): put the Vercel function region next to the database (`eur3`, so `fra1`), measure with `Server-Timing`, keep the exam's functions warm, cache question sets briefly, store question counts on the quiz document, turn on the Firestore offline cache. The leaderboard and My quizzes part is already done.
+  - **Operations, not scheduled:** an automated test run on every push (there is still no `npm test`), error monitoring, Firebase App Check, Firestore backups, a committed `firestore.indexes.json`.
+  - **Known loose ends:** `/my-quizzes` and the leaderboard still use the old light styling (P7.1/P7.2); the admin screens still use alert()/stock colours (P7.3); `services/quizService.ts` and `hooks/useQuiz.ts` are dead code (P6.3); a tab left open on a pre-Session-7 version can't submit and needs a reload.
+- Verified: nothing was changed in the app this session (docs only), so `tsc`/`lint`/`build`/tests from Session 7 stand. The only checks were the read-only rules comparison above.
+- Next up: Phase 6, starting with P6.1 (one question schema). Read the admin create/edit pages first: `quizzes/new` writes `questions_{difficulty}`, while the detail and edit pages still read and write the legacy `questions` collection, and the server reads `questions_{level}` and falls back to the legacy one.
 
 ### 2026-10-25 — Session 7 (Phase 5, continued)
 - Done: P5.2 and P5.3 ticked (the user took a real quiz on the deployed build and it worked). P5.8 done. P5.4, P5.5, P5.6, P5.7 and P5.9 built and tested, **not deployed**. A dependency security update (Next 15.5.28) is in Session 6's log below.
