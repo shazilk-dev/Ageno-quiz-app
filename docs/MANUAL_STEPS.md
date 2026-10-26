@@ -131,6 +131,16 @@ Checks on the deployed site (about 5 minutes):
 - [ ] Change your display name on Profile: the leaderboard shows the new name (within a few seconds).
 - [ ] As admin, **Quizzes**: the result counts match the **Reports** screen for each quiz.
 
+## Admin Phase A4.3 (trash; after it is deployed)
+
+Deleting a quiz now moves it to the trash; it is no longer permanent. Check in the deployed admin (about 5 minutes), ideally on a throwaway quiz that has at least one result:
+- [ ] **Quizzes → Delete** on that quiz: the dialog says its questions and results are kept. After confirming, it leaves the Quizzes tab and shows under **Trash**.
+- [ ] Signed out (or in another browser), the quiz is gone from `/join`, and its link and access code no longer open it.
+- [ ] The leaderboard no longer shows that quiz (all-time, week and month).
+- [ ] **Trash → Restore**: the quiz is listed again, its link works, and the leaderboard has the same people and points as before.
+- [ ] **Trash → Delete forever**: the button stays disabled until the exact title is typed; the dialog states how many results go. After confirming, the quiz and its results are gone for good.
+- [ ] Dashboard: the quiz count drops when a quiz goes to the trash.
+
 ## Admin Phase A1 (question model v2; on branch `phase-7-polish`, not merged or pushed yet)
 
 A1 lets a question have several correct answers, adds a reason per option, and stores a result's answers as one `sheet` on the result instead of one document each. Old quizzes, old results and attempts in progress keep working without any step from you.

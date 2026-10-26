@@ -59,6 +59,8 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "@/firebase/admin";
 import { POST as registerRoute } from "@/app/api/auth/user/route";
 import { DELETE as deleteQuizRoute, GET as getQuizRoute, PUT as putQuizRoute } from "@/app/api/admin/quizzes/[quizId]/route";
+import { POST as foreverRoute } from "@/app/api/admin/quizzes/[quizId]/delete-forever/route";
+import { POST as restoreRoute } from "@/app/api/admin/quizzes/[quizId]/restore/route";
 import { GET as listRoute, POST as createRoute } from "@/app/api/admin/quizzes/route";
 import { GET as reportsRoute } from "@/app/api/admin/reports/route";
 import { GET as statsRoute } from "@/app/api/admin/stats/route";
@@ -68,6 +70,7 @@ import { POST as startRoute } from "@/app/api/attempts/start/route";
 import { POST as submitRoute } from "@/app/api/attempts/[id]/submit/route";
 import { GET as publicQuizRoute } from "@/app/api/quizzes/[quizId]/route";
 import { GET as publicListRoute } from "@/app/api/quizzes/route";
+import { POST as resolveRoute } from "@/app/api/quizzes/resolve/route";
 import { backfillLeaderboard } from "@/lib/server/leaderboard-store";
 import { backfillSheets } from "@/lib/server/response-sheets";
 import { migrateLegacyQuestions } from "@/lib/server/legacy-questions";
@@ -132,6 +135,24 @@ const save = (id: string, body: unknown, token: string | null = ADMIN) =>
   putQuizRoute(request(`/api/admin/quizzes/${id}`, "PUT", token ?? undefined, body), quizCtx(id));
 const remove = (id: string, token: string | null = ADMIN) =>
   deleteQuizRoute(request(`/api/admin/quizzes/${id}`, "DELETE", token ?? undefined), quizCtx(id));
+/** One attempt at a quiz made by `createOk()` (two easy questions): every answer right, or none. */
+async function play(quizId: string, player: string, right = true): Promise<number> {
+  const key = new Map((await open(quizId)).levels.easy!.questions.map((x) => [x.text, x.options.findIndex((o) => o.isCorrect)]));
+  const started = await startRoute(request("/api/attempts/start", "POST", `uid:${player}`, { quizId, difficulty: "easy" }));
+  expect(started.status).toBe(201);
+  const attempt = (await started.json()) as AttemptState;
+  const answers = Object.fromEntries(attempt.questions.map((x) => [x.id, right ? key.get(x.text) : 2]));
+  const submitted = await submitRoute(
+    request(`/api/attempts/${attempt.attemptId}/submit`, "POST", `uid:${player}`, { answers }),
+    { params: Promise.resolve({ id: attempt.attemptId }) }
+  );
+  expect(submitted.status).toBe(200);
+  return ((await submitted.json()) as SubmitResult).score as number;
+}
+const restore = (id: string, token: string | null = ADMIN) =>
+  restoreRoute(request(`/api/admin/quizzes/${id}/restore`, "POST", token ?? undefined), quizCtx(id));
+const forever = (id: string, title: unknown, token: string | null = ADMIN) =>
+  foreverRoute(request(`/api/admin/quizzes/${id}/delete-forever`, "POST", token ?? undefined, { title }), quizCtx(id));
 const errorCode = async (response: Response) => (await response.json()).error;
 
 /** The editor's copy of a stored quiz, ready to send back with changes. */
@@ -150,6 +171,8 @@ describe.skipIf(!emulator)("the admin guard", () => {
       getQuizRoute(request(`/api/admin/quizzes/${id}`, "GET", token ?? undefined), quizCtx(id)),
       save(id, { ...input(), version: 0 }, token),
       remove(id, token),
+      restore(id, token),
+      forever(id, "x", token),
       deleteUserRoute(request("/api/admin/users/x", "DELETE", token ?? undefined), { params: Promise.resolve({ uid: "x" }) }),
       patchUserRoute(request("/api/admin/users/x", "PATCH", token ?? undefined, { role: "admin" }), { params: Promise.resolve({ uid: "x" }) }),
       listUsersRoute(request("/api/admin/users", "GET", token ?? undefined)),
@@ -468,7 +491,15 @@ describe.skipIf(!emulator)("deleting a quiz", () => {
     const list = (await (await listRoute(request("/api/admin/quizzes", "GET", ADMIN))).json()) as { quizzes: AdminQuizSummary[] };
     expect(list.quizzes.find((row) => row.id === id)?.responseCount).toBe(3);
 
-    const response = await remove(id);
+    // Deleting moves it to the trash; only "delete forever" removes data.
+    const trashed = await remove(id);
+    expect(trashed.status).toBe(200);
+    expect(await trashed.json()).toEqual({ responseCount: 3 });
+    expect((await db.doc(`quizzes/${id}`).get()).exists).toBe(true);
+    expect((await db.collection("responses").where("quizId", "==", id).get()).size).toBe(3);
+
+    const title = (await db.doc(`quizzes/${id}`).get()).data()!.title as string;
+    const response = await forever(id, title);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ deletedResults: 3 });
 
@@ -490,6 +521,132 @@ describe.skipIf(!emulator)("deleting a quiz", () => {
   it("says 404 for a quiz that isn't there", async () => {
     expect((await remove("never-existed")).status).toBe(404);
     expect((await remove("../up")).status).toBe(400);
+    expect((await restore("never-existed")).status).toBe(404);
+    expect((await forever("never-existed", "x")).status).toBe(404);
+  });
+});
+
+describe.skipIf(!emulator)("the trash", () => {
+  const publicIds = async () =>
+    ((await (await publicListRoute()).json()) as { quizzes: { id: string }[] }).quizzes.map((q) => q.id);
+  const startAs = (quizId: string, user: string, accessCode?: string) =>
+    startRoute(request("/api/attempts/start", "POST", `uid:${user}`, { quizId, difficulty: "easy", accessCode }));
+
+  it("hides a quiz from players, closes running attempts, keeps the results, and lists it as trashed", async () => {
+    const { id, accessCode } = await createOk();
+    const player = unique("p");
+    const runner = unique("runner");
+    const running = (await (await startAs(id, runner)).json()) as AttemptState;
+    await play(id, player);
+    expect(await publicIds()).toContain(id);
+
+    expect((await remove(id)).status).toBe(200);
+
+    expect(await publicIds()).not.toContain(id);
+    expect((await publicQuizRoute(new Request("http://localhost/x"), quizCtx(id))).status).toBe(404);
+    const resolved = await resolveRoute(request("/api/quizzes/resolve", "POST", undefined, { code: accessCode }));
+    expect(resolved.status).toBe(404);
+    expect((await startAs(id, unique("late"))).status).toBe(404);
+
+    // An attempt that was running can't be submitted, so it can't put the quiz back on a board.
+    const late = await submitRoute(
+      request(`/api/attempts/${running.attemptId}/submit`, "POST", `uid:${runner}`, { answers: {} }),
+      { params: Promise.resolve({ id: running.attemptId }) }
+    );
+    expect(late.status).not.toBe(200);
+    expect((await db.doc(`attempts/${running.attemptId}`).get()).data()!.status).toBe("abandoned");
+
+    // Nothing is deleted: the quiz, its questions and the results are all still there.
+    const row = await (async () => {
+      const list = (await (await listRoute(request("/api/admin/quizzes", "GET", ADMIN))).json()) as { quizzes: AdminQuizSummary[] };
+      return list.quizzes.find((quiz) => quiz.id === id);
+    })();
+    expect(row).toMatchObject({ id, responseCount: 1, counts: { easy: 2 } });
+    expect(row!.deletedAt).toBeGreaterThan(0);
+    expect((await db.collection(`quizzes/${id}/questions_easy`).get()).size).toBe(2);
+    expect((await db.collection("responses").where("quizId", "==", id).get()).size).toBe(1);
+    expect((await db.doc(`quizzes/${id}`).get()).data()).toMatchObject({ deletedBy: "root" });
+  });
+
+  it("refuses to edit a quiz in the trash, and trashing twice is harmless", async () => {
+    const { id } = await createOk();
+    const detail = await open(id);
+    expect((await remove(id)).status).toBe(200);
+    const before = (await db.doc(`quizzes/${id}`).get()).data()!.deletedAt;
+    expect((await remove(id)).status).toBe(200);
+    expect((await db.doc(`quizzes/${id}`).get()).data()!.deletedAt).toEqual(before);
+
+    const refused = await save(id, { ...asInput(detail), title: "Changed" });
+    expect(refused.status).toBe(409);
+    expect(await errorCode(refused)).toBe("quiz_in_trash");
+  });
+
+  it("restores a quiz: listed again, startable, and its results back on the boards", async () => {
+    const { id } = await createOk();
+    const kept = await createOk();
+    const both = unique("both");
+    const onlyHere = unique("only");
+    await play(id, both);
+    await play(id, both, false);
+    await play(kept.id, both);
+    await play(id, onlyHere, false);
+    const entryOf = async (quizId: string, userId: string) =>
+      (await db.collection("leaderboard").doc(entryId(quizId, userId)).get()).data() as EntryDoc | undefined;
+    const totalsOf = async (userId: string) =>
+      (await db.collection("userTotals").doc(userId).get()).data() as TotalsDoc | undefined;
+    const beforeEntry = await entryOf(id, both);
+    const beforeTotals = await totalsOf(both);
+
+    expect((await remove(id)).status).toBe(200);
+    expect(await entryOf(id, both)).toBeUndefined();
+    expect(await totalsOf(onlyHere)).toBeUndefined();
+    expect(await totalsOf(both)).toMatchObject({ quizCount: 1 });
+
+    expect((await restore(id)).status).toBe(200);
+    expect(await publicIds()).toContain(id);
+    expect((await startAs(id, unique("again"))).status).toBe(201);
+    expect((await db.doc(`quizzes/${id}`).get()).data()!.deletedAt).toBeUndefined();
+
+    // The same numbers as before it went to the trash.
+    const pick = ({ score, attempts, difficulty }: EntryDoc) => ({ score, attempts, difficulty });
+    expect(pick((await entryOf(id, both))!)).toEqual(pick(beforeEntry!));
+    const sums = ({ points, quizCount, attempts }: TotalsDoc) => ({ points, quizCount, attempts });
+    expect(sums((await totalsOf(both))!)).toEqual(sums(beforeTotals!));
+    expect(await totalsOf(onlyHere)).toMatchObject({ quizCount: 1, points: 0 });
+    // Restoring one that is not in the trash changes nothing.
+    expect((await restore(id)).status).toBe(200);
+  });
+
+  it("leaves a trashed quiz out of the week and month boards and the dashboard count", async () => {
+    const before = ((await (await statsRoute(request("/api/admin/stats", "GET", ADMIN))).json()) as DashboardData).totals.quizzes;
+    const { id } = await createOk();
+    expect(((await (await statsRoute(request("/api/admin/stats", "GET", ADMIN))).json()) as DashboardData).totals.quizzes).toBe(before + 1);
+    expect((await remove(id)).status).toBe(200);
+    expect(((await (await statsRoute(request("/api/admin/stats", "GET", ADMIN))).json()) as DashboardData).totals.quizzes).toBe(before);
+  });
+
+  it("deletes for good only from the trash, only with the exact title, and then really removes everything", async () => {
+    const { id } = await createOk();
+    const title = (await db.doc(`quizzes/${id}`).get()).data()!.title as string;
+    await play(id, unique("p"));
+
+    const notTrashed = await forever(id, title);
+    expect(notTrashed.status).toBe(409);
+    expect(await errorCode(notTrashed)).toBe("quiz_not_in_trash");
+
+    expect((await remove(id)).status).toBe(200);
+    for (const wrong of ["", "wrong title", undefined, 42]) {
+      const response = await forever(id, wrong);
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe("title_mismatch");
+    }
+    expect((await db.doc(`quizzes/${id}`).get()).exists).toBe(true);
+
+    const done = await forever(id, `  ${title} `);
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual({ deletedResults: 1 });
+    expect((await db.doc(`quizzes/${id}`).get()).exists).toBe(false);
+    expect((await db.collection("responses").where("quizId", "==", id).get()).empty).toBe(true);
   });
 });
 
@@ -503,20 +660,6 @@ describe.skipIf(!emulator)("the leaderboard and result counts", () => {
       (row) => row.id === id
     );
 
-  /** One attempt at a quiz made by `createOk()` (two easy questions): every answer right, or none. */
-  async function play(quizId: string, player: string, right = true): Promise<number> {
-    const key = new Map((await open(quizId)).levels.easy!.questions.map((x) => [x.text, x.options.findIndex((o) => o.isCorrect)]));
-    const started = await startRoute(request("/api/attempts/start", "POST", `uid:${player}`, { quizId, difficulty: "easy" }));
-    expect(started.status).toBe(201);
-    const attempt = (await started.json()) as AttemptState;
-    const answers = Object.fromEntries(attempt.questions.map((x) => [x.id, right ? key.get(x.text) : 2]));
-    const submitted = await submitRoute(
-      request(`/api/attempts/${attempt.attemptId}/submit`, "POST", `uid:${player}`, { answers }),
-      { params: Promise.resolve({ id: attempt.attemptId }) }
-    );
-    expect(submitted.status).toBe(200);
-    return ((await submitted.json()) as SubmitResult).score as number;
-  }
 
   it("lists a new quiz's stored count, kept by each submit, and counts an older quiz without one", async () => {
     const { id } = await createOk();
@@ -996,7 +1139,9 @@ describe.skipIf(!emulator)("reports and the dashboard", () => {
     const data = (await (await statsRoute(request("/api/admin/stats", "GET", ADMIN))).json()) as DashboardData;
 
     expect(data.totals.users).toBe((await db.collection("users").count().get()).data().count);
-    expect(data.totals.quizzes).toBe((await db.collection("quizzes").count().get()).data().count);
+    // Quizzes in the trash are not counted.
+    const inUse = (await db.collection("quizzes").select("deletedAt").get()).docs.filter((d) => !d.get("deletedAt"));
+    expect(data.totals.quizzes).toBe(inUse.length);
     expect(data.totals.attempts).toBe((await db.collection("responses").count().get()).data().count);
     const scores = (await db.collection("responses").get()).docs.map((d) => d.data().score).filter((x) => typeof x === "number");
     expect(data.totals.averageScore).toBe(Math.round(scores.reduce((a, b) => a + b, 0) / scores.length));

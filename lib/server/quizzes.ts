@@ -19,6 +19,7 @@ const PUBLIC_FIELDS = [
   "createdAt",
   "isPublic",
   "active",
+  "deletedAt",
 ] as const;
 
 const createdMs = (data: Record<string, unknown>): number =>
@@ -69,7 +70,7 @@ export function listPublicQuizzes(): Promise<PublicQuizDTO[]> {
     return snapshot.docs
       .filter((doc) => {
         const data = doc.data();
-        return data.isPublic !== false && data.active !== false;
+        return data.isPublic !== false && data.active !== false && !data.deletedAt;
       })
       .map((doc) => toPublicQuizDTO(doc.id, doc.data(), createdMs(doc.data())));
   });
@@ -87,7 +88,8 @@ export async function getPublicQuiz(quizId: unknown): Promise<PublicQuizInfo> {
     const [snap] = await db.getAll(db.collection("quizzes").doc(quizId), {
       fieldMask: [...PUBLIC_FIELDS, "questionCountByDifficulty"],
     });
-    if (!snap.exists) return null;
+    // A quiz in the trash is gone as far as players can tell.
+    if (!snap.exists || snap.data()?.deletedAt) return null;
     const data = snap.data() ?? {};
     const quiz = toPublicQuizDTO(snap.id, data, createdMs(data));
     return {
@@ -114,11 +116,11 @@ export async function resolveQuizId(code: unknown): Promise<string> {
   const found = await db
     .collection("quizzes")
     .where("accessCode", "in", spellings)
-    .select("accessCode")
+    .select("accessCode", "deletedAt")
     .limit(spellings.length)
     .get();
   for (const spelling of spellings) {
-    const match = found.docs.find((doc) => doc.get("accessCode") === spelling);
+    const match = found.docs.find((doc) => doc.get("accessCode") === spelling && !doc.get("deletedAt"));
     if (match) return match.id;
   }
   throw new ApiError(404, "quiz_not_found", "We couldn't find a quiz with that code. Check it and try again.");

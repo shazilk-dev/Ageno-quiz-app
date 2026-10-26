@@ -141,12 +141,16 @@ const RECENT_FOR_CHARTS = 50;
 export async function getDashboard(): Promise<DashboardData> {
   const [users, quizzes, attempts, recentQuizzes, recent] = await Promise.all([
     db.collection("users").count().get(),
-    db.collection("quizzes").count().get(),
+    // Quizzes in the trash are not counted as quizzes.
+    Promise.all([
+      db.collection("quizzes").count().get(),
+      db.collection("quizzes").where("deletedAt", ">", Timestamp.fromMillis(0)).count().get(),
+    ]),
     db
       .collection("responses")
       .aggregate({ total: AggregateField.count(), average: AggregateField.average("score") })
       .get(),
-    db.collection("quizzes").orderBy("createdAt", "desc").limit(5).select("title", "createdAt").get(),
+    db.collection("quizzes").orderBy("createdAt", "desc").limit(15).select("title", "createdAt", "deletedAt").get(),
     db
       .collection("responses")
       .orderBy("submittedAt", "desc")
@@ -159,15 +163,18 @@ export async function getDashboard(): Promise<DashboardData> {
   return {
     totals: {
       users: users.data().count,
-      quizzes: quizzes.data().count,
+      quizzes: Math.max(0, quizzes[0].data().count - quizzes[1].data().count),
       attempts: total,
       averageScore: average === null ? 0 : Math.round(average),
     },
-    recentQuizzes: recentQuizzes.docs.map((doc) => ({
-      id: doc.id,
-      title: String(doc.data().title || "Untitled quiz"),
-      createdAt: ms(doc.data().createdAt) ?? 0,
-    })),
+    recentQuizzes: recentQuizzes.docs
+      .filter((doc) => !doc.data().deletedAt)
+      .slice(0, 5)
+      .map((doc) => ({
+        id: doc.id,
+        title: String(doc.data().title || "Untitled quiz"),
+        createdAt: ms(doc.data().createdAt) ?? 0,
+      })),
     recent: await toRows(recent.docs),
   };
 }

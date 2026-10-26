@@ -160,6 +160,13 @@ async function periodRanking(timeFrame: "week" | "month", quizId: string | null,
     console.warn(`Leaderboard (${timeFrame}${quizId ? `, quiz ${quizId}` : ""}) read only the newest ${PERIOD_READ_LIMIT} results.`);
   }
 
+  // Results of quizzes in the trash are kept but don't count anywhere.
+  const trashed = new Set(
+    (await db.collection("quizzes").where("deletedAt", ">", Timestamp.fromMillis(0)).select().get()).docs.map(
+      (doc) => doc.id
+    )
+  );
+
   const rows: LeaderboardRow[] = snapshot.docs
     .map((doc) => {
       const data = doc.data();
@@ -172,7 +179,7 @@ async function periodRanking(timeFrame: "week" | "month", quizId: string | null,
         submittedAt: ms(data.submittedAt),
       };
     })
-    .filter((row) => !level || row.selectedDifficulty === level);
+    .filter((row) => (!level || row.selectedDifficulty === level) && !trashed.has(row.quizId));
 
   const board: BoardDTO = quizId
     ? { mode: "quiz", entries: buildQuizBoard(rows, {}), me: null, total: 0 }

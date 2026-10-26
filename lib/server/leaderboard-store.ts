@@ -106,6 +106,59 @@ export async function removeQuizFromLeaderboard(quizId: string): Promise<void> {
 }
 
 /**
+ * When a quiz comes back from the trash: its entries are built again from its results, and each person's
+ * totals are worked out again with it. (Results are never touched by the trash, so this is the same
+ * computation the backfill does, for one quiz.)
+ */
+export async function restoreQuizToLeaderboard(quizId: string): Promise<void> {
+  const subs: Submission[] = [];
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+  for (;;) {
+    let page = db
+      .collection("responses")
+      .where("quizId", "==", quizId)
+      .select("userId", "score", "selectedDifficulty", "startedAt", "submittedAt")
+      .orderBy("__name__")
+      .limit(1000);
+    if (cursor) page = page.startAfter(cursor);
+    const snap = await page.get();
+    if (snap.empty) break;
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      if (typeof data.score !== "number" || typeof data.userId !== "string" || !data.userId) continue;
+      subs.push({
+        quizId,
+        userId: data.userId,
+        score: data.score,
+        difficulty: typeof data.selectedDifficulty === "string" ? data.selectedDifficulty : "",
+        startedAt: msOf(data.startedAt),
+        submittedAt: msOf(data.submittedAt) ?? 0,
+      });
+    }
+    cursor = snap.docs[snap.docs.length - 1];
+  }
+
+  const userIds = [...new Set(subs.map((sub) => sub.userId))];
+  const names = new Map<string, string | null>();
+  for (let start = 0; start < userIds.length; start += 300) {
+    const refs = userIds.slice(start, start + 300).map((id) => db.collection("users").doc(id));
+    for (const doc of await db.getAll(...refs, { fieldMask: ["displayName"] })) {
+      names.set(doc.id, nameFrom(doc.data()?.displayName));
+    }
+  }
+
+  const built = aggregate(subs, (userId) => names.get(userId) ?? null);
+  for (let start = 0; start < built.entries.length; start += 450) {
+    const batch = db.batch();
+    for (const entry of built.entries.slice(start, start + 450)) {
+      batch.set(entries().doc(entryId(entry.quizId, entry.userId)), entry);
+    }
+    await batch.commit();
+  }
+  for (const userId of userIds) await recomputeTotals(userId);
+}
+
+/**
  * Copies a new display name onto the person's leaderboard rows (`null`: they no longer have one, or the
  * account was deleted, so the board shows a neutral label). Runs after the profile changed.
  */

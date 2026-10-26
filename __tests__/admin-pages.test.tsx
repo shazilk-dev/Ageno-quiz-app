@@ -6,11 +6,12 @@ import type { AdminUserDTO, ReportRow } from "@/lib/admin-types";
 const api = vi.hoisted(() => ({
   users: { list: vi.fn(), setRole: vi.fn(), remove: vi.fn() },
   reports: { page: vi.fn(), dashboard: vi.fn() },
+  quizzes: { list: vi.fn(), trash: vi.fn(), restore: vi.fn(), deleteForever: vi.fn() },
 }));
 vi.mock("@/lib/admin-api", () => ({
   adminUsers: api.users,
   adminReports: api.reports,
-  adminQuizzes: { remove: vi.fn() },
+  adminQuizzes: api.quizzes,
 }));
 const toast = vi.fn();
 vi.mock("@/components/ui/Toast", async (importOriginal) => ({
@@ -22,7 +23,9 @@ const auth = { user: { uid: "me" }, loading: false, isAdmin: true };
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => auth }));
 
 import QuizReportsPage from "@/app/(admin)/quiz-reports/ReportsClient";
+import QuizzesPage from "@/app/(admin)/quizzes/QuizzesClient";
 import UsersPage from "@/app/(admin)/users/UsersClient";
+import type { AdminQuizSummary } from "@/lib/quiz-schema";
 
 const person = (over: Partial<AdminUserDTO>): AdminUserDTO => ({
   id: "u",
@@ -51,7 +54,7 @@ const result = (over: Partial<ReportRow>): ReportRow => ({
 });
 
 beforeEach(() => {
-  Object.values({ ...api.users, ...api.reports }).forEach((fn) => fn.mockReset());
+  for (const group of [api.users, api.reports, api.quizzes]) Object.values(group).forEach((fn) => fn.mockReset());
   toast.mockReset();
   // jsdom has no modal <dialog>; mimic what showModal and close do to `open`.
   HTMLDialogElement.prototype.showModal = function () {
@@ -232,5 +235,85 @@ describe("Admin pages rendered with their data", () => {
     );
     fireEvent.change(screen.getByLabelText("Quiz"), { target: { value: "q1" } });
     await waitFor(() => expect(api.reports.page).toHaveBeenCalledWith({ quizId: "q1" }));
+  });
+});
+
+describe("Quizzes page and the trash", () => {
+  const quiz = (over: Partial<AdminQuizSummary>): AdminQuizSummary => ({
+    id: "q",
+    title: "Networking",
+    description: "",
+    accessCode: "ABC123",
+    requiresAccessCode: true,
+    isPublic: true,
+    active: true,
+    isAutoCheck: true,
+    examMode: "practice",
+    duration: 20,
+    counts: { easy: 4 },
+    responseCount: 7,
+    createdAt: 1_000,
+    deletedAt: null,
+    ...over,
+  });
+  const list = [quiz({ id: "a", title: "Networking" }), quiz({ id: "b", title: "Old exam", deletedAt: 5_000, responseCount: 3 })];
+
+  it("shows quizzes in use, with the trashed ones under their own tab", async () => {
+    render(<QuizzesPage initial={list} />);
+    expect(screen.getByText("Networking")).toBeTruthy();
+    expect(screen.queryByText("Old exam")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Trash/ }));
+    expect(screen.getByText("Old exam")).toBeTruthy();
+    expect(screen.queryByText("Networking")).toBeNull();
+    expect(screen.getByRole("button", { name: "Restore" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Edit" })).toBeNull();
+  });
+
+  it("moves a quiz to the trash without deleting anything, and says what is kept", async () => {
+    api.quizzes.trash.mockResolvedValue({ responseCount: 7 });
+    render(<QuizzesPage initial={list} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Its 4 questions and 7 results are kept/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move to trash" }));
+
+    await waitFor(() => expect(api.quizzes.trash).toHaveBeenCalledWith("a"));
+    await waitFor(() => expect(screen.queryByText("Networking")).toBeNull());
+    expect(api.quizzes.deleteForever).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Moved to the trash" }));
+  });
+
+  it("restores a quiz from the trash", async () => {
+    api.quizzes.restore.mockResolvedValue({ restored: true });
+    render(<QuizzesPage initial={list} />);
+    fireEvent.click(screen.getByRole("button", { name: /Trash/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+
+    await waitFor(() => expect(api.quizzes.restore).toHaveBeenCalledWith("b"));
+    await waitFor(() => expect(screen.queryByText("Old exam")).toBeNull());
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Quiz restored" }));
+  });
+
+  it("deletes for good only after the title is typed, and says how many results go", async () => {
+    api.quizzes.deleteForever.mockResolvedValue({ deletedResults: 3 });
+    render(<QuizzesPage initial={list} />);
+    fireEvent.click(screen.getByRole("button", { name: /Trash/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete forever" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/3 results/)).toBeTruthy();
+    const confirm = within(dialog).getByRole("button", { name: "Delete forever" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+
+    fireEvent.change(within(dialog).getByLabelText(/Type the quiz's title/), { target: { value: "Old" } });
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText(/Type the quiz's title/), { target: { value: "Old exam" } });
+    expect(confirm.disabled).toBe(false);
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(api.quizzes.deleteForever).toHaveBeenCalledWith("b", "Old exam"));
+    await waitFor(() => expect(screen.queryByText("Old exam")).toBeNull());
   });
 });

@@ -1,6 +1,6 @@
 import { randomInt } from "node:crypto";
 import type { Firestore, Transaction } from "firebase-admin/firestore";
-import { Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "@/firebase/admin";
 import { quizFromData } from "@/lib/quiz-data";
 import {
@@ -29,7 +29,7 @@ import {
   type ExistingQuestions,
   type QuestionWrites,
 } from "@/lib/quiz-writes";
-import { removeQuizFromLeaderboard } from "./leaderboard-store";
+import { removeQuizFromLeaderboard, restoreQuizToLeaderboard } from "./leaderboard-store";
 import { ApiError, assertSafeId } from "./request";
 
 // Everything an admin does to a quiz goes through here: list, open, create, save, delete. The browser
@@ -120,6 +120,7 @@ export async function listAdminQuizzes(): Promise<AdminQuizSummary[]> {
         counts,
         responseCount: await listedResponseCount(doc.id, data),
         createdAt: millis(data.createdAt),
+        deletedAt: data.deletedAt instanceof Timestamp ? data.deletedAt.toMillis() : null,
       };
     })
   );
@@ -329,6 +330,9 @@ export async function updateQuiz(
     if (!snap.exists) {
       throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
     }
+    if (snap.data()?.deletedAt) {
+      throw new ApiError(409, "quiz_in_trash", "This quiz is in the trash. Restore it before editing.");
+    }
     if (millis(snap.data()?.updatedAt) !== version) {
       throw new ApiError(
         409,
@@ -349,6 +353,75 @@ export async function updateQuiz(
   });
 }
 
+// ---- the trash -------------------------------------------------------------------------------------
+
+/**
+ * Moves a quiz to the trash: players can no longer find or start it, its leaderboard rows are hidden and
+ * attempts still running are closed (so a late submit can't put the quiz back on a board), but the quiz,
+ * its questions and everyone's results stay until it is deleted for good. Moving it back is `restoreQuiz`.
+ */
+export async function trashQuiz(quizId: unknown, adminUid: string): Promise<{ responseCount: number }> {
+  assertSafeId(quizId, "quiz");
+  const ref = quizzes().doc(quizId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
+  if (!snap.data()?.deletedAt) {
+    // First, so nobody can start it from now on; then what is already running; then the boards.
+    await ref.update({ deletedAt: Timestamp.now(), deletedBy: adminUid });
+    await closeRunningAttempts(quizId);
+    await removeQuizFromLeaderboard(quizId);
+  }
+  return { responseCount: await listedResponseCount(quizId, snap.data() ?? {}) };
+}
+
+/** Takes a quiz out of the trash: it is listed again as before, and its results are back on the boards. */
+export async function restoreQuiz(quizId: unknown): Promise<void> {
+  assertSafeId(quizId, "quiz");
+  const ref = quizzes().doc(quizId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
+  if (!snap.data()?.deletedAt) return;
+  // Boards first: if this fails halfway the quiz is still in the trash and can be restored again.
+  await restoreQuizToLeaderboard(quizId);
+  await ref.update({ deletedAt: FieldValue.delete(), deletedBy: FieldValue.delete() });
+}
+
+/** Deletes a quiz in the trash for good. The admin has to type its title, and it has to be in the trash already. */
+export async function deleteQuizForever(
+  quizId: unknown,
+  title: unknown
+): Promise<{ deletedResults: number }> {
+  assertSafeId(quizId, "quiz");
+  const snap = await quizzes().doc(quizId).get();
+  if (!snap.exists) throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
+  if (!snap.data()?.deletedAt) {
+    throw new ApiError(409, "quiz_not_in_trash", "Move the quiz to the trash first.");
+  }
+  const actual = String(snap.data()?.title ?? "").trim();
+  if (typeof title !== "string" || title.trim() !== actual) {
+    throw new ApiError(400, "title_mismatch", "Type the quiz's title exactly to delete it for good.");
+  }
+  return deleteQuiz(quizId);
+}
+
+/** Ends the unfinished attempts at a quiz (they can't be submitted afterwards). */
+async function closeRunningAttempts(quizId: string): Promise<void> {
+  const now = Timestamp.now();
+  for (;;) {
+    const page = await db
+      .collection("attempts")
+      .where("quizId", "==", quizId)
+      .where("status", "==", "in_progress")
+      .select()
+      .limit(300)
+      .get();
+    if (page.empty) return;
+    const batch = db.batch();
+    page.docs.forEach((doc) => batch.update(doc.ref, { status: "abandoned", updatedAt: now }));
+    await batch.commit();
+  }
+}
+
 // ---- deleting --------------------------------------------------------------------------------------
 
 /** Deletes every document a query matches (and what is under each), a page at a time. */
@@ -363,7 +436,7 @@ async function deleteMatching(firestore: Firestore, query: FirebaseFirestore.Que
 }
 
 /**
- * Deletes a quiz together with everything that belongs to it: its questions, people's results (and the
+ * Deletes a quiz together with everything that belongs to it (only `deleteQuizForever` is reachable from a route): its questions, people's results (and the
  * answers under each), its leaderboard rows (each person's totals are worked out again without it), and
  * attempts still on file. The quiz document goes last, so a run that fails halfway leaves a quiz that is
  * still listed and can be deleted again.

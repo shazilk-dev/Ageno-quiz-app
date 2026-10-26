@@ -264,7 +264,7 @@ export async function startAttempt(
       .select()
       .get(),
   ]);
-  if (!quizSnap.exists) {
+  if (!quizSnap.exists || quizSnap.data()?.deletedAt) {
     throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
   }
   const quiz = quizFromData(quizSnap.id, quizSnap.data() ?? {}, new Date());

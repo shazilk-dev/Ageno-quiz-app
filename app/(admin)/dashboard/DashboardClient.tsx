@@ -81,13 +81,10 @@ export default function DashboardClient({ initial = null }: { initial?: Dashboar
     setDeleteBusy(true);
     setDeleteError(null);
     try {
-      const { deletedResults } = await adminQuizzes.remove(deleting.id);
+      await adminQuizzes.trash(deleting.id);
       toast({
-        title: "Quiz deleted",
-        description:
-          deletedResults > 0
-            ? `${deletedResults} ${deletedResults === 1 ? "result was" : "results were"} deleted with it.`
-            : undefined,
+        title: "Moved to the trash",
+        description: "Restore it from Quizzes → Trash.",
         variant: "success",
       });
       setDeleting(null);
@@ -236,15 +233,15 @@ export default function DashboardClient({ initial = null }: { initial?: Dashboar
         open={deleting !== null}
         onClose={() => !deleteBusy && setDeleting(null)}
         dismissible={!deleteBusy}
-        title={deleting ? `Delete "${deleting.title}"?` : "Delete quiz"}
-        description="This permanently deletes the quiz, its questions and the results people earned on it. It can't be undone."
+        title={deleting ? `Move "${deleting.title}" to the trash?` : "Delete quiz"}
+        description="Players won't be able to find or start it. Its questions and results are kept, and you can restore it from Quizzes → Trash."
         footer={
           <>
             <Button variant="ghost" onClick={() => setDeleting(null)} disabled={deleteBusy}>
               Keep quiz
             </Button>
             <Button variant="danger" onClick={confirmDeleteQuiz} loading={deleteBusy}>
-              Delete quiz
+              Move to trash
             </Button>
           </>
         }

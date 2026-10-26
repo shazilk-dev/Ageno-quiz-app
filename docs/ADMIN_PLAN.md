@@ -3,7 +3,7 @@
 **Purpose:** make the admin side fast, safe and pleasant to run: bring a whole quiz in from a file (or from an AI) in minutes, support questions with several correct answers, attach reasoning to every answer option, and see how each question performs. Same rules as the other plans: phases, checkbox tasks, a status table and a session log.
 
 - **Created:** 2026-10-26
-- **Last updated:** 2026-10-26 (Session 12: A1 built and verified except the admin emulator suite and the browser check)
+- **Last updated:** 2026-10-27 (Session 13: A4.3 trash built; A1 verified)
 - **Current phase:** A1 (built; waiting on the browser check in MANUAL_STEPS and one run of `admin-api.test.ts`; then A1.10 one release later, then A2)
 - **Related:** `docs/IMPROVEMENT_ROADMAP.md` (its Phase 8 "Pro exam features" items are folded in here where they touch admin), `docs/PERFORMANCE_PLAN.md` (speed rules still apply), `docs/MANUAL_STEPS.md` (things only the user can do)
 
@@ -34,7 +34,7 @@
 | A1 | Question model v2: several correct answers, reasoning per option, a cheaper submit | P0 | In progress (built; browser check and `admin-api` run outstanding) |
 | A2 | Quiz format, import/export, and the AI skill | P0 | Not started |
 | A3 | Faster editing | P1 | Not started |
-| A4 | Quiz lifecycle (draft, schedule, trash, versions) | P1 | Not started |
+| A4 | Quiz lifecycle (draft, schedule, trash, versions) | P1 | In progress (A4.3 trash done) |
 | A5 | Insights (question analytics, attempt review) | P1 | Not started |
 | A6 | Governance (audit log, editor role, user tools) | P2 | Not started |
 | A7 | AI built into the app (optional) | P3 | Not started |
@@ -291,7 +291,7 @@ Files: `lib/quiz-schema.ts`, `lib/exam/{normalize,scoring,answers,types,storage}
 - [x] **A1.2 Answers as lists.** `AnswerMap`, `sanitizeAnswers` (accepts old and new, enforces `single` ≤ 1), device-storage reader accepts the old shape, `ProgressPatch`; attempt documents read old snapshots and answers.
 - [x] **A1.3 Scoring.** Set equality; `answered`, `isCorrect`, the result fields; tests for single, multiple, none picked, extra pick, missing pick, no key, unknown index.
 - [x] **A1.4 Wire types and leak check** (verified by `attempts-api`: start, resume and the public quiz routes carry only `type` and `pickCount`). `ExamQuestion.type` / `pickCount`; `ReviewItem` v2 with `reviewCorrect()` for stored v1 results; assertions in `attempts-api.test.ts` that start, resume and the public quiz routes never contain `isCorrect`, `correct`, reasons or explanations (only `type` and `pickCount`).
-- [ ] **A1.5 Cheaper submit** (done and verified in `attempts-api`: a 400-question submit writes a sheet and no `answers/*`; the `backfill:sheets` test is in `admin-api.test.ts` and has not been run; tick when it has). Write `responses.sheet` and `schemaVersion`, stop writing `answers/*`; update `attempts-api.test.ts` and `admin-api.test.ts`; assert a 400-question submit writes a handful of documents; `backfill:sheets` script (dry run by default) and its test.
+- [x] **A1.5 Cheaper submit** (verified: a 400-question submit writes a sheet and no `answers/*`; `backfillSheets` test passes in `admin-api.test.ts`). Write `responses.sheet` and `schemaVersion`, stop writing `answers/*`; update `attempts-api.test.ts` and `admin-api.test.ts`; assert a 400-question submit writes a handful of documents; `backfill:sheets` script (dry run by default) and its test.
 - [x] **A1.6 Review derived from the snapshot; size budget** (verified: `attempts-api` review rebuilt from the snapshot and old stored reviews still read; size-budget unit test and editor meter pass). Stop storing review text in `result`; both result entry points rebuild it; old attempts with a stored review still work (emulator test); `maxLevelBytes` validation, editor size meter, worst-case attempt under 1 MiB test.
 - [x] **A1.7 Exam UI.** Checkbox group for `multiple` with "Select all that apply · Choose N", keyboard toggling, navigator "answered", submit dialog counts; update `quiz-attempt.test.tsx` (single and multiple, keyboard only, resume from an old-shape autosave).
 - [ ] **A1.8 Results UI** (built and covered by jsdom tests; the 390×844 look is in MANUAL_STEPS). Per-option reasons and the fold as in 3.1, in both result entry points; check at 390×844 and with long text.
@@ -322,7 +322,7 @@ Files: new `lib/quiz-format/`, `lib/quiz-import/`, `components/admin/quiz-import
 **Done when:** twenty typos across a quiz can be fixed without leaving the grid, and a closed laptop doesn't lose unsaved work.
 
 ### Phase A4: Quiz lifecycle (P1)
-- [ ] **A4.1** `status` with the migration from `active`. **A4.2** Schedule, attempt limit, cooldown (server-enforced, shown in the lobby). **A4.3** Trash: soft delete, restore, typed-title permanent delete; leaderboard and counts stay right. **A4.4** Revisions. **A4.5** Tags, filters, bulk actions.
+- [ ] **A4.1** `status` with the migration from `active`. **A4.2** Schedule, attempt limit, cooldown (server-enforced, shown in the lobby). **A4.3** Trash: soft delete, restore, typed-title permanent delete; leaderboard and counts stay right. *Done 2026-10-27 (see Session 13). Not built: automatic purge after N days (the optional Vercel cron in the manual steps); trash is emptied by hand with "Delete forever".* **A4.4** Revisions. **A4.5** Tags, filters, bulk actions.
 
 **Done when:** deleting a quiz by mistake is a two-click recovery, and a quiz can be prepared in draft and opened at a set time.
 
@@ -377,6 +377,12 @@ Estimated size (sessions of the kind the other plans used): A1 ≈ 3–4, A2 ≈
 ## Session Log
 
 Add new entries at the top.
+
+### 2026-10-27 — Session 13 (A4.3 trash, done ahead of A2 because one wrong click on Delete destroyed a quiz's results)
+- Done: **Delete now moves a quiz to the trash.** `DELETE /api/admin/quizzes/[id]` sets `deletedAt`/`deletedBy` on the quiz (`trashQuiz`), closes unfinished attempts (so a late submit can't put it back on a board) and removes its leaderboard rows (totals recomputed). Nothing else is deleted. `POST .../restore` (`restoreQuiz`) rebuilds the quiz's leaderboard rows from its results (`restoreQuizToLeaderboard`, same arithmetic as the backfill) and clears the flag. `POST .../delete-forever` (`deleteQuizForever`) only works on a quiz in the trash and needs the exact title in the body; it then runs the old `deleteQuiz`. Players: the public list, the lobby route, the code lookup and starting an attempt all treat a trashed quiz as missing; week and month boards and the dashboard quiz count leave it out; a player can still open their own old result. Saving a trashed quiz is refused (`quiz_in_trash`). The Quizzes screen has Quizzes and Trash tabs, a "Move to trash" dialog saying what is kept, Restore, and "Delete forever" with the title typed and the result count shown; the dashboard's delete also goes to the trash.
+- Decisions: a quiz in the trash is marked by `deletedAt` (no `status` field yet; A4.1 will fold it in); no automatic purge; admin Reports still list results of trashed quizzes (results are kept).
+- Verified: `tsc`, lint clean; `admin-pages` (16, four new for the trash UI); `admin-api` emulator suite 49 of 49 (all new trash tests: hiding, closing attempts, keeping results, restore returning the same board numbers, typed-title rules; plus `backfillSheets`). Nothing looked at in a browser (checklist in MANUAL_STEPS).
+- Next up: A2 (format core first).
 
 ### 2026-10-26 — Session 12 (A1 built)
 - Done: A1.1–A1.9 in code. `lib/exam/normalize.ts` (`type`, `correct: number[]`, `rationales`, `upgradeStoredQuestion` for attempts begun before this), `answers.ts` (answers as lists: `toPicks`, `togglePick`, `picksMatch`), `scoring.ts` (set equality), new `lib/exam/review.ts` (`buildReview`, `upgradeResult`, `reviewCorrect`), `lib/response-sheet.ts`, `lib/server/response-sheets.ts` + `scripts/backfill-sheets.ts` (`npm run backfill:sheets`). Server: sanitiser accepts old and new answers, `owned()` reads old attempt documents into the new shape, a submit writes `responses.sheet` (+ `schemaVersion: 2`) and no `answers/*`, the stored result has `review: null` and both result entry points rebuild it from the snapshot. Schema: `type`, `rationale`, `LIMITS.rationale`, `LIMITS.maxLevelBytes` (300 KB), `levelBytes`. UI: checkboxes with "Select all that apply · Choose N", keyboard toggling, review with per-option reasons and the "Why the others are wrong" fold, editor type switch (asks which option stays correct), per-option reasons, size meter, "Preview the review" dialog, admin quiz view shows types and reasons.

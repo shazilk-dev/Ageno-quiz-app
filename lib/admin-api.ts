@@ -27,8 +27,19 @@ export const adminQuizzes = {
       body: { ...input, version },
     }),
 
-  remove: (quizId: string) =>
-    apiRequest<{ deletedResults: number }>(`/api/admin/quizzes/${quizId}`, { method: "DELETE" }),
+  /** Moves the quiz to the trash; nothing is deleted. */
+  trash: (quizId: string) =>
+    apiRequest<{ responseCount: number }>(`/api/admin/quizzes/${quizId}`, { method: "DELETE" }),
+
+  restore: (quizId: string) =>
+    apiRequest<{ restored: true }>(`/api/admin/quizzes/${quizId}/restore`, { method: "POST" }),
+
+  /** Deletes a quiz in the trash for good. `title` is what the admin typed. */
+  deleteForever: (quizId: string, title: string) =>
+    apiRequest<{ deletedResults: number }>(`/api/admin/quizzes/${quizId}/delete-forever`, {
+      method: "POST",
+      body: { title },
+    }),
 };
 
 export const adminUsers = {

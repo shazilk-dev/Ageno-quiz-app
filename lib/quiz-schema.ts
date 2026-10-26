@@ -112,6 +112,8 @@ export interface AdminQuizSummary {
   counts: Partial<Record<Level, number>>;
   responseCount: number;
   createdAt: number;
+  /** When it was moved to the trash (epoch ms); null for a quiz that is in use. */
+  deletedAt: number | null;
 }
 
 /** One quiz opened for editing, answer key included. `version` goes back with the save. */

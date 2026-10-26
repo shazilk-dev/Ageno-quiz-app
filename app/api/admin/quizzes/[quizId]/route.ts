@@ -1,8 +1,8 @@
 import { requireAdmin } from "@/lib/server/admin-access";
 import {
-  deleteQuiz,
   getAdminQuiz,
   parseQuizInput,
+  trashQuiz,
   updateQuiz,
 } from "@/lib/server/admin-quizzes";
 import { invalidateQuiz } from "@/lib/server/cache";
@@ -38,14 +38,17 @@ export async function PUT(request: Request, { params }: Context) {
   }
 }
 
-/** Deletes the quiz, its questions and everyone's results for it. Admin only. */
+/**
+ * Moves the quiz to the trash. Nothing is deleted: players stop seeing it, and it can be restored (or
+ * deleted for good from the trash). Admin only.
+ */
 export async function DELETE(request: Request, { params }: Context) {
   try {
-    await requireAdmin(request);
+    const uid = await requireAdmin(request);
     const { quizId } = await params;
-    const deleted = await deleteQuiz(quizId);
+    const trashed = await trashQuiz(quizId, uid);
     invalidateQuiz(quizId);
-    return json(deleted);
+    return json(trashed);
   } catch (error) {
     return errorResponse(error);
   }
