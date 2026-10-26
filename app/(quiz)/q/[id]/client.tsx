@@ -20,6 +20,7 @@ import {
   isFullscreenSupported,
 } from "@/lib/exam/fullscreen";
 import { forgetCode, getRememberedCode, rememberCode } from "@/lib/quiz-access";
+import type { QuizInfoDTO } from "@/lib/player-data";
 import { seedFromServer } from "@/lib/exam/seed";
 import {
   attemptKey,
@@ -31,6 +32,8 @@ import type { AttemptSeed } from "@/lib/exam/types";
 
 interface ClientProps {
   quizId: string;
+  /** The lobby's data, when the page was rendered with it. */
+  initial?: QuizInfoDTO | null;
 }
 
 const QUESTIONS_FAILED =
@@ -53,11 +56,11 @@ const isCodeError = (error: unknown): error is ApiRequestError =>
  * `components/quiz/exam/` and `hooks/useQuizAttempt.ts`; the quiz, the questions, the access-code check,
  * the clock and the scoring all come from the server (`lib/quizzes-api.ts`, `lib/exam/api.ts`).
  */
-export default function QuizClient({ quizId }: ClientProps) {
+export default function QuizClient({ quizId, initial = null }: ClientProps) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const userId = user?.uid ?? null;
-  const loader = useQuizLoader(quizId);
+  const loader = useQuizLoader(quizId, initial);
   const { quiz } = loader;
 
   // `userId` is a snapshot from when the attempt began, so its autosave key can't change mid-exam.

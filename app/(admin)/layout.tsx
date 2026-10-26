@@ -1,6 +1,6 @@
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { getAdminAccess } from "@/lib/server/admin-access";
+import { currentAdminAccess } from "@/lib/server/admin-access";
 import AdminShell from "./AdminShell";
 
 // Depends on the visitor's cookies, so it is never prerendered or cached.
@@ -16,7 +16,7 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const access = await getAdminAccess((await cookies()).get("session")?.value);
+  const access = await currentAdminAccess();
 
   if (access.state === "signed-out") {
     const back = (await headers()).get("x-pathname") || "/dashboard";

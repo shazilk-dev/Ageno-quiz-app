@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiRequestError } from "@/lib/api-client";
 import type { QuestionCounts } from "@/lib/exam/types";
 import type { PublicQuiz } from "@/lib/quiz-data";
+import { quizInfoFromDTO, type QuizInfoDTO } from "@/lib/player-data";
 import { fetchQuiz } from "@/lib/quizzes-api";
 import { getRecommendedDifficulty } from "@/utils/difficulty-helpers";
 
@@ -13,18 +14,22 @@ export type QuestionsStatus = "loading" | "ready" | "empty" | "error";
 /**
  * Loads a quiz for its lobby in one request: the quiz as a player may see it (no access code) and how
  * many questions each level has. The questions themselves arrive, without their answers, when an
- * attempt starts.
+ * attempt starts. When the page was rendered with the quiz (`initial`), nothing is fetched until a reload.
  */
-export function useQuizLoader(quizId: string) {
-  const [quiz, setQuiz] = useState<PublicQuiz | null>(null);
-  const [active, setActive] = useState(true);
-  const [counts, setCounts] = useState<QuestionCounts>({});
-  const [status, setStatus] = useState<QuizStatus>("loading");
+export function useQuizLoader(quizId: string, initial: QuizInfoDTO | null = null) {
+  const [seed] = useState(() => (initial ? quizInfoFromDTO(initial) : null));
+  const [quiz, setQuiz] = useState<PublicQuiz | null>(seed?.quiz ?? null);
+  const [active, setActive] = useState(seed?.active ?? true);
+  const [counts, setCounts] = useState<QuestionCounts>(seed?.counts ?? {});
+  const [status, setStatus] = useState<QuizStatus>(seed ? "ready" : "loading");
   const [reloadKey, setReloadKey] = useState(0);
-  const [difficulty, setDifficulty] = useState("medium");
+  const [difficulty, setDifficulty] = useState(() =>
+    seed ? getRecommendedDifficulty(seed.quiz) : "medium"
+  );
 
   useEffect(() => {
     if (!quizId) return;
+    if (seed && reloadKey === 0) return;
     let cancelled = false;
 
     setStatus("loading");
@@ -50,7 +55,7 @@ export function useQuizLoader(quizId: string) {
     return () => {
       cancelled = true;
     };
-  }, [quizId, reloadKey]);
+  }, [quizId, reloadKey, seed]);
 
   const questionCount = counts[difficulty] ?? 0;
   const questionsStatus: QuestionsStatus =

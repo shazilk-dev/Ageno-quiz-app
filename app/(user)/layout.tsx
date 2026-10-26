@@ -1,46 +1,18 @@
-"use client";
-
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { Container } from "@/components/layout/Container";
 import SiteFrame from "@/components/layout/SiteFrame";
-import { Skeleton } from "@/components/ui";
-import { useAuth } from "@/contexts/auth-context";
+import { getSessionUser } from "@/lib/server/session";
+import UserGate from "./UserGate";
 
 /**
- * Pages that belong to a signed-in person (My quizzes, leaderboard, profile). Everyone gets the same
- * rule on every device: while the sign-in state resolves you see a placeholder, and if there is no one
- * signed in you are sent to sign in and brought back here afterwards. The data behind these pages is
- * checked on the server too, so this is about not showing an empty page, not about security.
+ * A person's own pages. They depend on who is asking, so they are rendered for each request; the pages
+ * read their data on the server with the same session (`getSessionUser`, verified once per request).
+ * No server redirect for a missing session: the browser may still be signed in (its session cookie gone),
+ * and the sign-in page would send it straight back here. `UserGate` decides on the browser's sign-in.
  */
-export default function UserLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const { user, loading } = useAuth();
-  const router = useRouter();
-  const pathname = usePathname();
-
-  useEffect(() => {
-    if (!loading && !user) {
-      router.replace(`/sign-in?redirectTo=${encodeURIComponent(pathname)}`);
-    }
-  }, [user, loading, router, pathname]);
-
+export default async function UserLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSessionUser();
   return (
     <SiteFrame>
-      {user ? (
-        children
-      ) : (
-        <div data-theme="dark" className="flex-1 bg-bg text-text">
-          <Container aria-busy="true" className="space-y-4 py-8 sm:py-10">
-            <Skeleton className="h-9 w-56" />
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-64 w-full" />
-          </Container>
-        </div>
-      )}
+      <UserGate serverSignedIn={session !== null}>{children}</UserGate>
     </SiteFrame>
   );
 }

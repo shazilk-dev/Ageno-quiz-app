@@ -9,7 +9,7 @@ vi.mock("@/lib/quizzes-api", () => ({ fetchLeaderboard: (f: unknown) => fetchLea
 const auth = { user: { uid: "me" }, loading: false };
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => auth }));
 
-import LeaderboardPage from "@/app/(user)/leaderboard/page";
+import LeaderboardPage from "@/app/(user)/leaderboard/LeaderboardClient";
 
 let n = 0;
 const row = (userId: string, quizId: string, score: number): LeaderboardRow => ({
@@ -92,5 +92,38 @@ describe("Leaderboard page", () => {
     expect(await screen.findByText("We couldn't load the leaderboard")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("table")).toBeTruthy();
+  });
+
+  it("shows the board the page came with, without asking again, and keeps it up while a filter loads", async () => {
+    const initial = {
+      rows: [
+        { id: "r1", userId: "u2", quizId: "q1", score: 90, selectedDifficulty: "medium", startedAt: 0, submittedAt: 60_000 },
+        { id: "r2", userId: "me", quizId: "q1", score: 70, selectedDifficulty: "medium", startedAt: 0, submittedAt: 60_000 },
+      ],
+      users: { me: "Me Myself", u2: "Grace" },
+      quizzes: { q1: "Networking" },
+    };
+    let finish: (value: Leaderboard) => void = () => {};
+    fetchLeaderboard.mockImplementation(() => new Promise<Leaderboard>((resolve) => (finish = resolve)));
+    render(<LeaderboardPage initialBoard={initial} />);
+
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByText("Grace")).toBeTruthy();
+    expect(fetchLeaderboard).not.toHaveBeenCalled();
+
+    // A filter change asks the server; the old board stays on screen, marked busy, until the answer comes.
+    fireEvent.change(screen.getByLabelText("Quiz"), { target: { value: "q1" } });
+    await waitFor(() => expect(fetchLeaderboard).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Rankings" }).getAttribute("aria-busy")).toBe("true");
+
+    finish(board([row("u3", "q1", 99)]));
+    expect(await screen.findByText("Linus")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Rankings" }).getAttribute("aria-busy")).toBe("false");
+
+    // Back to every quiz: the page's own board is no longer on screen, so it is asked for again.
+    fetchLeaderboard.mockResolvedValue(board([row("u2", "q1", 90)]));
+    fireEvent.change(screen.getByLabelText("Quiz"), { target: { value: "" } });
+    await waitFor(() => expect(fetchLeaderboard).toHaveBeenCalledTimes(2));
   });
 });

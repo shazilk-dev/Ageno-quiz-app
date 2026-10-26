@@ -9,7 +9,7 @@ vi.mock("@/lib/quizzes-api", () => ({ fetchMyAttempts: () => fetchMyAttempts() }
 const signedIn = { user: { uid: "u1" }, loading: false };
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => signedIn }));
 
-import MyQuizzes from "@/app/(user)/my-quizzes/page";
+import MyQuizzes from "@/app/(user)/my-quizzes/MyQuizzesClient";
 
 const attempt = (over: Partial<MyAttempt>): MyAttempt => ({
   id: "a1",
@@ -75,5 +75,18 @@ describe("My quizzes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.getByText("Networking basics")).toBeTruthy());
+  });
+
+  it("shows the attempts the page came with, without asking again", () => {
+    const now = Date.now();
+    render(
+      <MyQuizzes
+        initialAttempts={[
+          { ...attempt({ id: "a9", quizTitle: "From the server", score: 75 }), startedAt: now - 120_000, submittedAt: now - 60_000 },
+        ]}
+      />
+    );
+    expect(screen.getByText("From the server")).toBeTruthy();
+    expect(fetchMyAttempts).not.toHaveBeenCalled();
   });
 });

@@ -3,7 +3,7 @@
 **Purpose:** make sign-in, sign-up and every data screen (join, quiz lobby, starting a quiz, My quizzes, leaderboard, admin) feel instant. This file covers the audit (what is slow and why), the target architecture, and a phased plan that later sessions can follow the same way they follow `IMPROVEMENT_ROADMAP.md`.
 
 - **Created:** 2026-10-26 (audit of branch `phase-7-polish` at `a458877`)
-- **Status:** S0, S1 and S2 code done (2026-10-26), committed, not deployed yet. **Next:** the user does `docs/MANUAL_STEPS.md` (confirm region, Speed Insights, deploy, checks); the next session starts S3.
+- **Status:** S0–S3 code done (2026-10-26), merged into `main` and pushed (so Vercel deploys it). **Next:** the user does `docs/MANUAL_STEPS.md` (region, Speed Insights, checks on the deployed site); the next session starts S4 (bundle diet).
 - **Decisions (2026-10-26, user):** the recommended approach and the recommended answers in section 5 (sign-out is this device only plus "Sign out of all devices"; region `fra1`; cache until an admin edit, leaderboard up to 30 s stale).
 - **Manual steps for the user** are in `docs/MANUAL_STEPS.md`.
 - **Replaces:** the short "speed plan" note in the roadmap's Session 7 and 8 logs.
@@ -176,16 +176,16 @@ Each phase is independently shippable and leaves the app working. Same rules as 
 
 ### Phase S3: Render data on the server
 
-- [ ] **S3.1** `lib/server/session.ts` `getSessionUser()`: verifies the `session` cookie (no revocation check, for reads), returns `{ uid, role, name, email, emailVerified }` or `null`. Wrapped in React `cache()` so one request verifies once.
-- [ ] **S3.2** Root layout passes the session user to `AuthProvider` as `initialUser`; the header renders the right state on the first paint and `loading` starts `false` when the server already knows. Firebase Auth still runs in the background for ID tokens.
-- [ ] **S3.3 Join page**: server component fetches the cached list and renders it; search, filter, sort and the code form remain client islands. Static with revalidation via the `quizzes` tag.
-- [ ] **S3.4 Lobby**: `q/[id]/page.tsx` fetches the cached public quiz and passes it to `QuizClient` as `initialData`; `useQuizLoader` uses it instead of fetching. Real `notFound()` for missing quizzes (proper 404 status and metadata with the quiz title).
-- [ ] **S3.5 My quizzes, result page, leaderboard**: server components call `getMyAttempts(uid)` / `getAttemptResult` / `getLeaderboard` directly and stream them in `<Suspense>`. The `(user)` layout redirects on the server when `getSessionUser()` is `null` (the client redirect becomes a fallback).
-- [ ] **S3.6** Leaderboard filter changes stay client-side through SWR with `keepPreviousData` (no blank skeleton between filters), seeded with the server-rendered default board.
-- [ ] **S3.7 Admin**: the admin pages fetch their first screen on the server (the layout already verified the admin) and keep client fetching for paging and edits.
-- [ ] **S3.8** `loading.tsx` per route group using the existing skeletons.
+- [x] **S3.1** `lib/server/session.ts` `getSessionUser()`: verifies the `session` cookie (no revocation check, for reads), returns `{ uid, role }` or `null`. Wrapped in React `cache()` so one request verifies once. *Also `currentAdminAccess()` (the request's `getAdminAccess`, shared by the admin layout and pages) and `loadForAdmin(load)`.*
+- [x] **S3.2** *Decided against, deliberately:* reading cookies in the root layout makes **every** page dynamic, including the static landing, join and auth pages. The header already shows a neutral placeholder (not "Sign in") while the browser's sign-in resolves, so there was no wrong-state flash to fix. The `(user)` pages get the server's knowledge through `UserGate` instead (S3.5). Original idea: root layout passes the session user to `AuthProvider` as `initialUser`; the header renders the right state on the first paint and `loading` starts `false` when the server already knows. Firebase Auth still runs in the background for ID tokens.
+- [x] **S3.3 Join page**: server component fetches the cached list and renders it; search, filter, sort and the code form remain client islands. Static with revalidation via the `quizzes` tag.
+- [x] **S3.4 Lobby**: `q/[id]/page.tsx` fetches the cached public quiz and passes it to `QuizClient` as `initialData`; `useQuizLoader` uses it instead of fetching. Real `notFound()` for missing quizzes (proper 404 status and metadata with the quiz title). *Done as on-demand ISR (`generateStaticParams` returns `[]`, `revalidate = 300`, rebuilt by the `quiz:<id>` tag); the tab shows the quiz title; `not-found.tsx` shows the lobby's own message. The status is 200 with `noindex`, not 404: `loading.tsx` streams the skeleton first (documented Next behaviour). Kept, because the skeleton matters more than the status code for a quiz link.*
+- [x] **S3.5 My quizzes, result page, leaderboard**: server components call `getMyAttempts(uid)` / `getAttemptResult` / `getLeaderboard` directly; `loading.tsx` streams the skeleton meanwhile. *No server redirect, deliberately: a browser still signed in to Firebase whose session cookie is gone would loop between sign-in (which sends signed-in people back) and the page. Instead the `(user)` layout passes `serverSignedIn` to `UserGate`, which shows the page at once when the server knew who it was; without a session the pages load in the browser as before.*
+- [x] **S3.6** Leaderboard filter changes stay client-side (no blank skeleton between filters), seeded with the server-rendered default board. *Done without SWR: the board on screen stays, dimmed and `aria-busy`, until the new one arrives, and it remembers which quiz filter its data was for, so the layout never mixes the two. SWR would have added a global cache to reason about for one screen.*
+- [x] **S3.7 Admin**: the admin pages fetch their first screen on the server and keep client fetching for paging and edits. *Dashboard, Quizzes, Users and Reports. Each page checks the admin itself (`loadForAdmin`): layouts and pages render at the same time, so a page can't rely on its layout's check. The quiz editor pages still load in the browser.*
+- [x] **S3.8** `loading.tsx` per route group using the existing skeletons. *`(user)`, `(admin)` and the lobby. `/join` is static, so it needs none.*
 
-**Done when:** viewing source of `/join`, `/q/<id>`, `/my-quizzes` shows the data in the HTML; budgets for those screens hold.
+**Done when:** viewing source of `/join`, `/q/<id>`, `/my-quizzes` shows the data in the HTML; budgets for those screens hold. *`/join` and `/q/<id>` verified on a local production build (data in the HTML, served from the cache in 20–55 ms after the first build). `/my-quizzes` with a real session needs the deployed site (manual steps, S3 block).*
 
 ### Phase S4: Bundle diet
 
@@ -267,3 +267,13 @@ It is too big for one safe session (it touches auth, caching, rendering and the 
   - The migration script says the site picks its change up within 5 minutes.
 - **Verification:** `tsc` and lint clean; 16 unit/component files pass; emulator suites pass (attempts-api 45, admin-api incl. 2 new tests for the cache tags and stored counts, firestore-rules 20); `npm run build` passes. On `next start` against the real database (read-only): list 807 → 0.6 ms, lobby 1141 → 0.5 ms when cached, missing quiz 404, no access code in the lobby response.
 - **Not verified:** an admin save showing at once on the deployed site, and attempt start timing in production (manual steps).
+
+### 2026-10-26 — S3 (data rendered on the server)
+- **Done:** S3.1–S3.8 (S3.2 decided against, see the task). S2 was committed as `7ff2a18`.
+  - Pattern: each data page is a server `page.tsx` that reads through `lib/server/*` and hands the result (plain-JSON DTOs) to a `*Client.tsx` component, which shows it at once and fetches through the API only when it got nothing (or on Retry, a filter, paging). The pure types and converters moved to `lib/player-data.ts`; `lib/quizzes-api.ts` keeps the fetch calls and re-exports the types.
+  - `/join`: static (`revalidate = 300`, tag `quizzes`, checked in the build's `.meta`). `/q/[id]`: on-demand ISR with the quiz title as the page title and a lobby-styled not-found.
+  - `(user)`: server layout + `UserGate`; My quizzes, the result page and the leaderboard render with the person's data. Profile shows a placeholder instead of an empty page while the browser's sign-in catches up.
+  - `(admin)`: Dashboard, Quizzes, Users, Reports render their first screen on the server.
+  - `loading.tsx` for `(user)`, `(admin)` and the lobby.
+- **Verification:** `tsc` and lint clean; 17 unit/component files pass (new `server-rendered-pages.test.tsx`, plus new cases in the leaderboard, My quizzes and admin page tests); emulator suites pass (attempts 45, admin 38, rules 20); `npm run build` passes (`/join` static 5 min, `/q/[id]` generated on demand). On `next start` against the real database: `/join` served from cache in 55 ms with the list in the HTML; a lobby took 1.9 s to build the first time, then 21 ms; its HTML has the quiz but not its access code (checked against the stored code); a missing quiz shows the not-found message with `noindex`; `/my-quizzes` and `/leaderboard` with a forged cookie fall back to loading in the browser; `/dashboard` with a forged cookie and an `admin` role hint redirects to sign-in.
+- **Not verified:** the signed-in, server-rendered path of My quizzes, results, leaderboard and the admin screens (needs a real session; manual steps).

@@ -21,8 +21,8 @@ vi.mock("@/components/ui/Toast", async (importOriginal) => ({
 const auth = { user: { uid: "me" }, loading: false, isAdmin: true };
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => auth }));
 
-import QuizReportsPage from "@/app/(admin)/quiz-reports/page";
-import UsersPage from "@/app/(admin)/users/page";
+import QuizReportsPage from "@/app/(admin)/quiz-reports/ReportsClient";
+import UsersPage from "@/app/(admin)/users/UsersClient";
 
 const person = (over: Partial<AdminUserDTO>): AdminUserDTO => ({
   id: "u",
@@ -204,5 +204,33 @@ describe("Reports page", () => {
     expect(await screen.findByText("Couldn't load the reports")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("table")).toBeTruthy();
+  });
+});
+
+describe("Admin pages rendered with their data", () => {
+  it("show the server's first screen without asking the API again", async () => {
+    const users = render(<UsersPage initial={{ users: [person({ id: "u9", displayName: "Server Ada" })], total: 1 }} />);
+    expect(screen.getAllByText("Server Ada").length).toBeGreaterThan(0);
+    expect(api.users.list).not.toHaveBeenCalled();
+    users.unmount();
+
+    render(
+      <QuizReportsPage
+        initial={{ rows: [result({ id: "r9", userName: "Server Grace" })], quizzes: [{ id: "q1", title: "Networking" }], nextCursor: null, total: 1 }}
+      />
+    );
+    expect(screen.getAllByText("Server Grace").length).toBeGreaterThan(0);
+    expect(api.reports.page).not.toHaveBeenCalled();
+  });
+
+  it("still asks the API when a quiz filter is picked on a server-rendered reports page", async () => {
+    api.reports.page.mockResolvedValue({ rows: [], quizzes: [{ id: "q1", title: "Networking" }], nextCursor: null, total: 0 });
+    render(
+      <QuizReportsPage
+        initial={{ rows: [result({ id: "r9" })], quizzes: [{ id: "q1", title: "Networking" }], nextCursor: null, total: 1 }}
+      />
+    );
+    fireEvent.change(screen.getByLabelText("Quiz"), { target: { value: "q1" } });
+    await waitFor(() => expect(api.reports.page).toHaveBeenCalledWith({ quizId: "q1" }));
   });
 });

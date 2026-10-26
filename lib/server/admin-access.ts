@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+import { cache } from "react";
 import { auth, db } from "@/firebase/admin";
 import { ApiError } from "./request";
 
@@ -36,6 +38,14 @@ export async function getAdminAccess(
 }
 
 /**
+ * `getAdminAccess` for this request's cookie, run once per request: the admin layout and each admin page
+ * ask (layouts and pages render at the same time, so a page can't rely on its layout having checked).
+ */
+export const currentAdminAccess = cache(async (): Promise<AdminAccess> =>
+  getAdminAccess((await cookies()).get("session")?.value)
+);
+
+/**
  * Guards the admin API routes: a valid, unrevoked ID token (Bearer) that belongs to an admin. Returns the
  * admin's uid. Signed out is a 401, signed in but not an admin is a 403; nothing else gets through.
  */
@@ -54,4 +64,19 @@ export async function requireAdmin(request: Request): Promise<string> {
     throw new ApiError(403, "admin_required", "Only admins can do that.");
   }
   return decoded.uid;
+}
+
+/**
+ * Data for an admin page's first screen, read on the server, or `null` (not an admin, or it failed: the
+ * page then loads through the API and shows its own error). Pages check for themselves rather than trust
+ * the layout, which renders at the same time.
+ */
+export async function loadForAdmin<T>(load: () => Promise<T>): Promise<T | null> {
+  if ((await currentAdminAccess()).state !== "admin") return null;
+  try {
+    return await load();
+  } catch (error) {
+    console.error("Could not load an admin page's data on the server:", error);
+    return null;
+  }
 }

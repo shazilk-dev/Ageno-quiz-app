@@ -4,9 +4,9 @@ Things only you can do (dashboards, accounts, deploys, checks in a real browser)
 
 ---
 
-## Performance Phases S0 + S1 + S2 (code done and committed on 2026-10-26, not deployed yet)
+## Performance Phases S0 to S3 (merged into `main` and pushed on 2026-10-26)
 
-One deploy covers all three. Do steps 1–7 below, then the S2 checks right after them.
+The push deploys all of it. Step 1 (the "before" numbers) can't be measured once the new version is live; skip it if it already is. Then do steps 2–7, the S2 checks and the S3 checks.
 
 Do the steps in this order. Steps 1–4 take about 15 minutes; step 6 is the real check.
 
@@ -53,7 +53,7 @@ Also note how long the whole sign-in feels, from clicking **Sign in** to seeing 
 
 ### 5. Deploy
 
-- [ ] Commit and push the branch (or ask me to commit it), then let Vercel build it. No Firestore rules or index deploy is needed for this phase.
+- [ ] Already pushed to `main` on 2026-10-26. Check in Vercel that the deployment finished (green). No Firestore rules or index deploy is needed.
 
 ### 6. Check it on the deployed site (about 10 minutes)
 
@@ -87,3 +87,11 @@ If something fails, note what you did and what you saw (a screenshot of the Netw
 - [ ] Start a quiz. The `start` request's **Server Timing** `db` should be well under 300 ms.
 - [ ] If you ever change a quiz directly in the Firebase console (not through the editor), the site shows it within 5 minutes. Saving the quiz in the editor shows it at once.
 
+### S3 checks: pages arrive with their data (about 10 minutes)
+
+For each page below, use **View page source** (Ctrl+U) or watch the first paint: the data should be there at once, with no skeleton that turns into content.
+- [ ] `/join` signed out: the quiz cards are in the page source. Edit a quiz title as admin and save, then reload `/join`: the new title shows (the first reload may still show the old one while the page rebuilds; the next one shows the new title).
+- [ ] A lobby `/q/...`: the browser tab shows the quiz's title. A made-up address like `/q/nothing-here` shows "Quiz not found".
+- [ ] Signed in, open **My quizzes**, then a result from it, then **Leaderboard**: each appears with its data straight away. Change a leaderboard filter: the old board stays (dimmed) until the new one arrives.
+- [ ] As admin, open **Dashboard**, **Quizzes**, **Users** and **Reports**: each shows its numbers straight away. Create or delete something and check the list updates as before.
+- [ ] Sign out, then press the browser's Back button to My quizzes: you're sent to sign in, not shown your data.

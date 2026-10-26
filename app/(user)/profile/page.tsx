@@ -8,7 +8,7 @@ import PasswordSection from "@/components/profile/PasswordSection";
 import ProfileSection from "@/components/profile/ProfileSection";
 import SecuritySection from "@/components/profile/SecuritySection";
 import { useProfileAction } from "@/components/profile/use-profile-action";
-import { Alert } from "@/components/ui";
+import { Alert, Skeleton } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
 import { cn } from "@/lib/utils";
 
@@ -28,7 +28,17 @@ export default function ProfilePage() {
   const action = useProfileAction();
   const { notice, setNotice } = action;
 
-  if (!user) return null;
+  // The server knew someone was signed in, so the page is shown; the browser's sign-in is a moment behind.
+  if (!user) {
+    return (
+      <div data-theme="dark" className="flex-1 bg-bg text-text">
+        <Container aria-busy="true" className="space-y-4 py-8 sm:py-10">
+          <Skeleton className="h-12 w-72" />
+          <Skeleton className="h-64 w-full" />
+        </Container>
+      </div>
+    );
+  }
 
   const current = TABS.find((entry) => entry.id === tab) ?? TABS[0];
   const initial = (user.displayName || user.email || "U").charAt(0).toUpperCase();
