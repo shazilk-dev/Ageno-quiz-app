@@ -1,148 +1,65 @@
-"use client";
+import Link from "next/link";
+import { Button, Card } from "@/components/ui";
+import { formatClock } from "@/lib/exam/answers";
+import type { LeaderboardEntry } from "@/lib/leaderboard";
 
-import { useAuth } from "@/contexts/auth-context";
-
-export interface UserRankProps {
-  currentUserEntry: {
-    id: string;
-    username: string;
-    quizTitle: string;
-    score: number;
-    completedAt: Date;
-    timeTaken: number;
-    rank?: number;
-    normalizedScore?: number;
-    uniqueQuizCount?: number;
-    totalAttempts?: number;
-    masteryLevel?: string;
-  } | null;
-  isLoading: boolean;
-  isGlobalRanking?: boolean;
+interface UserRankProps {
+  /** The signed-in person's entry, from the full ranking (not only the rows shown). */
+  entry: LeaderboardEntry | null;
+  /** How many people are ranked. */
+  total: number;
 }
 
-export default function UserRank({
-  currentUserEntry,
-  isLoading,
-  isGlobalRanking = false,
-}: UserRankProps) {
-  const { user } = useAuth();
-
-  if (!user) {
-    return null;
-  }
-
-  if (isLoading) {
-    return (
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-6 animate-pulse">
-        <div className="h-16 bg-gray-200 rounded"></div>
-      </div>
-    );
-  }
-
-  if (!currentUserEntry) {
-    return (
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-6">
-        <div className="text-center">
-          <p className="text-gray-500">
-            You haven&apos;t taken any quizzes yet, or your results don&apos;t
-            match the current filters.
-          </p>
-          <p className="text-sm text-gray-400 mt-1">
-            Complete a quiz to appear on the leaderboard!
-          </p>
-        </div>
-      </div>
-    );
-  }
-  // UI for when we have the user's entry
+function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-xl shadow-sm mb-6 border border-indigo-100">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="bg-indigo-600 text-white w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg">
-            #{currentUserEntry.rank}
-          </div>
-          <div>
-            <h3 className="font-bold text-gray-800">Your Current Ranking</h3>
-            <p className="text-sm text-gray-500">
-              {isGlobalRanking
-                ? "Based on your overall performance across all quizzes"
-                : `Based on your performance in ${currentUserEntry.quizTitle}`}
-            </p>
-          </div>
-        </div>        <div className="flex gap-6">
-          {isGlobalRanking && (
-            <>
-              <div className="text-center">
-                <p className="text-xs text-gray-500 uppercase tracking-wide">
-                  Unique Quizzes
-                </p>
-                <p className="text-lg font-bold text-indigo-700">
-                  {currentUserEntry.uniqueQuizCount || 0}
-                </p>
-                <p className="text-xs text-gray-500">
-                  {currentUserEntry.totalAttempts || 0} total attempts
-                </p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-gray-500 uppercase tracking-wide">
-                  Mastery Level
-                </p>
-                <p className={`text-lg font-bold ${
-                  currentUserEntry.masteryLevel === "Master" ? "text-purple-700" :
-                  currentUserEntry.masteryLevel === "Expert" ? "text-blue-700" :
-                  currentUserEntry.masteryLevel === "Advanced" ? "text-indigo-700" :
-                  currentUserEntry.masteryLevel === "Practiced" ? "text-yellow-700" : "text-green-700"
-                }`}>
-                  {currentUserEntry.masteryLevel || "Beginner"}
-                </p>
-              </div>
-            </>
-          )}
-          <div className="text-center">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">
-              {isGlobalRanking ? "Avg. Score" : "Score"}
-            </p>
-            <p className="text-lg font-bold text-indigo-700">
-              {currentUserEntry.score}%
-            </p>
-            {isGlobalRanking && currentUserEntry.normalizedScore && (
-              <p className="text-xs text-gray-500">
-                Total: {currentUserEntry.normalizedScore.toFixed(0)} pts
-              </p>
-            )}
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">
-              {isGlobalRanking ? "Best Time" : "Time"}
-            </p>
-            <p className="text-lg font-medium">
-              {formatTime(currentUserEntry.timeTaken)}
-            </p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-gray-500 uppercase tracking-wide">
-              {isGlobalRanking ? "Latest Quiz" : "Completed On"}
-            </p>
-            <p className="text-lg font-medium">
-              {formatDate(currentUserEntry.completedAt)}
-            </p>
-          </div>
-        </div>
-      </div>
+    <div>
+      <dt className="text-label">{label}</dt>
+      <dd className="mt-1 font-mono text-lg tabular-nums">{value}</dd>
     </div>
   );
 }
 
-function formatTime(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSecs = seconds % 60;
-  return `${minutes}m ${remainingSecs}s`;
-}
+/** Where the signed-in person stands under the current filters, or how to get on the board. */
+export default function UserRank({ entry, total }: UserRankProps) {
+  if (!entry) {
+    return (
+      <Card className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <p className="max-w-[65ch] text-text-muted">
+          You&apos;re not on this board yet. Finish a quiz that matches these
+          filters and your place shows up here.
+        </p>
+        <Button asChild variant="secondary" className="shrink-0">
+          <Link href="/join">Find a quiz</Link>
+        </Button>
+      </Card>
+    );
+  }
 
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(date);
+  return (
+    <Card className="border-warm/40 p-5">
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+        <div>
+          <p className="text-label">Your place</p>
+          <p className="mt-1 font-mono text-4xl text-warm tabular-nums leading-none">
+            #{entry.rank}
+            <span className="ml-2 text-base text-text-muted">of {total}</span>
+          </p>
+        </div>
+        <dl className="flex flex-wrap gap-x-8 gap-y-3">
+          {"points" in entry ? (
+            <>
+              <Fact label="Points" value={String(entry.points)} />
+              <Fact label="Average" value={`${entry.average}%`} />
+              <Fact label="Quizzes" value={String(entry.quizCount)} />
+            </>
+          ) : (
+            <>
+              <Fact label="Score" value={`${entry.score}%`} />
+              <Fact label="Time" value={formatClock(entry.timeTaken)} />
+            </>
+          )}
+        </dl>
+      </div>
+    </Card>
+  );
 }

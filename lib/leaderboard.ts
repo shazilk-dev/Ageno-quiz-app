@@ -1,142 +1,144 @@
 import type { LeaderboardRow } from "@/lib/quizzes-api";
 
-export type LeaderboardEntry = {
+/** How many rows the table shows. Everyone is still ranked, so a person below this can see their own place. */
+export const LEADERBOARD_SHOWN = 50;
+
+interface EntryBase {
   id: string;
+  rank: number;
+  userId: string;
   username: string;
-  quizTitle: string;
-  score: number;
   completedAt: Date;
-  timeTaken: number; // in seconds
-  rank?: number;
-  quizId?: string;
-  difficulty?: string;
-  userId?: string;
-  normalizedScore?: number; // Score adjusted for difficulty
-  uniqueQuizCount?: number; // Number of unique quizzes completed
-  totalAttempts?: number; // Total number of quiz attempts/completions
-  masteryLevel?: string; // Calculated mastery level based on attempts
-};
+}
 
-// Difficulty multipliers for score normalization.
-// NOTE: this predates the server-side scoring and weights an already-weighted score a second time; it is
-// left as it was until the leaderboard is redesigned together with the raw-vs-weighted score decision.
-const DIFFICULTY_MULTIPLIERS: Record<string, number> = {
-  basic: 1.0,
-  medium: 1.3,
-  hard: 1.6,
-  "": 1.0, // Default
-};
+/** One attempt on one quiz. */
+export interface QuizEntry extends EntryBase {
+  /** The score the player saw: the server's weighted score, already capped at 100. */
+  score: number;
+  difficulty: string;
+  /** Seconds. */
+  timeTaken: number;
+}
 
-function calculateMasteryLevel(uniqueCount: number, totalAttempts: number): string {
-  if (uniqueCount === 0) return "Beginner";
-  const avgAttemptsPerQuiz = totalAttempts / uniqueCount;
+/** One person across every quiz. */
+export interface OverallEntry extends EntryBase {
+  /** The sum, over each quiz they took, of their best score on it. Retaking a quiz can only improve it. */
+  points: number;
+  /** Rounded mean of those best scores. */
+  average: number;
+  quizCount: number;
+  attempts: number;
+  level: string;
+}
 
-  if (uniqueCount >= 20) return "Master";
-  if (uniqueCount >= 10) return "Expert";
-  if (uniqueCount >= 5) return "Advanced";
-  if (avgAttemptsPerQuiz >= 3) return "Practiced";
+export type LeaderboardEntry = QuizEntry | OverallEntry;
+
+const FALLBACK_NAME = "Player";
+
+/** A title for how broadly someone has taken quizzes; it only reads the counts, never the scores. */
+export function levelFor(quizCount: number, attempts: number): string {
+  if (quizCount === 0) return "Beginner";
+  if (quizCount >= 20) return "Master";
+  if (quizCount >= 10) return "Expert";
+  if (quizCount >= 5) return "Advanced";
+  if (attempts / quizCount >= 3) return "Practiced";
   return "Beginner";
 }
 
-const byScoreThenTime = (a: LeaderboardEntry, b: LeaderboardEntry) => {
-  if ((b.normalizedScore || 0) !== (a.normalizedScore || 0)) {
-    return (b.normalizedScore || 0) - (a.normalizedScore || 0);
-  }
-  return a.timeTaken - b.timeTaken;
-};
+const seconds = (row: LeaderboardRow): number =>
+  row.startedAt && row.submittedAt
+    ? Math.max(0, Math.floor((row.submittedAt.getTime() - row.startedAt.getTime()) / 1000))
+    : 0;
 
-/**
- * Turns the server's rows into ranked entries. With no quiz chosen it is one entry per person (their
- * results added up); with a quiz chosen it is one entry per attempt. At most 50 entries.
- */
-export function buildLeaderboard(
-  rows: LeaderboardRow[],
-  users: Record<string, string>,
-  quizzes: Record<string, string>,
-  category: string
-): LeaderboardEntry[] {
-  const entries: LeaderboardEntry[] = rows.map((row) => {
-    const timeTaken =
-      row.startedAt && row.submittedAt
-        ? Math.floor((row.submittedAt.getTime() - row.startedAt.getTime()) / 1000)
-        : 0;
-    const rawScore = typeof row.score === "number" ? row.score : 0;
-    const multiplier = DIFFICULTY_MULTIPLIERS[row.selectedDifficulty] || 1.0;
+/** Rows with no score (a quiz the owner marks by hand) or no person can't be ranked. */
+const rankable = (row: LeaderboardRow) => typeof row.score === "number" && row.userId !== "";
 
-    return {
-      id: row.id,
-      username: users[row.userId] ?? "Anonymous User",
-      quizTitle: quizzes[row.quizId] ?? "Unknown Quiz",
-      score: rawScore,
-      completedAt: row.submittedAt ?? new Date(),
-      timeTaken,
-      quizId: row.quizId,
-      difficulty: row.selectedDifficulty,
-      userId: row.userId,
-      normalizedScore: rawScore * multiplier,
-    };
-  });
-
-  let sorted: LeaderboardEntry[];
-
-  if (!category) {
-    // Global leaderboard: one entry per person.
-    const perUser = new Map<
-      string,
-      {
-        total: number;
-        count: number;
-        bestTime: number;
-        latest: Date;
-        entries: LeaderboardEntry[];
-        quizIds: Set<string>;
-      }
-    >();
-
-    for (const entry of entries) {
-      if (!entry.userId) continue;
-      const bucket = perUser.get(entry.userId) ?? {
-        total: 0,
-        count: 0,
-        bestTime: Infinity,
-        latest: new Date(0),
-        entries: [],
-        quizIds: new Set<string>(),
-      };
-      bucket.total += entry.normalizedScore || 0;
-      bucket.count += 1;
-      if (entry.quizId) bucket.quizIds.add(entry.quizId);
-      if (entry.timeTaken < bucket.bestTime) bucket.bestTime = entry.timeTaken;
-      if (entry.completedAt > bucket.latest) bucket.latest = entry.completedAt;
-      bucket.entries.push(entry);
-      perUser.set(entry.userId, bucket);
-    }
-
-    const aggregated = [...perUser.entries()].map(([userId, bucket]) => {
-      const mostRecent = bucket.entries.sort(
-        (a, b) => b.completedAt.getTime() - a.completedAt.getTime()
-      )[0];
-      const uniqueQuizCount = bucket.quizIds.size;
-      return {
-        ...mostRecent,
-        id: `global-${userId}`,
-        quizTitle: `${uniqueQuizCount}/${bucket.count} completed`,
-        score: Math.round(bucket.total / bucket.count),
-        normalizedScore: bucket.total,
-        timeTaken: bucket.bestTime,
-        completedAt: bucket.latest,
-        uniqueQuizCount,
-        totalAttempts: bucket.count,
-        masteryLevel: calculateMasteryLevel(uniqueQuizCount, bucket.count),
-      };
-    });
-    sorted = aggregated.sort(byScoreThenTime);
-  } else {
-    sorted = entries.sort(byScoreThenTime);
-  }
-
+function ranked<T extends EntryBase>(sorted: T[]): T[] {
   sorted.forEach((entry, index) => {
     entry.rank = index + 1;
   });
-  return sorted.slice(0, 50);
+  return sorted;
+}
+
+/**
+ * Every attempt at one quiz, best score first and the faster one ahead on a tie. Ranks run over all of
+ * them; show the first {@link LEADERBOARD_SHOWN}.
+ */
+export function buildQuizBoard(
+  rows: LeaderboardRow[],
+  users: Record<string, string>
+): QuizEntry[] {
+  const entries: QuizEntry[] = rows.filter(rankable).map((row) => ({
+    id: row.id,
+    rank: 0,
+    userId: row.userId,
+    username: users[row.userId] ?? FALLBACK_NAME,
+    completedAt: row.submittedAt ?? new Date(0),
+    score: row.score as number,
+    difficulty: row.selectedDifficulty,
+    timeTaken: seconds(row),
+  }));
+  return ranked(entries.sort((a, b) => b.score - a.score || a.timeTaken - b.timeTaken));
+}
+
+/**
+ * One entry per person. Points are the best score on each quiz added up, so they reward taking more
+ * quizzes and doing better, not retaking the same one. Ties go to the higher average, then the one who
+ * got there first.
+ */
+export function buildOverallBoard(
+  rows: LeaderboardRow[],
+  users: Record<string, string>
+): OverallEntry[] {
+  const people = new Map<
+    string,
+    { best: Map<string, number>; attempts: number; latest: Date; firstAt: Date }
+  >();
+
+  for (const row of rows.filter(rankable)) {
+    const person = people.get(row.userId) ?? {
+      best: new Map<string, number>(),
+      attempts: 0,
+      latest: new Date(0),
+      firstAt: new Date(8.64e15),
+    };
+    const score = row.score as number;
+    person.best.set(row.quizId, Math.max(person.best.get(row.quizId) ?? 0, score));
+    person.attempts += 1;
+    const at = row.submittedAt ?? new Date(0);
+    if (at > person.latest) person.latest = at;
+    if (at < person.firstAt) person.firstAt = at;
+    people.set(row.userId, person);
+  }
+
+  const entries = [...people.entries()].map(([userId, person]) => {
+    const bests = [...person.best.values()];
+    const points = bests.reduce((sum, score) => sum + score, 0);
+    return {
+      entry: {
+        id: `overall-${userId}`,
+        rank: 0,
+        userId,
+        username: users[userId] ?? FALLBACK_NAME,
+        completedAt: person.latest,
+        points,
+        average: Math.round(points / bests.length),
+        quizCount: bests.length,
+        attempts: person.attempts,
+        level: levelFor(bests.length, person.attempts),
+      } satisfies OverallEntry,
+      firstAt: person.firstAt,
+    };
+  });
+
+  return ranked(
+    entries
+      .sort(
+        (a, b) =>
+          b.entry.points - a.entry.points ||
+          b.entry.average - a.entry.average ||
+          a.firstAt.getTime() - b.firstAt.getTime()
+      )
+      .map(({ entry }) => entry)
+  );
 }
