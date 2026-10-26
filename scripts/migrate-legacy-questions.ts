@@ -25,7 +25,12 @@ async function main() {
         `${row.removed} removed, ${row.unplaced} left alone`
     );
   }
-  console.log(apply ? "Done." : "Dry run: nothing was changed. Run again with --apply to make the change.");
+  console.log(
+    apply
+      ? // The site caches quiz data (lib/server/cache.ts); a script can't clear that cache.
+        "Done. The live site picks this up within 5 minutes (or at once after an admin saves the quiz)."
+      : "Dry run: nothing was changed. Run again with --apply to make the change."
+  );
 }
 
 main().then(

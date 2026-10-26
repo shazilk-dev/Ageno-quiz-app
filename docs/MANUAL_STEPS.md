@@ -4,7 +4,9 @@ Things only you can do (dashboards, accounts, deploys, checks in a real browser)
 
 ---
 
-## Performance Phase S0 + S1 (code done on 2026-10-26, not deployed yet)
+## Performance Phases S0 + S1 + S2 (code done and committed on 2026-10-26, not deployed yet)
+
+One deploy covers all three. Do steps 1–7 below, then the S2 checks right after them.
 
 Do the steps in this order. Steps 1–4 take about 15 minutes; step 6 is the real check.
 
@@ -76,3 +78,12 @@ If something fails, note what you did and what you saw (a screenshot of the Netw
   - `/`: LCP ____ TTFB ____
   - `/join`: LCP ____ TTFB ____
   - `/q/[id]`: LCP ____ TTFB ____
+
+### S2 checks: cached quiz data (after the same deploy, about 5 minutes)
+
+- [ ] Open `/join` twice. In the Network tab, the second `quizzes` request's **Server Timing** `db` should be about 1 ms (the first one after a deploy reads the database).
+- [ ] As an admin, edit a quiz's title and save. Reload `/join` as a player: the new title shows **right away**.
+- [ ] Switch a quiz **off** in the editor and save. Open its lobby `/q/...`: it says the quiz isn't open, right away. Switch it back on and save: the lobby lets you start again, right away.
+- [ ] Start a quiz. The `start` request's **Server Timing** `db` should be well under 300 ms.
+- [ ] If you ever change a quiz directly in the Firebase console (not through the editor), the site shows it within 5 minutes. Saving the quiz in the editor shows it at once.
+

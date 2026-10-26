@@ -11,6 +11,13 @@ const authState = vi.hoisted(() => ({
   revoked: [] as string[],
 }));
 
+// Next's data cache needs a running Next.js server: here nothing is cached, and invalidations are recorded.
+const cacheState = vi.hoisted(() => ({ revalidated: [] as string[] }));
+vi.mock("next/cache", () => ({
+  unstable_cache: (load: () => Promise<unknown>) => load,
+  revalidateTag: (tag: string) => cacheState.revalidated.push(tag),
+}));
+
 // `after()` needs a real Next.js request around it; here its work just runs once the route has answered.
 vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/server")>()),
@@ -476,6 +483,34 @@ describe.skipIf(!emulator)("deleting a quiz", () => {
   it("says 404 for a quiz that isn't there", async () => {
     expect((await remove("never-existed")).status).toBe(404);
     expect((await remove("../up")).status).toBe(400);
+  });
+});
+
+describe.skipIf(!emulator)("keeping the public cache fresh", () => {
+  it("clears the list and the quiz on create, save and delete, and not on a refused save", async () => {
+    cacheState.revalidated = [];
+    const { id } = await createOk();
+    expect(cacheState.revalidated).toEqual(["quizzes", `quiz:${id}`]);
+
+    cacheState.revalidated = [];
+    const detail = await open(id);
+    expect((await save(id, { ...asInput(detail), title: "Fresh" })).status).toBe(200);
+    expect(cacheState.revalidated).toEqual(["quizzes", `quiz:${id}`]);
+
+    cacheState.revalidated = [];
+    expect((await save(id, asInput(detail))).status).toBe(409); // stale version
+    expect(cacheState.revalidated).toEqual([]);
+
+    expect((await remove(id)).status).toBe(200);
+    expect(cacheState.revalidated).toEqual(["quizzes", `quiz:${id}`]);
+  });
+
+  it("gives the lobby the counts the save stored, without counting the questions again", async () => {
+    const { id } = await createOk();
+    // A question written behind the editor's back isn't counted: the stored counts are what the lobby shows.
+    await db.doc(`quizzes/${id}/questions_easy/extra`).set({ text: "Extra", options: ["a", "b"], correctIndex: 0 });
+    const info = await (await publicQuizRoute(new Request("http://localhost/x"), quizCtx(id))).json();
+    expect(info.counts).toEqual({ easy: 2 });
   });
 });
 

@@ -17,7 +17,7 @@ const NETWORK_MESSAGE =
 interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
-  /** Send the sign-in token (default). Public, cacheable routes pass `false`, so a shared cache can serve them. */
+  /** Send the sign-in token (default). Public routes pass `false`: they don't need one, so none is fetched. */
   auth?: boolean;
 }
 

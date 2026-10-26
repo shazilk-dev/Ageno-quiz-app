@@ -27,6 +27,7 @@ import {
   getDifficultyDuration,
   getDifficultyMultiplier,
 } from "@/utils/difficulty-helpers";
+import { cached, quizTag } from "./cache";
 import { accessCodeMatches } from "./quizzes";
 import { ApiError, assertSafeId } from "./request";
 
@@ -95,7 +96,15 @@ const integrityFields = (state: IntegrityState) => ({
   fullscreenExits: state.fullscreenExits,
 });
 
-async function loadQuestions(
+/**
+ * A level's question set, answer key included, through the data cache: it only changes when an admin saves
+ * the quiz, which clears `quiz:<id>`. Each attempt stores its own copy, so the cache can't change one that
+ * has started.
+ */
+const loadQuestions = (quizId: string, level: string): Promise<StoredQuestion[]> =>
+  cached(["questions", quizId, level], [quizTag(quizId)], () => readQuestions(quizId, level));
+
+async function readQuestions(
   quizId: string,
   level: string
 ): Promise<StoredQuestion[]> {
@@ -212,7 +221,16 @@ export async function startAttempt(
     throw new ApiError(400, "invalid_difficulty", "Pick a difficulty level.");
   }
 
-  const quizSnap = await db.collection("quizzes").doc(quizId).get();
+  // The quiz and this person's unfinished attempts at it (closed below) don't depend on each other.
+  const [quizSnap, previous] = await Promise.all([
+    db.collection("quizzes").doc(quizId).get(),
+    attempts()
+      .where("userId", "==", userId)
+      .where("quizId", "==", quizId)
+      .where("status", "==", "in_progress")
+      .select()
+      .get(),
+  ]);
   if (!quizSnap.exists) {
     throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
   }
@@ -234,15 +252,8 @@ export async function startAttempt(
     }
   }
 
-  // Earlier unfinished attempts at this quiz by this person are closed below; look them up alongside the questions.
-  const [questions, previous] = await Promise.all([
-    loadQuestions(quizId, difficulty),
-    attempts()
-      .where("userId", "==", userId)
-      .where("quizId", "==", quizId)
-      .where("status", "==", "in_progress")
-      .get(),
-  ]);
+  // Loaded only once the quiz and level are known to exist, so the cache holds real question sets only.
+  const questions = await loadQuestions(quizId, difficulty);
   if (questions.length === 0) {
     throw new ApiError(422, "no_questions", "This level has no questions yet.");
   }

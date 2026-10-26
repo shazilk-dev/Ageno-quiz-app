@@ -5,6 +5,7 @@ import {
   parseQuizInput,
   updateQuiz,
 } from "@/lib/server/admin-quizzes";
+import { invalidateQuiz } from "@/lib/server/cache";
 import { errorResponse, json, readJsonBody } from "@/lib/server/request";
 
 export const runtime = "nodejs";
@@ -28,7 +29,10 @@ export async function PUT(request: Request, { params }: Context) {
     await requireAdmin(request);
     const { quizId } = await params;
     const body = await readJsonBody(request);
-    return json(await updateQuiz(quizId, parseQuizInput(body), body.version));
+    const saved = await updateQuiz(quizId, parseQuizInput(body), body.version);
+    // Players see the change on their next request (the public list, the lobby, new attempts).
+    invalidateQuiz(quizId);
+    return json(saved);
   } catch (error) {
     return errorResponse(error);
   }
@@ -38,7 +42,10 @@ export async function PUT(request: Request, { params }: Context) {
 export async function DELETE(request: Request, { params }: Context) {
   try {
     await requireAdmin(request);
-    return json(await deleteQuiz((await params).quizId));
+    const { quizId } = await params;
+    const deleted = await deleteQuiz(quizId);
+    invalidateQuiz(quizId);
+    return json(deleted);
   } catch (error) {
     return errorResponse(error);
   }

@@ -3,7 +3,7 @@
 **Purpose:** make sign-in, sign-up and every data screen (join, quiz lobby, starting a quiz, My quizzes, leaderboard, admin) feel instant. This file covers the audit (what is slow and why), the target architecture, and a phased plan that later sessions can follow the same way they follow `IMPROVEMENT_ROADMAP.md`.
 
 - **Created:** 2026-10-26 (audit of branch `phase-7-polish` at `a458877`)
-- **Status:** S0 and S1 code done (2026-10-26), not deployed yet. **Next:** you do `docs/MANUAL_STEPS.md` (confirm region, Speed Insights, deploy, checks), then S2.
+- **Status:** S0, S1 and S2 code done (2026-10-26), committed, not deployed yet. **Next:** the user does `docs/MANUAL_STEPS.md` (confirm region, Speed Insights, deploy, checks); the next session starts S3.
 - **Decisions (2026-10-26, user):** the recommended approach and the recommended answers in section 5 (sign-out is this device only plus "Sign out of all devices"; region `fra1`; cache until an admin edit, leaderboard up to 30 s stale).
 - **Manual steps for the user** are in `docs/MANUAL_STEPS.md`.
 - **Replaces:** the short "speed plan" note in the roadmap's Session 7 and 8 logs.
@@ -163,14 +163,16 @@ Each phase is independently shippable and leaves the app working. Same rules as 
 
 ### Phase S2: Server-side caching of public data
 
-- [ ] **S2.1** `lib/server/quizzes.ts`: `listPublicQuizzes` reads only the public fields with `select(...)` (keep the in-memory `isPublic`/`active` filter: a `!=` query would skip docs missing the field), and is wrapped in `unstable_cache(..., ["public-quizzes"], { tags: ["quizzes"], revalidate: 300 })`.
-- [ ] **S2.2** `getPublicQuiz`: use `questionCountByDifficulty` from the quiz doc; fall back to `count()` (in parallel, not after the legacy count) only for quizzes that don't have it. Cache per quiz with tag `quiz:<id>`.
-- [ ] **S2.3** `resolveQuizId`: one `in` query for the three spellings.
-- [ ] **S2.4** `startAttempt`: load the question set through a cache tagged `questions:<id>:<level>`; read the quiz doc and the previous attempts in parallel. (The attempt still stores its own snapshot of the questions, so a cache can never change a running attempt.)
-- [ ] **S2.5** Admin create, save and delete (`lib/server/admin-quizzes.ts` callers in `app/api/admin/quizzes/*`) call `revalidateTag("quizzes")`, `revalidateTag("quiz:<id>")` and the question tags. The legacy migration script prints a reminder to redeploy or hits a revalidate route.
-- [ ] **S2.6** Tests: emulator test that a save is visible on the next public read (tags revalidated), and that a hidden or inactive quiz drops out of the list.
+- [x] **S2.1** `lib/server/quizzes.ts`: `listPublicQuizzes` reads only the public fields with `select(...)` (keep the in-memory `isPublic`/`active` filter: a `!=` query would skip docs missing the field), and is wrapped in `unstable_cache(..., ["public-quizzes"], { tags: ["quizzes"], revalidate: 300 })`.
+- [x] **S2.2** `getPublicQuiz`: use `questionCountByDifficulty` from the quiz doc; fall back to `count()` (in parallel, not after the legacy count) only for quizzes that don't have it. Cache per quiz with tag `quiz:<id>`.
+- [x] **S2.3** `resolveQuizId`: one `in` query for the three spellings.
+- [x] **S2.4** `startAttempt`: load the question set through a cache tagged `questions:<id>:<level>`; read the quiz doc and the previous attempts in parallel. (The attempt still stores its own snapshot of the questions, so a cache can never change a running attempt.)
+- [x] **S2.5** Admin create, save and delete (`lib/server/admin-quizzes.ts` callers in `app/api/admin/quizzes/*`) call `revalidateTag("quizzes")`, `revalidateTag("quiz:<id>")` and the question tags. The legacy migration script prints a reminder to redeploy or hits a revalidate route.
+- [x] **S2.6** Tests: emulator test that a save is visible on the next public read (tags revalidated), and that a hidden or inactive quiz drops out of the list.
 
-**Done when:** a warm `/api/quizzes` and `/api/quizzes/<id>` do no Firestore reads (check `Server-Timing`), and edits appear immediately after an admin save.
+**Done when:** a warm `/api/quizzes` and `/api/quizzes/<id>` do no Firestore reads (check `Server-Timing`), and edits appear immediately after an admin save. *Met locally on a production build (`next start`): list 807 ms → 0.6 ms, lobby 1141 ms → 0.5–0.9 ms on cached requests. "Immediately after a save" is covered by tests (each admin write clears the tags); to be seen on the deployed site (manual steps, S2 block).*
+
+**How it was done (for later phases):** `lib/server/cache.ts` has `cached(key, tags, load)` (wraps `unstable_cache`, 5-minute safety expiry, falls back to a plain load outside a Next server, so scripts and the emulator tests work unchanged) and `invalidateQuiz(id)` (clears `quizzes` and `quiz:<id>`; route handlers only, since `revalidateTag` needs a Next request). The public routes no longer send `s-maxage`: a CDN copy can't be cleared by an admin save, and switching a quiz on at exam time must show at once. Question sets (answer key included) live only in the server-side cache.
 
 ### Phase S3: Render data on the server
 
@@ -253,3 +255,15 @@ It is too big for one safe session (it touches auth, caching, rendering and the 
 - **Verification:** `npx tsc --noEmit` and `npm run lint` clean. All 16 unit/component suites pass (275 tests, including the new `session-route.test.ts`). Emulator suites pass: attempts-api, admin-api (its mock now stands in for `after()`), firestore-rules. `npm run build` passes; First Load JS dropped about 10 kB on every page (`/` 242 → 232 kB). Dev server: `Server-Timing` present; signed-out `session/check` 200; bad token 401. Read-only probe of the real project over REST worked.
 - **Not verified (needs the deploy, `docs/MANUAL_STEPS.md`):** a real email and Google sign-in, sign-up, the verify link, both sign-out modes, region and timings in production.
 - **Note:** existing signed-in browsers get the `signed_in` hint at their next session refresh (within 30 minutes). Until then, if Firebase loses the user in such a browser, the stale cookie isn't cleared by the check; the next sign-in replaces it.
+
+### 2026-10-26 — S2 (server-side caching)
+- **Done:** S2.1–S2.6. S0 + S1 committed first (`e36de08`).
+  - `lib/server/cache.ts` (`cached`, `invalidateQuiz`, tags `quizzes` and `quiz:<id>`).
+  - `listPublicQuizzes`: reads only the public fields (`select`), cached under `quizzes`. The leaderboard's quiz titles come from it too.
+  - `getPublicQuiz`: one field-masked read; counts from `questionCountByDifficulty` (every save and the migration write it), counting only for older quizzes and then all levels at once (was: legacy count, then the levels); cached per quiz. A missing quiz isn't cached.
+  - `resolveQuizId`: one `in` query for the three spellings (was up to three in a row); the closest spelling still wins.
+  - `startAttempt`: the quiz and earlier unfinished attempts read in parallel (the attempts with `select()`, so their stored question copies aren't downloaded), then the level's questions from the cache. Questions are loaded only after the quiz and level are known to exist, so random ids can't fill the cache.
+  - Admin create, save and delete routes call `invalidateQuiz`; a refused save doesn't. `/api/quizzes*` no longer set `s-maxage` (now `no-store`).
+  - The migration script says the site picks its change up within 5 minutes.
+- **Verification:** `tsc` and lint clean; 16 unit/component files pass; emulator suites pass (attempts-api 45, admin-api incl. 2 new tests for the cache tags and stored counts, firestore-rules 20); `npm run build` passes. On `next start` against the real database (read-only): list 807 → 0.6 ms, lobby 1141 → 0.5 ms when cached, missing quiz 404, no access code in the lobby response.
+- **Not verified:** an admin save showing at once on the deployed site, and attempt start timing in production (manual steps).

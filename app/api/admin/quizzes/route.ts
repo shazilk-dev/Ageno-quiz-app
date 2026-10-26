@@ -1,5 +1,6 @@
 import { requireAdmin } from "@/lib/server/admin-access";
 import { createQuiz, listAdminQuizzes, parseQuizInput } from "@/lib/server/admin-quizzes";
+import { invalidateQuiz } from "@/lib/server/cache";
 import { errorResponse, json, readJsonBody } from "@/lib/server/request";
 
 export const runtime = "nodejs";
@@ -20,7 +21,9 @@ export async function POST(request: Request) {
   try {
     const uid = await requireAdmin(request);
     const input = parseQuizInput(await readJsonBody(request));
-    return json(await createQuiz(input, uid), 201);
+    const created = await createQuiz(input, uid);
+    invalidateQuiz(created.id);
+    return json(created, 201);
   } catch (error) {
     return errorResponse(error);
   }

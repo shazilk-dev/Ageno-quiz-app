@@ -139,7 +139,8 @@ describe.skipIf(!emulator)("public quiz routes", () => {
     for (const secret of ['"accessCode"', "LISTED1", "owner-secret-id", "createdBy", "isAutoCheck", "orrect"]) {
       expect(text).not.toContain(secret);
     }
-    expect(response.headers.get("cache-control")).toContain("s-maxage");
+    // Cached on the server until an admin edit; never by the CDN, which an edit couldn't clear.
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
   it("describes what a quiz needs: code required, levels, timing", async () => {
@@ -169,7 +170,8 @@ describe.skipIf(!emulator)("public quiz routes", () => {
     for (const secret of ["One", "ONE1X", '"accessCode"', "orrect"]) {
       expect(text).not.toContain(secret);
     }
-    expect(response.headers.get("cache-control")).toContain("s-maxage");
+    // Cached on the server until an admin edit; never by the CDN, which an edit couldn't clear.
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
   it("falls back to the legacy collection for levels with no questions, like the exam does", async () => {
