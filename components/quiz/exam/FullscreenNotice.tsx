@@ -26,7 +26,7 @@ export default function FullscreenNotice({
         <button
           type="button"
           onClick={onReturn}
-          className="inline-flex min-h-11 items-center px-2 text-link underline-offset-4 hover:underline"
+          className="inline-flex min-h-11 items-center px-2 text-link underline underline-offset-4 hover:no-underline"
         >
           Return to fullscreen
         </button>

@@ -108,7 +108,6 @@ export default function Header({ className }: { className?: string }) {
         <Container className="flex h-full items-center justify-between gap-6">
           <Link
             href="/"
-            aria-label="Ageno Quiz home"
             className="inline-flex min-h-11 items-center"
           >
             <LogoWordmark byline />

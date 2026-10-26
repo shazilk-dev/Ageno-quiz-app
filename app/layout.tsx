@@ -91,19 +91,17 @@ export default function RootLayout({
         <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
       </head>
       <body className="font-sans antialiased text-gray-800 bg-white overscroll-none">
+        {/* The first thing a keyboard user reaches. No wrapper element: it would be page content outside every landmark. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-0 focus:left-0 focus:z-50 focus:block focus:bg-ink focus:p-4 focus:text-bone"
+        >
+          Skip to main content
+        </a>
         <div className="min-h-screen flex flex-col relative overflow-x-clip">
           <ToastProvider>
             <AuthProvider>{children}</AuthProvider>
           </ToastProvider>
-        </div>
-        {/* Skip to main content link for accessibility */}
-        <div className="fixed top-0 left-0 z-50">
-          <a
-            href="#main-content"
-            className="sr-only focus:not-sr-only focus:p-4 focus:block focus:bg-white focus:text-teal-deep"
-          >
-            Skip to main content
-          </a>
         </div>
       </body>
     </html>

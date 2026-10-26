@@ -107,7 +107,7 @@ export default function JoinCodeForm({ signedIn, className }: JoinCodeFormProps)
             <p className="text-text-muted">
               <Link
                 href="/sign-in?redirectTo=/join"
-                className="text-link underline-offset-4 hover:underline"
+                className="text-link underline underline-offset-4 hover:no-underline"
               >
                 Sign in
               </Link>{" "}

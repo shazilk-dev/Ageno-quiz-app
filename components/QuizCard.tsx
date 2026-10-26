@@ -57,7 +57,7 @@ export default function QuizCard({ quiz }: QuizCardProps) {
       <Card interactive className="flex h-full flex-col p-5">
         {levels && <p className="text-label">{levels}</p>}
 
-        <h3 className="mt-2 line-clamp-2 text-lg leading-snug">{quiz.title}</h3>
+        <h2 className="mt-2 line-clamp-2 text-lg leading-snug">{quiz.title}</h2>
 
         {quiz.description && (
           <p className="mt-2 line-clamp-2 text-sm text-text-body">

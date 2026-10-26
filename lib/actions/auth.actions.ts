@@ -6,6 +6,7 @@ import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   GoogleAuthProvider,
+  browserPopupRedirectResolver,
   signInWithPopup,
   User,
   onAuthStateChanged,
@@ -319,7 +320,7 @@ export const updateUserPassword = async (
 export const signInWithGoogle = async (): Promise<User | AuthError> => {
   try {
     const provider = new GoogleAuthProvider();
-    const userCredential = await signInWithPopup(auth, provider);
+    const userCredential = await signInWithPopup(auth, provider, browserPopupRedirectResolver);
 
     // Try to register user with API first
     const apiSuccess = await registerUserWithApi(userCredential.user);

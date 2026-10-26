@@ -49,10 +49,16 @@ export async function GET() {
       return response;
     };
 
-    // If no session cookie, return unauthenticated response
+    // No session cookie: nobody is signed in. That is an answer, not an error, so it is a 200 (a 401 here
+    // shows up as a red error in every signed-out visitor's console). An invalid or revoked session below
+    // is still a 401.
     if (!sessionCookie) {
-      return createClearedCookieResponse();
-    }    try {
+      return NextResponse.json(
+        { isAuthenticated: false, reason: "no_cookie" },
+        { status: 200, headers: CACHE_HEADERS }
+      );
+    }
+    try {
       // First try to verify without checking revocation
       let decodedClaims;
       try {

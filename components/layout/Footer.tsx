@@ -25,7 +25,6 @@ export default function Footer({ className }: { className?: string }) {
         <div>
           <Link
             href="/"
-            aria-label="Ageno Quiz home"
             className="inline-flex min-h-11 items-center"
           >
             <LogoWordmark />
@@ -36,7 +35,7 @@ export default function Footer({ className }: { className?: string }) {
               href={AGENOVERSE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-link underline-offset-4 hover:underline"
+              className="text-link underline underline-offset-4 hover:no-underline"
             >
               Agenoverse
             </a>

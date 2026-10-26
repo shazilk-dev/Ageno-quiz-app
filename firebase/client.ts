@@ -1,7 +1,14 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import {
+  browserLocalPersistence,
+  browserSessionPersistence,
+  getAuth,
+  indexedDBLocalPersistence,
+  initializeAuth,
+  type Auth,
+} from "firebase/auth";
 
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -19,4 +26,23 @@ export const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 export const db = getFirestore(app);
-export const auth = getAuth(app);
+
+/**
+ * `getAuth()` also sets up the popup and redirect machinery, which loads Google's `gapi` script and a hidden
+ * iframe (about 100 kB and a long task) on every page, signed in or not. Only Google sign-in needs it, so
+ * Auth is started without it, with the same persistence `getAuth()` would use, and `signInWithGoogle`
+ * passes `browserPopupRedirectResolver` itself.
+ */
+function createAuth(): Auth {
+  if (typeof window === "undefined") return getAuth(app);
+  try {
+    return initializeAuth(app, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence],
+    });
+  } catch {
+    // Already initialised (hot reload): reuse it.
+    return getAuth(app);
+  }
+}
+
+export const auth = createAuth();
