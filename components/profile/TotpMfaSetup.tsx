@@ -7,7 +7,7 @@ import { Button, Input } from "@/components/ui";
 import {
   completeTotpMfaEnrollment,
   generateTotpSecret,
-} from "@/lib/actions/auth.actions";
+} from "@/lib/actions/auth-mfa";
 import type { ProfileAction } from "./use-profile-action";
 
 interface Props {

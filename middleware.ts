@@ -21,8 +21,10 @@ const PUBLIC_PATHS = new Set([
 const PUBLIC_PREFIXES = [
   "/q/",
   "/api/auth/session",
-  "/api/auth/user/public",
-  // These check the caller's ID token themselves.
+  // These check the caller's ID token themselves. (`/api/auth/user` is called by sign-up, before there
+  // is a session cookie.)
+  "/api/auth/user",
+  "/api/account",
   "/api/attempts",
   "/api/quizzes",
   "/api/leaderboard",

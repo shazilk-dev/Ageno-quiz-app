@@ -1,9 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import QuizAttempt from "@/components/quiz/exam/QuizAttempt";
-import ResumeAttempt from "@/components/quiz/exam/ResumeAttempt";
+import { lazy, Suspense, useEffect, useState } from "react";
 import QuizLobby, { type QuestionsState } from "@/components/quiz/lobby/QuizLobby";
 import {
   LobbySkeleton,
@@ -29,6 +27,14 @@ import {
   type SavedAttempt,
 } from "@/lib/exam/storage";
 import type { AttemptSeed } from "@/lib/exam/types";
+
+// The exam and the resume screen aren't part of the lobby's first load: they only ever render in the
+// browser, after a click or a check of this device's storage. Their code is fetched in the background once
+// the lobby is on screen (see the effect below), so pressing Start doesn't wait for it.
+const loadQuizAttempt = () => import("@/components/quiz/exam/QuizAttempt");
+const loadResumeAttempt = () => import("@/components/quiz/exam/ResumeAttempt");
+const QuizAttempt = lazy(loadQuizAttempt);
+const ResumeAttempt = lazy(loadResumeAttempt);
 
 interface ClientProps {
   quizId: string;
@@ -86,6 +92,11 @@ export default function QuizClient({ quizId, initial = null }: ClientProps) {
     );
   }, [storageKey]);
 
+  useEffect(() => {
+    void loadQuizAttempt();
+    void loadResumeAttempt();
+  }, []);
+
   if (loader.status === "loading") return <LobbySkeleton />;
   if (loader.status === "error") {
     return <QuizLoadFailed onRetry={loader.reload} />;
@@ -100,30 +111,32 @@ export default function QuizClient({ quizId, initial = null }: ClientProps) {
 
   if (attempt) {
     return (
-      <QuizAttempt
-        key={attempt.seed.attemptId}
-        quiz={quiz}
-        seed={attempt.seed}
-        userId={attempt.userId}
-        onRetry={async () => {
-          // From the click, before anything else: browsers only allow fullscreen from a user gesture.
-          const fullscreen = enterFullscreen();
-          try {
-            const state = await startAttempt(
-              quiz.id,
-              attempt.seed.difficulty,
-              getRememberedCode(quiz.id) ?? undefined
-            );
-            await fullscreen;
-            begin(seedFromServer(state));
-          } catch (error) {
-            await fullscreen;
-            void exitFullscreen();
-            throw new Error(messageOf(error));
-          }
-        }}
-        onExit={() => router.push("/join")}
-      />
+      <Suspense fallback={<LobbySkeleton />}>
+        <QuizAttempt
+          key={attempt.seed.attemptId}
+          quiz={quiz}
+          seed={attempt.seed}
+          userId={attempt.userId}
+          onRetry={async () => {
+            // From the click, before anything else: browsers only allow fullscreen from a user gesture.
+            const fullscreen = enterFullscreen();
+            try {
+              const state = await startAttempt(
+                quiz.id,
+                attempt.seed.difficulty,
+                getRememberedCode(quiz.id) ?? undefined
+              );
+              await fullscreen;
+              begin(seedFromServer(state));
+            } catch (error) {
+              await fullscreen;
+              void exitFullscreen();
+              throw new Error(messageOf(error));
+            }
+          }}
+          onExit={() => router.push("/join")}
+        />
+      </Suspense>
     );
   }
 
@@ -159,18 +172,20 @@ export default function QuizClient({ quizId, initial = null }: ClientProps) {
     };
 
     return (
-      <ResumeAttempt
-        title={quiz.title}
-        saved={saved}
-        resuming={resuming}
-        error={resumeError}
-        onResume={handleResume}
-        onDiscard={() => {
-          clearAttempt(storageKey);
-          setResumeError(null);
-          setSavedCheck({ key: storageKey, saved: null });
-        }}
-      />
+      <Suspense fallback={<LobbySkeleton />}>
+        <ResumeAttempt
+          title={quiz.title}
+          saved={saved}
+          resuming={resuming}
+          error={resumeError}
+          onResume={handleResume}
+          onDiscard={() => {
+            clearAttempt(storageKey);
+            setResumeError(null);
+            setSavedCheck({ key: storageKey, saved: null });
+          }}
+        />
+      </Suspense>
     );
   }
 

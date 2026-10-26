@@ -4,7 +4,6 @@
  */
 export const DEV_ROUTE_PREFIXES = [
   "/auth-test",
-  "/useauth-test",
   "/api/auth/session/debug",
 ];
 

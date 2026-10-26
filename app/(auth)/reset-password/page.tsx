@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
 import AuthFrame from "@/components/auth/AuthFrame";
 import { Alert, Button, Input, Skeleton } from "@/components/ui";
-import { resetPassword } from "@/lib/actions/auth.actions";
+import { resetPassword } from "@/lib/actions/auth-core";
 
 function ResetPasswordContent() {
   const searchParams = useSearchParams();

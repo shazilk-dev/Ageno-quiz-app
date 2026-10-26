@@ -122,7 +122,7 @@ describe("development-only routes", () => {
   beforeEach(() => vi.unstubAllEnvs());
   afterEach(() => vi.unstubAllEnvs());
 
-  const devPaths = ["/auth-test", "/useauth-test", "/api/auth/session/debug"];
+  const devPaths = ["/auth-test", "/api/auth/session/debug"];
 
   it.each(devPaths)("%s doesn't exist in production", async (path) => {
     vi.stubEnv("NODE_ENV", "production");

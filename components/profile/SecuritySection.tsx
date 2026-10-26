@@ -2,17 +2,16 @@
 
 import type { MultiFactorInfo, User } from "firebase/auth";
 import { ChevronRight, Clock, LogOut, Smartphone } from "lucide-react";
-import { useState } from "react";
-import { Badge, Button, Card } from "@/components/ui";
+import { lazy, Suspense, useState } from "react";
+import { Badge, Button, Card, Skeleton } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
-import {
-  getMfaStatus,
-  sendVerificationEmail,
-  unenrollMfaFactor,
-} from "@/lib/actions/auth.actions";
-import PhoneMfaSetup from "./PhoneMfaSetup";
-import TotpMfaSetup from "./TotpMfaSetup";
+import { getMfaStatus, unenrollMfaFactor } from "@/lib/actions/auth-account";
+import { sendVerificationEmail } from "@/lib/actions/auth-core";
 import type { ProfileAction } from "./use-profile-action";
+
+// The setup steps (reCAPTCHA, TOTP, the QR code library) load only when someone starts one.
+const PhoneMfaSetup = lazy(() => import("./PhoneMfaSetup"));
+const TotpMfaSetup = lazy(() => import("./TotpMfaSetup"));
 
 interface SectionProps {
   user: User;
@@ -120,9 +119,13 @@ export default function SecuritySection({ user, action }: SectionProps) {
 
         <div className="mt-4">
           {setup === "phone" ? (
-            <PhoneMfaSetup user={user} action={action} onDone={finishSetup} onCancel={() => setSetup(null)} />
+            <Suspense fallback={<Skeleton className="h-32 w-full" />}>
+              <PhoneMfaSetup user={user} action={action} onDone={finishSetup} onCancel={() => setSetup(null)} />
+            </Suspense>
           ) : setup === "totp" ? (
-            <TotpMfaSetup user={user} action={action} onDone={finishSetup} onCancel={() => setSetup(null)} />
+            <Suspense fallback={<Skeleton className="h-32 w-full" />}>
+              <TotpMfaSetup user={user} action={action} onDone={finishSetup} onCancel={() => setSetup(null)} />
+            </Suspense>
           ) : (
             <div className="space-y-2">
               {(

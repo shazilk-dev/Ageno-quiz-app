@@ -1,6 +1,5 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApp, getApps } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
 import {
   browserLocalPersistence,
   browserSessionPersistence,
@@ -25,7 +24,8 @@ export const firebaseConfig = {
 // Initialize Firebase properly
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-export const db = getFirestore(app);
+// No Firestore here on purpose: the browser reads and writes everything through our API routes, and the
+// rules deny it the database (firestore.rules).
 
 /**
  * `getAuth()` also sets up the popup and redirect machinery, which loads Google's `gapi` script and a hidden

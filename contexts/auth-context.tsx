@@ -11,7 +11,7 @@ import {
   signInWithGoogle,
   signOut,
   signUpWithEmail,
-} from "@/lib/actions/auth.actions";
+} from "@/lib/actions/auth-core";
 import {
   createSession,
   clearSession,

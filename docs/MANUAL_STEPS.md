@@ -95,3 +95,19 @@ For each page below, use **View page source** (Ctrl+U) or watch the first paint:
 - [ ] Signed in, open **My quizzes**, then a result from it, then **Leaderboard**: each appears with its data straight away. Change a leaderboard filter: the old board stays (dimmed) until the new one arrives.
 - [ ] As admin, open **Dashboard**, **Quizzes**, **Users** and **Reports**: each shows its numbers straight away. Create or delete something and check the list updates as before.
 - [ ] Sign out, then press the browser's Back button to My quizzes: you're sent to sign in, not shown your data.
+
+## Performance Phase S4 (merged into `main` and pushed on 2026-10-26)
+
+S4 made every page about 65 kB lighter. It removed the Firestore SDK and the Node polyfills from the browser and moved the profile and activity-log writes to the server. The new Firestore rules deny the browser everything. They are deployed right after the push (see the S4 session log in `docs/PERFORMANCE_PLAN.md`); if that log says the deploy didn't happen, run `firebase deploy --only firestore:rules --project ageno-quiz-af3ff` once Vercel shows the new version live.
+
+Check in a real browser on the deployed site, with the console open (F12 → **Console**). No red errors should appear on any of these (about 10 minutes):
+- [ ] Open `/`, `/join`, a lobby, `/sign-in`, signed out. Pages look and behave as before.
+- [ ] **Sign up** with a new email. Then, as admin, open **Users**: the new person is there before they've signed in. (Before S4 the profile only appeared after their first sign-in.)
+- [ ] **Sign in with Google.** The popup opens and you're signed in.
+- [ ] **Profile → Profile:** change your display name and save. Reload: the new name stays. As admin, the Users screen shows the new name.
+- [ ] **Profile → Password:** change your password, sign out, sign in with the new one.
+- [ ] **Profile → Email** (optional, with an address you can read): change it; a verification email arrives at the new address.
+- [ ] **Profile → Security:** start "Add an authenticator app". A short placeholder, then the QR code. Cancel. (If you use two-factor, set it up and remove it again.)
+- [ ] **Take a quiz:** start, answer, submit, see the result. Start should be as quick as before (the exam's code now loads in the background while you're on the lobby).
+- [ ] A quiz in progress: reload the page. The "resume" screen appears and resuming works.
+- [ ] As admin, open the Dashboard, Quizzes, Users, Reports and the quiz editor. All work as before. (The admin screens never used Firestore from the browser, so the stricter rules don't affect them.)

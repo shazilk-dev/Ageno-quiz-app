@@ -2,7 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import { Badge, Button, Input } from "@/components/ui";
-import { updateUserProfile, sendVerificationEmail } from "@/lib/actions/auth.actions";
+import { updateUserProfile } from "@/lib/actions/auth-account";
+import { sendVerificationEmail } from "@/lib/actions/auth-core";
 import type { User } from "firebase/auth";
 import type { ProfileAction } from "./use-profile-action";
 

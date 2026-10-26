@@ -20,7 +20,7 @@ vi.mock("@/contexts/auth-context", () => ({
 }));
 
 const actions = vi.hoisted(() => ({ signOut: vi.fn(), resetPassword: vi.fn(), sendVerificationEmail: vi.fn() }));
-vi.mock("@/lib/actions/auth.actions", () => actions);
+vi.mock("@/lib/actions/auth-core", () => actions);
 
 import ResetPasswordPage from "@/app/(auth)/reset-password/page";
 import SignInPage from "@/app/(auth)/sign-in/page";

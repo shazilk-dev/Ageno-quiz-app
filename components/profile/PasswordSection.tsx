@@ -3,7 +3,7 @@
 import type { User } from "firebase/auth";
 import { useState, type FormEvent } from "react";
 import { Button, Input } from "@/components/ui";
-import { updateUserPassword } from "@/lib/actions/auth.actions";
+import { updateUserPassword } from "@/lib/actions/auth-account";
 import type { ProfileAction } from "./use-profile-action";
 
 interface SectionProps {

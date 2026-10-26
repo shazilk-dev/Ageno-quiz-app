@@ -14,7 +14,9 @@ const actions = vi.hoisted(() => ({
   completeTotpMfaEnrollment: vi.fn(),
   unenrollMfaFactor: vi.fn(),
 }));
-vi.mock("@/lib/actions/auth.actions", () => actions);
+vi.mock("@/lib/actions/auth-core", () => actions);
+vi.mock("@/lib/actions/auth-account", () => actions);
+vi.mock("@/lib/actions/auth-mfa", () => actions);
 vi.mock("qrcode.react", () => ({ QRCodeSVG: () => null }));
 
 // A stable object, like the real context.

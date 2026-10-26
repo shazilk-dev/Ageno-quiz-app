@@ -1,88 +1,13 @@
 rules_version = '2';
 
-// FINAL RULES (roadmap P5.5). Players never touch Firestore for quizzes, questions, attempts or results:
-// everything they need goes through the server routes under app/api (Admin SDK, which bypasses these
-// rules). From the browser only two things are allowed:
-//   - a signed-in person reading and updating their own profile and reading their own activity log, and
-//   - admins, who run the admin screens with the client SDK.
-// Anything not matched below is denied.
+// FINAL RULES (performance plan S4.3; before that roadmap P5.5). The browser never uses Firestore: players,
+// admins and a person's own profile and activity log all go through the server routes under app/api
+// (Admin SDK, which bypasses these rules). The client bundle doesn't even include the Firestore SDK. So
+// every read and write from a browser is denied, whoever is signed in, admins included.
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    function isAdmin() {
-      return isAuthenticated() &&
-        (request.auth.token.role == "admin" ||
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin");
-    }
-
-    match /users/{userId} {
-      // Own profile only. The leaderboard shows names through the server, not through this collection.
-      allow read: if isOwner(userId) || isAdmin();
-
-      // Self-registration can't pick its own role.
-      allow create: if isOwner(userId) &&
-        request.resource.data.get("role", "user") == "user" &&
-        (!("customClaims" in request.resource.data) ||
-         request.resource.data.customClaims.get("role", "user") == "user");
-
-      allow update: if isAdmin() ||
-        (isOwner(userId) &&
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny(["role", "customClaims"]));
-
-      allow delete: if isAdmin();
-    }
-
-    // Quizzes, their questions (with the answer key) and everything else under them: admins only.
-    // Players get the quiz, and later its questions without the key, from the server.
-    match /quizzes/{quizId} {
-      allow read, write: if isAdmin();
-
-      match /{subCollection}/{docId} {
-        allow read, write: if isAdmin();
-      }
-    }
-
-    // Results are written by the server when an attempt is submitted, so no one can create or change a
-    // score from a browser. A person can read their own; admins can read and delete.
-    match /responses/{responseId} {
-      allow read: if isAdmin() ||
-        (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create, update: if false;
-      allow delete: if isAdmin();
-
-      match /answers/{answerId} {
-        allow read: if isAdmin() ||
-          (isAuthenticated() &&
-           get(/databases/$(database)/documents/responses/$(responseId)).data.userId == request.auth.uid);
-        allow create, update: if false;
-        allow delete: if isAdmin();
-      }
-    }
-
-    // Attempts hold the questions with their answer key and the clock. Server only.
-    match /attempts/{attemptId} {
+    match /{document=**} {
       allow read, write: if false;
-    }
-
-    match /userActivities/{activityId} {
-      allow read: if isAuthenticated() &&
-                    (resource.data.userId == request.auth.uid || isAdmin());
-
-      allow create: if isAuthenticated() &&
-                      request.resource.data.userId == request.auth.uid;
-
-      allow update, delete: if false;
-    }
-
-    match /settings/{settingId} {
-      allow read, write: if isAdmin();
     }
   }
 }

@@ -7,7 +7,7 @@ import { Suspense, useEffect, useState } from "react";
 import AuthFrame from "@/components/auth/AuthFrame";
 import { Alert, Button, Skeleton } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
-import { sendVerificationEmail } from "@/lib/actions/auth.actions";
+import { sendVerificationEmail } from "@/lib/actions/auth-core";
 
 function VerifyEmailContent() {
   const { user, loading } = useAuth();

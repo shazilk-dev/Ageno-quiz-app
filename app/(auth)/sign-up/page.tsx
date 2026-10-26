@@ -7,7 +7,7 @@ import AuthFrame from "@/components/auth/AuthFrame";
 import GoogleButton, { OrDivider } from "@/components/auth/GoogleButton";
 import { Alert, Button, Input, Skeleton } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
-import { signOut } from "@/lib/actions/auth.actions";
+import { signOut } from "@/lib/actions/auth-core";
 import { safeRedirectPath } from "@/lib/navigation";
 import { passwordStrength, type PasswordStrength } from "@/lib/password-strength";
 import { cn } from "@/lib/utils";

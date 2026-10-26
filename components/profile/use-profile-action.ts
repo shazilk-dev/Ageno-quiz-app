@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { AuthError } from "@/lib/actions/auth.actions";
+import type { AuthError } from "@/lib/actions/auth-core";
 
 export interface Notice {
   type: "success" | "error";

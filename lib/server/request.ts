@@ -1,3 +1,4 @@
+import type { DecodedIdToken } from "firebase-admin/auth";
 import { NextResponse } from "next/server";
 import { auth } from "@/firebase/admin";
 
@@ -28,6 +29,11 @@ export function assertSafeId(value: unknown, what: string): asserts value is str
  * is a 401, and so is one that doesn't verify (an expired sign-in must never pass as "someone else").
  */
 export async function requireUserId(request: Request): Promise<string> {
+  return (await requireUser(request)).uid;
+}
+
+/** `requireUserId`, for routes that also need what the token says (email, verified). */
+export async function requireUser(request: Request): Promise<DecodedIdToken> {
   const header = request.headers.get("authorization");
   if (!header) {
     throw new ApiError(401, "sign_in_required", "Sign in to continue.");
@@ -38,7 +44,7 @@ export async function requireUserId(request: Request): Promise<string> {
     throw new ApiError(401, "invalid_token", "Sign in again and retry.");
   }
   try {
-    return (await auth.verifyIdToken(token)).uid;
+    return await auth.verifyIdToken(token);
   } catch {
     throw new ApiError(401, "invalid_token", "Your sign-in has expired. Sign in again and retry.");
   }

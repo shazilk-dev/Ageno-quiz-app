@@ -3,7 +3,7 @@
 **Purpose:** make sign-in, sign-up and every data screen (join, quiz lobby, starting a quiz, My quizzes, leaderboard, admin) feel instant. This file covers the audit (what is slow and why), the target architecture, and a phased plan that later sessions can follow the same way they follow `IMPROVEMENT_ROADMAP.md`.
 
 - **Created:** 2026-10-26 (audit of branch `phase-7-polish` at `a458877`)
-- **Status:** S0–S3 code done (2026-10-26), merged into `main` and pushed (so Vercel deploys it). **Next:** the user does `docs/MANUAL_STEPS.md` (region, Speed Insights, checks on the deployed site); the next session starts S4 (bundle diet).
+- **Status:** S0–S4 code done (2026-10-26), merged into `main` and pushed (so Vercel deploys it). **Next:** the user does `docs/MANUAL_STEPS.md` (region, Speed Insights, checks on the deployed site, the S4 browser checks); the next session starts S5 (precomputed aggregates).
 - **Decisions (2026-10-26, user):** the recommended approach and the recommended answers in section 5 (sign-out is this device only plus "Sign out of all devices"; region `fra1`; cache until an admin edit, leaderboard up to 30 s stale).
 - **Manual steps for the user** are in `docs/MANUAL_STEPS.md`.
 - **Replaces:** the short "speed plan" note in the roadmap's Session 7 and 8 logs.
@@ -189,13 +189,30 @@ Each phase is independently shippable and leaves the app working. Same rules as 
 
 ### Phase S4: Bundle diet
 
-- [ ] **S4.1** Add `@next/bundle-analyzer` (dev only) and record the per-route First Load JS here.
-- [ ] **S4.2** Split `auth.actions.ts`: `auth-core.ts` (sign in/up/out, Google, reset) and `auth-account.ts` (email/password change, MFA, TOTP, phone, reCAPTCHA). The profile page imports the second, loaded with `next/dynamic` where it's a dialog.
-- [ ] **S4.3** Move the two remaining browser Firestore uses (profile updates, activity log) to server routes. Then the client bundle has no `firebase/firestore`, and `firestore.rules` can deny the browser everything (simpler, safer; redeploy rules after `firestore-rules.test.ts`).
-- [ ] **S4.4** Remove the Node polyfills and `ProvidePlugin` from `next.config.mjs` one by one, rebuilding each time; drop the unused `*-browserify` devDependencies and `webpac`. Switch `images.domains` to `remotePatterns`.
-- [ ] **S4.5** Delete `hooks/useAuth.ts` together with the `useauth-test` dev page (or move it under the dev page).
+- [x] **S4.1** Add `@next/bundle-analyzer` (dev only) and record the per-route First Load JS here. *`ANALYZE=true npm run build` writes `.next/analyze/client.html`. Table below.*
+- [x] **S4.2** Split `auth.actions.ts`: `auth-core.ts` (sign in/up/out, Google, reset) and `auth-account.ts` (email/password change, MFA, TOTP, phone, reCAPTCHA). The profile page imports the second, loaded with `next/dynamic` where it's a dialog. *Three files: `auth-core.ts` (root layout), `auth-account.ts` (profile: name, email, password, list/remove second factors) and `auth-mfa.ts` (phone + reCAPTCHA, TOTP enrolment), which only the two setup dialogs import; those load with `React.lazy` when someone starts one. `next/dynamic` was tried and dropped: its loader adds ~1.5 kB to the page for parts that only ever render in the browser anyway.*
+- [x] **S4.3** Move the two remaining browser Firestore uses (profile updates, activity log) to server routes. Then the client bundle has no `firebase/firestore`, and `firestore.rules` can deny the browser everything (simpler, safer; redeploy rules after `firestore-rules.test.ts`). *`PATCH /api/account/profile` and `POST /api/account/activity` (`lib/server/account.ts`); `firebase/client.ts` no longer exports `db`; `firestore.rules` denies every read and write, admins included.*
+- [x] **S4.4** Remove the Node polyfills and `ProvidePlugin` from `next.config.mjs` one by one, rebuilding each time; drop the unused `*-browserify` devDependencies and `webpac`. Switch `images.domains` to `remotePatterns`. *Removed together (nothing in the client used them: the built chunks contain no `Buffer` and no Node module shims), plus `webpack`, `webpack-node-externals`, `assert`, `buffer`, `process`, `util`.*
+- [x] **S4.5** Delete `hooks/useAuth.ts` together with the `useauth-test` dev page (or move it under the dev page). *Deleted with `docs/useAuth.md`; `swr` was only used there and is uninstalled.*
+- Also, to reach the budget: the lobby loads the exam (`QuizAttempt`) and the resume screen with `React.lazy` and fetches their code in the background once it's on screen; `package.json` has `"sideEffects": ["*.css"]`, so webpack drops unused re-exports of the `components/ui` barrel (it was concatenating Dialog, CopyButton, SegmentedControl, ... into every page).
 
-**Done when:** public pages are within the First Load JS budget and the build and all tests pass.
+**Done when:** public pages are within the First Load JS budget and the build and all tests pass. *Met (2026-10-26, `npm run build`): see the table.*
+
+**First Load JS after S4** (gzip, exact sums of each page's chunks; before = the build at the start of S4, after S0–S3):
+
+| Route | Before S4 | After S4 |
+|---|---|---|
+| `/` landing | 232 kB | 163.0 kB |
+| `/join` | 235 kB | 165.0 kB |
+| `/q/[id]` lobby (exam loads after) | 250 kB | 169.0 kB |
+| `/leaderboard` | 234 kB | 165.5 kB |
+| `/sign-in`, `/sign-up` | 232 kB | 163.4–163.8 kB |
+| `/reset-password`, `/verify-email` | 228–231 kB | 159.4–161.2 kB |
+| `/my-quizzes`, `/my-quizzes/[attemptId]` | 239–240 kB | 169.6–170.5 kB |
+| `/profile` | 236 kB | 161.2 kB |
+| Admin screens | 230–237 kB | 162.7–170.0 kB |
+
+What every page still carries (about 60 kB on top of Next's 103 kB): Firebase Auth core with app/util (~37 kB, needed by `AuthProvider`), `tailwind-merge` (8.4 kB, `cn()`), the UI primitives in use, the auth context. Lazy-starting Firebase Auth on public pages would be the next step if the budget tightens; not worth it now.
 
 ### Phase S5: Precomputed aggregates
 
@@ -277,3 +294,14 @@ It is too big for one safe session (it touches auth, caching, rendering and the 
   - `loading.tsx` for `(user)`, `(admin)` and the lobby.
 - **Verification:** `tsc` and lint clean; 17 unit/component files pass (new `server-rendered-pages.test.tsx`, plus new cases in the leaderboard, My quizzes and admin page tests); emulator suites pass (attempts 45, admin 38, rules 20); `npm run build` passes (`/join` static 5 min, `/q/[id]` generated on demand). On `next start` against the real database: `/join` served from cache in 55 ms with the list in the HTML; a lobby took 1.9 s to build the first time, then 21 ms; its HTML has the quiz but not its access code (checked against the stored code); a missing quiz shows the not-found message with `noindex`; `/my-quizzes` and `/leaderboard` with a forged cookie fall back to loading in the browser; `/dashboard` with a forged cookie and an `admin` role hint redirects to sign-in.
 - **Not verified:** the signed-in, server-rendered path of My quizzes, results, leaderboard and the admin screens (needs a real session; manual steps).
+
+### 2026-10-26 — S4 (bundle diet)
+- **Done:** S4.1–S4.5. S3 was already committed (`6b8ec17`) and on `main`.
+  - `lib/actions/auth.actions.ts` split into `auth-core.ts`, `auth-account.ts`, `auth-mfa.ts` (see S4.2). The MFA setup dialogs and the lobby's exam and resume screens load with `React.lazy`; the lobby fetches the exam's code in the background so Start doesn't wait.
+  - Browser Firestore gone: `PATCH /api/account/profile` (name and photo from the body, email and verified from the token, never the role; logs `profile_updated` in `after()`), `POST /api/account/activity` (an allowlist of types; details over 1000 characters of JSON are dropped). `lib/actions/activity.ts` `recordActivity` calls it without waiting. `requireUser()` in `lib/server/request.ts` returns the decoded token.
+  - `firestore.rules` denies everything; `firestore-rules.test.ts` rewritten to check that for a guest, a player and both kinds of admin.
+  - Middleware: `/api/account` and `/api/auth/user` are now on the list of routes that check tokens themselves. **Bug fixed on the way:** `/api/auth/user` (called by sign-up, before there is a session cookie) was being refused by the middleware with a 401, so sign-up never created the profile or logged `account_created`; the first sign-in created the profile instead.
+  - `next.config.mjs`: no webpack overrides, `remotePatterns`, bundle analyzer behind `ANALYZE=true`. Dependencies removed: `webpack`, `webpac`, `webpack-node-externals`, the `*-browserify` packages, `assert`, `buffer`, `process`, `util`, `swr`. `package.json` `"sideEffects": ["*.css"]`.
+  - Deleted `hooks/useAuth.ts`, `app/(dev)/useauth-test`, `docs/useAuth.md` (and the dev-route entry).
+- **Verification:** `tsc` and lint clean. 18 unit/component files pass (296 tests, including the new `account-routes.test.ts`). Emulator suites pass: firestore-rules 8, admin-api 38, attempts-api 45. `npm run build` passes; sizes in the S4 table (every public page under 170 kB). `next start`: `/`, `/join`, `/sign-in` and a lobby return 200; `/profile` and `/leaderboard` signed out redirect to sign-in; the new routes return 401 from their own token check. The built client chunks contain no Firestore SDK and no `Buffer`.
+- **Not verified (no browser here; manual steps, S4 block):** the pages in a real browser after the polyfill and `sideEffects` change, changing name, email and password, setting up and removing two-factor, Google sign-in, sign-up creating the profile, starting a quiz with the lazily loaded exam.
