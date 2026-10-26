@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Alert, Button, Card, Dialog } from "@/components/ui";
 import { LobbyFrame } from "@/components/quiz/lobby/LobbyStates";
-import { formatClock, secondsUntil } from "@/lib/exam/answers";
+import { formatClock, isAnswered, secondsUntil } from "@/lib/exam/answers";
 import { attemptDeadline, type SavedAttempt } from "@/lib/exam/storage";
 
 interface ResumeAttemptProps {
@@ -30,9 +30,7 @@ export default function ResumeAttempt({
   const [now] = useState(() => Date.now());
 
   const remaining = secondsUntil(attemptDeadline(saved), now);
-  const answered = Object.values(saved.answers).filter(
-    (answer) => answer !== null && answer !== undefined
-  ).length;
+  const answered = Object.values(saved.answers).filter(isAnswered).length;
   const total = saved.questionIds.length;
 
   return (

@@ -8,6 +8,7 @@ import {
   LEVEL_LABELS,
   LIMITS,
   exportQuestions,
+  levelBytes,
   type Level,
   type ValidationIssue,
 } from "@/lib/quiz-schema";
@@ -48,6 +49,7 @@ export function LevelsSection({ form, level, onLevelChange, issues, dispatch }: 
   const [importing, setImporting] = useState(false);
   const draft = form.levels[level];
   const problems = problemsByQuestion(issues, level);
+  const bytes = levelBytes(draft.questions);
   const levelIssue = issues.find((issue) => issue.level === level && issue.question === undefined);
 
   const exportLevel = () =>
@@ -131,6 +133,21 @@ export function LevelsSection({ form, level, onLevelChange, issues, dispatch }: 
           Export
         </Button>
       </div>
+
+      {bytes > 0 && (
+        <p
+          className={
+            bytes > LIMITS.maxLevelBytes
+              ? "font-mono text-sm text-error"
+              : bytes > LIMITS.maxLevelBytes * 0.8
+                ? "font-mono text-sm text-text"
+                : "font-mono text-sm text-text-muted"
+          }
+        >
+          Text in this level: {Math.max(1, Math.round(bytes / 1000))} KB of{" "}
+          {Math.round(LIMITS.maxLevelBytes / 1000)} KB
+        </p>
+      )}
 
       {draft.questions.length === 0 ? (
         <EmptyState

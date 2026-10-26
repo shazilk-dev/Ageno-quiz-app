@@ -51,8 +51,8 @@ const detail = (overrides: Partial<AdminQuizDetail> = {}): AdminQuizDetail => ({
       duration: 15,
       pointsMultiplier: 1.5,
       questions: [
-        { id: "a", text: "First?", options: [{ text: "x", isCorrect: true }, { text: "y", isCorrect: false }] },
-        { id: "b", text: "Second?", options: [{ text: "p", isCorrect: false }, { text: "q", isCorrect: true }] },
+        { id: "a", type: "single", text: "First?", options: [{ text: "x", isCorrect: true }, { text: "y", isCorrect: false }] },
+        { id: "b", type: "single", text: "Second?", options: [{ text: "p", isCorrect: false }, { text: "q", isCorrect: true }] },
       ],
     },
   },
@@ -135,7 +135,7 @@ describe("the form state", () => {
 
   it("imports after or instead of what's there", () => {
     const state = withQuestions();
-    const incoming = [draftQuestion({ text: "new", options: [{ text: "a", isCorrect: true }, { text: "b", isCorrect: false }] })];
+    const incoming = [draftQuestion({ type: "single", text: "new", options: [{ text: "a", isCorrect: true }, { text: "b", isCorrect: false }] })];
     expect(editorReducer(state, { type: "importQuestions", level: "easy", questions: incoming, mode: "append" }).levels.easy.questions).toHaveLength(3);
     expect(editorReducer(state, { type: "importQuestions", level: "easy", questions: incoming, mode: "replace" }).levels.easy.questions.map((q) => q.text)).toEqual(["new"]);
   });
@@ -157,6 +157,46 @@ describe("the form state", () => {
 
     const blank = validateForm(editorReducer(state, { type: "levelField", level: "easy", name: "duration", value: "" }));
     expect(blank.ok).toBe(false);
+  });
+
+  it("ticks several right options on a select-all question, and keeps one when it goes back to single", () => {
+    let state = blankForm();
+    state = editorReducer(state, { type: "addQuestion", level: "easy", key: "k1" });
+    state = editorReducer(state, { type: "setType", level: "easy", key: "k1", questionType: "multiple" });
+    for (const index of [0, 2, 3]) {
+      state = editorReducer(state, { type: "toggleCorrect", level: "easy", key: "k1", index });
+    }
+    const right = () => state.levels.easy.questions[0].options.map((o) => o.isCorrect);
+    expect(right()).toEqual([true, false, true, true]);
+    state = editorReducer(state, { type: "toggleCorrect", level: "easy", key: "k1", index: 2 });
+    expect(right()).toEqual([true, false, false, true]);
+
+    // Going back to one answer keeps the one chosen, or the first when none is named.
+    const chosen = editorReducer(state, { type: "setType", level: "easy", key: "k1", questionType: "single", keep: 3 });
+    expect(chosen.levels.easy.questions[0]).toMatchObject({ type: "single" });
+    expect(chosen.levels.easy.questions[0].options.map((o) => o.isCorrect)).toEqual([false, false, false, true]);
+    const first = editorReducer(state, { type: "setType", level: "easy", key: "k1", questionType: "single" });
+    expect(first.levels.easy.questions[0].options.map((o) => o.isCorrect)).toEqual([true, false, false, false]);
+  });
+
+  it("keeps a reason per option, and a blank one does not stop the save", () => {
+    let state = blankForm();
+    state = editorReducer(state, { type: "field", name: "title", value: "T" });
+    state = editorReducer(state, { type: "addQuestion", level: "easy", key: "k1" });
+    state = editorReducer(state, { type: "editQuestion", level: "easy", key: "k1", patch: { text: "Q" } });
+    for (const [index, value] of ["a", "b", "c", "d"].entries()) {
+      state = editorReducer(state, { type: "optionText", level: "easy", key: "k1", index, value });
+    }
+    state = editorReducer(state, { type: "setCorrect", level: "easy", key: "k1", index: 0 });
+    state = editorReducer(state, { type: "optionRationale", level: "easy", key: "k1", index: 1, value: "  Not b.  " });
+    state = editorReducer(state, { type: "optionRationale", level: "easy", key: "k1", index: 2, value: "   " });
+    const result = validateForm(state);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const options = result.value.levels.easy!.questions[0].options;
+      expect(options[1].rationale).toBe("Not b.");
+      expect(options[2]).not.toHaveProperty("rationale");
+    }
   });
 
   it("tells a changed form from an unchanged one", () => {
@@ -210,6 +250,7 @@ describe("creating a quiz", () => {
     });
     expect(sent.levels.easy?.questions).toEqual([
       {
+        type: "single",
         text: "What is 2 + 2?",
         options: [
           { text: "3", isCorrect: false },
@@ -222,6 +263,72 @@ describe("creating a quiz", () => {
     // The other levels have no questions, so they are left out.
     expect(sent.levels.medium).toBeUndefined();
     await waitFor(() => expect(push).toHaveBeenCalledWith("/quizzes"));
+  });
+
+  it("builds a select-all question with a reason on one option", async () => {
+    api.create.mockResolvedValue({ id: "new2", version: 5, accessCode: "NEWCODE" });
+    renderEditor();
+    type("Title", "Primes");
+    click("Add easy question");
+    type("Question", "Which are prime?");
+    for (const [i, value] of ["2", "3", "4", "5"].entries()) type(`Option ${i + 1}`, value);
+    fireEvent.click(screen.getByLabelText("Select all that apply"));
+    expect(screen.getByText("Tick every correct option.")).toBeTruthy();
+    for (const n of [1, 2, 4]) fireEvent.click(screen.getByLabelText(exact(`Option ${n} is a correct answer`)));
+    type("Why option C is wrong", "4 is 2 times 2.");
+
+    click("Create quiz");
+    await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
+    const sent = api.create.mock.calls[0][0] as QuizInput;
+    expect(sent.levels.easy?.questions).toEqual([
+      {
+        type: "multiple",
+        text: "Which are prime?",
+        options: [
+          { text: "2", isCorrect: true },
+          { text: "3", isCorrect: true },
+          { text: "4", isCorrect: false, rationale: "4 is 2 times 2." },
+          { text: "5", isCorrect: true },
+        ],
+      },
+    ]);
+  });
+
+  it("asks which option stays correct when a select-all question goes back to one answer", () => {
+    renderEditor();
+    click("Add easy question");
+    for (const [i, value] of ["a", "b", "c", "d"].entries()) type(`Option ${i + 1}`, value);
+    fireEvent.click(screen.getByLabelText("Select all that apply"));
+    fireEvent.click(screen.getByLabelText(exact("Option 2 is a correct answer")));
+    fireEvent.click(screen.getByLabelText(exact("Option 4 is a correct answer")));
+
+    fireEvent.click(screen.getByLabelText("One correct answer"));
+    expect(screen.getByText(/Which one stays correct\?/)).toBeTruthy();
+    click("Keep D");
+    expect(screen.queryByText(/Which one stays correct\?/)).toBeNull();
+    expect((screen.getByLabelText(exact("Option 4 is the correct answer")) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText(exact("Option 2 is the correct answer")) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("previews the review with the real review component, reasons included", () => {
+    renderEditor();
+    click("Add easy question");
+    type("Question", "Which is bigger?");
+    for (const [i, value] of ["Ten", "Two"].entries()) type(`Option ${i + 1}`, value);
+    fireEvent.click(screen.getByLabelText(exact("Option 1 is the correct answer")));
+    type("Why option A is right", "Ten is 10.");
+    type("Why option B is wrong", "Two is 2.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview the review of question 1" }));
+    const dialog = dialogNamed(/Preview of the review/);
+    // The default picture is a wrong answer: the right option and the picked wrong one both explain themselves.
+    expect(within(dialog).getByText("Which is bigger?")).toBeTruthy();
+    expect(within(dialog).getByText("Correct answer")).toBeTruthy();
+    expect(within(dialog).getByText("Your answer")).toBeTruthy();
+    expect(within(dialog).getByText("Ten is 10.")).toBeTruthy();
+    expect(within(dialog).getByText("Two is 2.")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "The right answer" }));
+    expect(within(dialog).getByText("Your answer · Correct answer")).toBeTruthy();
   });
 
   it("shows a server refusal and keeps what was typed", async () => {

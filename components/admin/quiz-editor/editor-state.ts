@@ -6,6 +6,7 @@ import {
   type EditorQuestion,
   type ExamMode,
   type Level,
+  type QuestionType,
   type QuizInput,
   type ValidationResult,
 } from "@/lib/quiz-schema";
@@ -153,7 +154,11 @@ export type EditorAction =
   | { type: "duplicateQuestion"; level: Level; key: string; newKey: string }
   | { type: "editQuestion"; level: Level; key: string; patch: Partial<Pick<EditorQuestion, "text" | "explanation" | "imageUrl">> }
   | { type: "optionText"; level: Level; key: string; index: number; value: string }
+  | { type: "optionRationale"; level: Level; key: string; index: number; value: string }
   | { type: "setCorrect"; level: Level; key: string; index: number }
+  | { type: "toggleCorrect"; level: Level; key: string; index: number }
+  /** `keep`: when going to single with several right options, the one that stays right. */
+  | { type: "setType"; level: Level; key: string; questionType: QuestionType; keep?: number }
   | { type: "addOption"; level: Level; key: string }
   | { type: "removeOption"; level: Level; key: string; index: number }
   | { type: "importQuestions"; level: Level; questions: DraftQuestion[]; mode: "append" | "replace" };
@@ -240,11 +245,38 @@ export function editorReducer(state: FormState, action: EditorAction): FormState
           i === action.index ? { ...option, text: action.value } : option
         ),
       }));
+    case "optionRationale":
+      return withQuestion(state, action.level, action.key, (question) => ({
+        ...question,
+        options: question.options.map((option, i) =>
+          i === action.index ? { ...option, rationale: action.value } : option
+        ),
+      }));
     case "setCorrect":
       return withQuestion(state, action.level, action.key, (question) => ({
         ...question,
         options: question.options.map((option, i) => ({ ...option, isCorrect: i === action.index })),
       }));
+    case "toggleCorrect":
+      return withQuestion(state, action.level, action.key, (question) => ({
+        ...question,
+        options: question.options.map((option, i) =>
+          i === action.index ? { ...option, isCorrect: !option.isCorrect } : option
+        ),
+      }));
+    case "setType":
+      return withQuestion(state, action.level, action.key, (question) => {
+        if (question.type === action.questionType) return question;
+        if (action.questionType === "multiple") return { ...question, type: "multiple" };
+        // To single: one right option stays, the one the admin chose (or the first).
+        const right = question.options.flatMap((option, i) => (option.isCorrect ? [i] : []));
+        const keep = action.keep !== undefined && right.includes(action.keep) ? action.keep : right[0];
+        return {
+          ...question,
+          type: "single",
+          options: question.options.map((option, i) => ({ ...option, isCorrect: i === keep })),
+        };
+      });
     case "addOption":
       return withQuestion(state, action.level, action.key, (question) =>
         question.options.length >= MAX_OPTIONS

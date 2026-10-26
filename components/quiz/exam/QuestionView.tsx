@@ -10,7 +10,9 @@ interface QuestionViewProps {
   /** 1-based, for the heading read by screen readers. */
   position: number;
   total: number;
-  selected: number | null;
+  /** The picked option positions (`[]` while unanswered). */
+  selected: number[];
+  /** Pick an option: swaps the answer of a single-answer question, toggles one of a select-all question. */
   onSelect: (option: number) => void;
   onClear: () => void;
 }
@@ -18,9 +20,10 @@ interface QuestionViewProps {
 const letter = (index: number) => String.fromCharCode(65 + index);
 
 /**
- * One question and its options. The options are native radios in a `radiogroup`, so Tab, Up and Down
- * and screen readers work without extra code. Left and Right are taken by the shell (previous and next
- * question). Mount it with `key={question.id}`: it moves focus to the heading each time.
+ * One question and its options. A single-answer question has native radios in a `radiogroup`, so Tab, Up
+ * and Down and screen readers work without extra code; a select-all question has native checkboxes in a
+ * `group`, with a line saying how many to choose. Left and Right are taken by the shell (previous and
+ * next question). Mount it with `key={question.id}`: it moves focus to the heading each time.
  */
 export default function QuestionView({
   question,
@@ -32,6 +35,7 @@ export default function QuestionView({
 }: QuestionViewProps) {
   const groupName = useId();
   const headingId = useId();
+  const hintId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -39,6 +43,12 @@ export default function QuestionView({
   }, []);
 
   const options = question.options ?? [];
+  const multiple = question.type === "multiple";
+  const instruction = multiple
+    ? question.pickCount
+      ? `Select all that apply · Choose ${question.pickCount}`
+      : "Select all that apply"
+    : null;
 
   return (
     <section aria-labelledby={headingId}>
@@ -57,6 +67,12 @@ export default function QuestionView({
         {question.text}
       </h2>
 
+      {instruction && (
+        <p id={hintId} className="mt-3 font-mono text-sm text-accent">
+          {instruction}
+        </p>
+      )}
+
       {question.imageUrl && (
         // Admin-uploaded Firebase Storage image of unknown size; next/image would need fixed dimensions.
         // eslint-disable-next-line @next/next/no-img-element
@@ -73,16 +89,17 @@ export default function QuestionView({
         </p>
       ) : (
         <div
-          role="radiogroup"
+          role={multiple ? "group" : "radiogroup"}
           aria-labelledby={headingId}
+          aria-describedby={instruction ? hintId : undefined}
           className="mt-6 space-y-3"
         >
           {options.map((option, index) => {
-            const checked = selected === index;
+            const checked = selected.includes(index);
             return (
               <label key={index} className="block">
                 <input
-                  type="radio"
+                  type={multiple ? "checkbox" : "radio"}
                   name={groupName}
                   checked={checked}
                   onChange={() => onSelect(index)}
@@ -101,7 +118,8 @@ export default function QuestionView({
                   <span
                     aria-hidden="true"
                     className={cn(
-                      "mt-px grid size-7 shrink-0 place-items-center rounded-sm border font-mono text-xs transition-fast",
+                      "mt-px grid size-7 shrink-0 place-items-center border font-mono text-xs transition-fast",
+                      multiple ? "rounded-sm" : "rounded-full",
                       checked
                         ? "border-accent bg-accent text-ink"
                         : "border-border-strong text-text-muted"
@@ -122,10 +140,10 @@ export default function QuestionView({
       <div className="mt-3 flex min-h-11 items-center justify-between gap-4">
         <p className="hidden font-mono text-text-muted text-xs md:block">
           1–{Math.min(options.length, 9) || 1} or A–
-          {letter(Math.max(0, Math.min(options.length, 26) - 1))} to answer ·
-          ← → to move
+          {letter(Math.max(0, Math.min(options.length, 26) - 1))}{" "}
+          {multiple ? "to toggle" : "to answer"} · ← → to move
         </p>
-        {selected !== null && (
+        {selected.length > 0 && (
           <button
             type="button"
             onClick={onClear}

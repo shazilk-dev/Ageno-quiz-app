@@ -69,6 +69,7 @@ import { POST as submitRoute } from "@/app/api/attempts/[id]/submit/route";
 import { GET as publicQuizRoute } from "@/app/api/quizzes/[quizId]/route";
 import { GET as publicListRoute } from "@/app/api/quizzes/route";
 import { backfillLeaderboard } from "@/lib/server/leaderboard-store";
+import { backfillSheets } from "@/lib/server/response-sheets";
 import { migrateLegacyQuestions } from "@/lib/server/legacy-questions";
 import { buildOverallBoard, buildQuizBoard, type LeaderboardRow } from "@/lib/leaderboard";
 import { entryId, totalsFromEntries, type EntryDoc, type TotalsDoc } from "@/lib/leaderboard-stats";
@@ -96,6 +97,7 @@ const quizCtx = (quizId: string) => ({ params: Promise.resolve({ quizId }) });
 const ADMIN = "admin:root";
 
 const q = (text: string, correct = 1, extra: object = {}) => ({
+  type: "single" as const,
   text,
   options: ["a", "b", "c"].map((t, i) => ({ text: t, isCorrect: i === correct })),
   ...extra,
@@ -225,7 +227,7 @@ describe.skipIf(!emulator)("creating and opening a quiz", () => {
     for (const bad of [
       input({ title: "" }),
       input({ levels: {} }),
-      input({ levels: { easy: { duration: 10, pointsMultiplier: 1, questions: [{ text: "No key", options: [{ text: "a", isCorrect: false }, { text: "b", isCorrect: false }] }] } } }),
+      input({ levels: { easy: { duration: 10, pointsMultiplier: 1, questions: [{ type: "single" as const, text: "No key", options: [{ text: "a", isCorrect: false }, { text: "b", isCorrect: false }] }] } } }),
       { not: "a quiz" },
     ]) {
       const response = await create(bad);
@@ -315,7 +317,7 @@ describe.skipIf(!emulator)("saving a quiz", () => {
     const body = asInput(detail);
     body.title = "Renamed";
     body.levels.easy!.questions[0].text = "One, edited";
-    body.levels.easy!.questions.push({ text: "Three", options: [{ text: "x", isCorrect: true }, { text: "y", isCorrect: false }] });
+    body.levels.easy!.questions.push({ type: "single", text: "Three", options: [{ text: "x", isCorrect: true }, { text: "y", isCorrect: false }] });
     body.levels.hard = { duration: 7, pointsMultiplier: 2, questions: [q("Hard one")] };
 
     const response = await save(id, body);
@@ -1052,5 +1054,46 @@ describe.skipIf(!emulator)("migrating legacy questions", () => {
 
     const again = await migrateLegacyQuestions(db, { apply: true });
     expect(again.quizzes.find((r) => r.quizId === id)).toBeUndefined();
+  });
+});
+
+describe.skipIf(!emulator)("backfilling answer sheets", () => {
+  const seedOld = async (id: string, answers: Record<string, Record<string, unknown>>, extra: object = {}) => {
+    await db.doc(`responses/${id}`).set({ quizId: "q", userId: "u", score: 50, answeredCount: Object.keys(answers).length, ...extra });
+    for (const [questionId, data] of Object.entries(answers)) {
+      await db.doc(`responses/${id}/answers/${questionId}`).set({ questionId, ...data });
+    }
+  };
+
+  it("builds a sheet from the old answer documents, leaves new results alone and changes nothing on a dry run", async () => {
+    const old = unique("old");
+    const fresh = unique("fresh");
+    const none = unique("none");
+    const lost = unique("lost");
+    await seedOld(old, { a: { selectedIndex: 2, isCorrect: true }, b: { selectedIndex: 0, isCorrect: false } });
+    await db.doc(`responses/${fresh}`).set({ quizId: "q", userId: "u", schemaVersion: 2, sheet: { a: { p: [1], ok: true } }, answeredCount: 1 });
+    await seedOld(none, {}, { answeredCount: 0 });
+    await db.doc(`responses/${lost}`).set({ quizId: "q", userId: "u", answeredCount: 3 }); // answered, but nothing to read
+
+    const dry = await backfillSheets(db, { apply: false });
+    expect(dry).toMatchObject({ applied: false });
+    expect(dry.built).toBeGreaterThanOrEqual(2);
+    expect((await db.doc(`responses/${old}`).get()).data()!.sheet).toBeUndefined();
+
+    const report = await backfillSheets(db, { apply: true });
+    expect(report.unreadable).toBeGreaterThanOrEqual(1);
+    expect((await db.doc(`responses/${old}`).get()).data()).toMatchObject({
+      schemaVersion: 2,
+      sheet: { a: { p: [2], ok: true }, b: { p: [0], ok: false } },
+    });
+    expect((await db.doc(`responses/${none}`).get()).data()).toMatchObject({ schemaVersion: 2, sheet: {} });
+    expect((await db.doc(`responses/${fresh}`).get()).data()!.sheet).toEqual({ a: { p: [1], ok: true } });
+    expect((await db.doc(`responses/${lost}`).get()).data()!.sheet).toBeUndefined();
+    // The old documents stay where they are.
+    expect((await db.doc(`responses/${old}/answers/a`).get()).exists).toBe(true);
+
+    // Running again finds nothing more to build for these.
+    const again = await backfillSheets(db, { apply: true });
+    expect(again.built).toBe(0);
   });
 });

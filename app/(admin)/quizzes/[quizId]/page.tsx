@@ -141,6 +141,7 @@ export default function ViewQuizPage() {
                 <li key={question.id ?? index} className="rounded-lg border border-border bg-surface p-5">
                   <p className="font-mono text-xs uppercase tracking-[0.05em] text-text-muted">
                     Question {index + 1}
+                    {question.type === "multiple" && " · Select all that apply"}
                   </p>
                   <p className="mt-2 font-medium">{question.text}</p>
                   <ul className="mt-3 space-y-2">
@@ -158,6 +159,9 @@ export default function ViewQuizPage() {
                           <span className="ml-2 font-mono text-xs uppercase tracking-[0.05em] text-link">
                             Correct
                           </span>
+                        )}
+                        {option.rationale && (
+                          <p className="mt-1 whitespace-pre-line text-sm text-text-muted">{option.rationale}</p>
                         )}
                       </li>
                     ))}

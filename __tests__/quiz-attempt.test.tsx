@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PublicQuiz } from "@/lib/quiz-data";
 import type { AttemptSeed } from "@/hooks/useQuizAttempt";
 import type { StoredQuestion } from "@/lib/exam/normalize";
+import { buildReview } from "@/lib/exam/review";
 import { scoreAttempt } from "@/lib/exam/scoring";
 import { attemptKey, loadAttempt } from "@/lib/exam/storage";
 import type { SubmitResult } from "@/lib/exam/types";
@@ -29,7 +30,8 @@ const stored: StoredQuestion[] = Object.entries(KEYS).map(([id, correctIndex]) =
   id,
   text: `What is ${id}?`,
   options: ["A", "B", "C"].map((text) => `${id} option ${text}`),
-  correctIndex,
+  type: "single",
+  correct: [correctIndex],
 }));
 
 interface ServerOptions {
@@ -40,7 +42,7 @@ interface ServerOptions {
 }
 
 const serverResult = (
-  payload: { answers: Record<string, number | null>; events?: { type: string }[] },
+  payload: { answers: Record<string, number[]>; events?: { type: string }[] },
   { multiplier = 1.5, review = true, autoCheck = true, late = false }: ServerOptions = {}
 ): SubmitResult => {
   const s = scoreAttempt({ questions: stored, answers: payload.answers, autoCheck, multiplier });
@@ -63,7 +65,7 @@ const serverResult = (
     fullscreenExits: count("fullscreen_exit"),
     review:
       s.graded && review
-        ? Object.fromEntries(stored.map((q) => [q.id, { correctIndex: q.correctIndex }]))
+        ? buildReview(stored)
         : null,
   };
 };
@@ -87,7 +89,7 @@ const seed = (overrides: Partial<AttemptSeed> = {}): AttemptSeed => ({
   startedAt: Date.now(),
   durationSec: 600,
   difficulty: "hard",
-  questions: stored.map(({ id, text, options }) => ({ id, text, options })),
+  questions: stored.map(({ id, text, options, type }) => ({ id, text, options, type })),
   ...overrides,
 });
 
@@ -123,7 +125,7 @@ const confirmSubmit = () =>
 beforeEach(() => {
   localStorage.clear();
   submitAttempt.mockReset();
-  submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number | null> }) =>
+  submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number[]> }) =>
     serverResult(payload)
   );
   saveProgress.mockReset();
@@ -138,6 +140,136 @@ beforeEach(() => {
   };
 });
 afterEach(() => cleanup());
+
+// A quiz with a select-all question: the key is p2 + p3, and p1 is a single-answer question.
+const SELECT_ALL: StoredQuestion[] = [
+  { id: "p1", text: "What is p1?", options: ["a", "b"], type: "single", correct: [0] },
+  {
+    id: "p2",
+    text: "Which are prime?",
+    options: ["2", "3", "4", "5"],
+    type: "multiple",
+    correct: [0, 1, 3],
+    explanation: "4 is 2 times 2.",
+    rationales: ["Prime.", "Prime.", "Divisible by 2.", "Prime."],
+  },
+];
+const selectAllSeed = (overrides: Partial<AttemptSeed> = {}): AttemptSeed => ({
+  ...seed(),
+  questions: [
+    { id: "p1", text: "What is p1?", options: ["a", "b"], type: "single" },
+    { id: "p2", text: "Which are prime?", options: ["2", "3", "4", "5"], type: "multiple", pickCount: 3 },
+  ],
+  ...overrides,
+});
+const checkboxes = () => screen.getAllByRole("checkbox") as HTMLInputElement[];
+
+describe("select-all questions", () => {
+  const goToSecond = () => fireEvent.click(screen.getByRole("button", { name: /Next/ }));
+
+  it("shows checkboxes, says how many to choose, and lets several be ticked", () => {
+    renderAttempt({ seed: selectAllSeed() });
+    expect(screen.queryByRole("checkbox")).toBeNull(); // p1 is a radio group
+    goToSecond();
+
+    expect(screen.getByRole("group", { name: /Which are prime\?/ })).toBeTruthy();
+    expect(screen.getByText("Select all that apply · Choose 3")).toBeTruthy();
+    expect(screen.queryByRole("radio")).toBeNull();
+
+    fireEvent.click(checkboxes()[0]);
+    fireEvent.click(checkboxes()[3]);
+    expect(checkboxes().map((c) => c.checked)).toEqual([true, false, false, true]);
+    fireEvent.click(checkboxes()[0]); // unticks
+    expect(checkboxes().map((c) => c.checked)).toEqual([false, false, false, true]);
+    expect(screen.getByRole("button", { name: "Question 2, answered" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear answer" }));
+    expect(checkboxes().every((c) => !c.checked)).toBe(true);
+    expect(screen.getByRole("button", { name: "Question 2, not answered" })).toBeTruthy();
+  });
+
+  it("toggles an option from the keyboard", () => {
+    renderAttempt({ seed: selectAllSeed() });
+    goToSecond();
+    fireEvent.keyDown(document.body, { key: "1" });
+    fireEvent.keyDown(document.body, { key: "d" });
+    expect(checkboxes().map((c) => c.checked)).toEqual([true, false, false, true]);
+    fireEvent.keyDown(document.body, { key: "1" });
+    expect(checkboxes().map((c) => c.checked)).toEqual([false, false, false, true]);
+  });
+
+  it("sends the picks as a list and shows an all-or-nothing review with the reasons", async () => {
+    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number[]> }) => {
+      const s2 = scoreAttempt({ questions: SELECT_ALL, answers: payload.answers, autoCheck: true, multiplier: 1 });
+      return {
+        ...serverResult({ answers: payload.answers }, { multiplier: 1 }),
+        score: s2.score,
+        rawPercent: s2.rawPercent,
+        correct: s2.correct,
+        total: s2.total,
+        answered: s2.answered,
+        multiplier: 1,
+        review: buildReview(SELECT_ALL),
+      };
+    });
+    renderAttempt({ seed: selectAllSeed() });
+    fireEvent.click(radios()[0]);
+    goToSecond();
+    // Two of the three right ones, and the wrong "4": wrong as a whole.
+    fireEvent.click(checkboxes()[0]);
+    fireEvent.click(checkboxes()[1]);
+    fireEvent.click(checkboxes()[2]);
+    openSubmitDialog();
+    await confirmSubmit();
+
+    expect(submitAttempt.mock.calls[0][1].answers).toEqual({ p1: [0], p2: [0, 1, 2] });
+    expect(screen.getByTestId("quiz-score").textContent).toBe("50%");
+    expect(screen.getByText(/Select-all question: it counts only when you pick exactly/)).toBeTruthy();
+    // The right options show their reasons, the wrong pick shows its own, and the missed one is marked.
+    expect(screen.getByText("Divisible by 2.")).toBeTruthy();
+    expect(screen.getAllByText("Prime.").length).toBe(3);
+    expect(screen.getAllByText("Your answer · Correct answer").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Correct answer")).toBeTruthy(); // the 5 that was missed
+    expect(screen.getByText("4 is 2 times 2.")).toBeTruthy();
+  });
+
+  it("folds away the reasons for options that were neither right nor picked", async () => {
+    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number[]> }) => ({
+      ...serverResult({ answers: payload.answers }),
+      review: buildReview(SELECT_ALL),
+    }));
+    renderAttempt({ seed: selectAllSeed() });
+    fireEvent.click(radios()[0]);
+    goToSecond();
+    for (const i of [0, 1, 3]) fireEvent.click(checkboxes()[i]); // exactly the right set
+    openSubmitDialog();
+    await confirmSubmit();
+
+    const fold = screen.getByText("Why the others are wrong").closest("details") as HTMLElement;
+    expect(fold).toBeTruthy();
+    expect(within(fold).getByText("Divisible by 2.")).toBeTruthy();
+  });
+
+  it("resumes from an autosave written before answers were lists", () => {
+    // The device copy and the server both used one number or null per question.
+    renderAttempt({
+      seed: selectAllSeed({
+        progress: {
+          answers: { p1: 1 as unknown as number[], p2: null as unknown as number[] },
+          flagged: {},
+          index: 0,
+          tabSwitches: 0,
+          blurs: 0,
+          fullscreenExits: 0,
+          eventSeq: 0,
+          pendingEvents: [],
+        },
+      }),
+    });
+    expect(radios()[1].checked).toBe(true);
+    expect(screen.getByRole("button", { name: "Question 2, not answered" })).toBeTruthy();
+  });
+});
 
 describe("answering", () => {
   it("shows one question as a radiogroup and records a pick", () => {
@@ -307,7 +439,7 @@ describe("submitting", () => {
     const [attemptId, payload] = submitAttempt.mock.calls[0];
     expect(attemptId).toBe("attempt-1");
     expect(payload).toEqual({
-      answers: { q1: 0, q2: null, q3: null },
+      answers: { q1: [0], q2: [], q3: [] },
       events: [],
     });
   });
@@ -327,7 +459,7 @@ describe("submitting", () => {
     expect(within(dialog).getByText(/couldn't reach the server/)).toBeTruthy();
     expect(screen.queryByTestId("quiz-score")).toBeNull();
     // Nothing is passed off as a result, and the autosave is still there.
-    expect(loadAttempt(attemptKey("quiz1", "u1"))?.answers.q1).toBe(1);
+    expect(loadAttempt(attemptKey("quiz1", "u1"))?.answers.q1).toEqual([1]);
 
     await act(async () =>
       fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }))
@@ -413,9 +545,9 @@ describe("results", () => {
   });
 
   it("shows an explanation from the server's review", async () => {
-    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number | null> }) => {
+    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number[]> }) => {
       const result = serverResult(payload);
-      result.review!.q3 = { correctIndex: 2, explanation: "Because C." };
+      result.review!.q3 = { correct: [2], explanation: "Because C." };
       return result;
     });
     renderAttempt();
@@ -424,7 +556,7 @@ describe("results", () => {
   });
 
   it("hides the review when the server sends none (owner turned it off), and when there is no score", async () => {
-    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number | null> }) =>
+    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number[]> }) =>
       serverResult(payload, { review: false })
     );
     const { unmount } = renderAttempt();
@@ -433,7 +565,7 @@ describe("results", () => {
     expect(screen.getByTestId("quiz-score")).toBeTruthy();
     unmount();
 
-    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number | null> }) =>
+    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number[]> }) =>
       serverResult(payload, { autoCheck: false })
     );
     renderAttempt();
@@ -446,7 +578,7 @@ describe("results", () => {
   });
 
   it("says so when the submit came too late and only the saved answers counted", async () => {
-    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number | null> }) =>
+    submitAttempt.mockImplementation(async (_id: string, payload: { answers: Record<string, number[]> }) =>
       serverResult(payload, { late: true })
     );
     renderAttempt();
@@ -456,7 +588,7 @@ describe("results", () => {
 
   it("reviews the answers the server counted, not the ones the browser held", async () => {
     submitAttempt.mockImplementation(async () =>
-      serverResult({ answers: { q1: 1, q2: null, q3: null } })
+      serverResult({ answers: { q1: [1], q2: [], q3: [] } })
     );
     renderAttempt();
     await submitWith([[0, 0], [1, 0], [2, 0]]);
@@ -514,7 +646,7 @@ describe("autosave and resume", () => {
       difficulty: "hard",
       durationSec: 600,
       questionIds: ["q1", "q2", "q3"],
-      answers: { q1: 1, q2: null, q3: null },
+      answers: { q1: [1], q2: [], q3: [] },
       flagged: { q1: true },
       index: 1,
     });
@@ -524,7 +656,7 @@ describe("autosave and resume", () => {
     renderAttempt({
       seed: seed({
         progress: {
-          answers: { q1: 0, q2: 2, q3: null },
+          answers: { q1: [0], q2: [2], q3: [] },
           flagged: { q2: true },
           index: 1,
           tabSwitches: 3,
@@ -581,7 +713,7 @@ describe("autosave to the server", () => {
     await advance(600);
     expect(saveProgress).toHaveBeenCalledTimes(1);
     expect(saveProgress).toHaveBeenCalledWith("attempt-1", {
-      answers: { q1: 2, q2: null, q3: null },
+      answers: { q1: [2], q2: [], q3: [] },
       flagged: {},
       index: 0,
       events: [],
@@ -595,7 +727,7 @@ describe("autosave to the server", () => {
     renderAttempt({
       seed: seed({
         progress: {
-          answers: { q1: 1, q2: null, q3: null },
+          answers: { q1: [1], q2: [], q3: [] },
           flagged: {},
           index: 0,
           tabSwitches: 0,
@@ -625,7 +757,7 @@ describe("autosave to the server", () => {
     fireEvent.click(radios()[1]);
     await advance(2_100);
     expect(saveProgress).toHaveBeenCalledTimes(2);
-    expect(saveProgress.mock.calls[1][1].answers.q1).toBe(1);
+    expect(saveProgress.mock.calls[1][1].answers.q1).toEqual([1]);
   });
 });
 
@@ -698,7 +830,7 @@ describe("integrity events", () => {
       renderAttempt({
         seed: seed({
           progress: {
-            answers: { q1: null, q2: null, q3: null },
+            answers: { q1: [], q2: [], q3: [] },
             flagged: {},
             index: 0,
             tabSwitches: 1,

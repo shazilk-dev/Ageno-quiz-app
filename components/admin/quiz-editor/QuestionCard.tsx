@@ -1,10 +1,10 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Copy, Plus, Trash2, X } from "lucide-react";
-import type { Dispatch } from "react";
-import { Button } from "@/components/ui";
+import { ChevronDown, ChevronUp, Copy, Eye, Plus, Trash2, X } from "lucide-react";
+import { useState, type Dispatch } from "react";
+import { Alert, Button } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { Level } from "@/lib/quiz-schema";
+import type { Level, QuestionType } from "@/lib/quiz-schema";
 import {
   MAX_OPTIONS,
   MIN_OPTIONS,
@@ -12,6 +12,7 @@ import {
   type DraftQuestion,
   type EditorAction,
 } from "./editor-state";
+import { PreviewReview } from "./PreviewReview";
 
 interface QuestionCardProps {
   level: Level;
@@ -56,11 +57,36 @@ function IconButton({
   );
 }
 
-/** One question: its text, its options (pick the right one), and the optional explanation and image. */
+const letter = (index: number) => String.fromCharCode(65 + index);
+
+const TYPE_CHOICES: { value: QuestionType; label: string }[] = [
+  { value: "single", label: "One correct answer" },
+  { value: "multiple", label: "Select all that apply" },
+];
+
+/**
+ * One question: its type, text, options (mark the right ones), a reason for each option if wanted, and
+ * the optional overall explanation and image.
+ */
 export function QuestionCard({ level, question, index, total, problem, dispatch }: QuestionCardProps) {
   const { key } = question;
   const baseId = `question-${key}`;
   const hasExtras = Boolean(question.explanation || question.imageUrl);
+  const multiple = question.type === "multiple";
+  const rightOptions = question.options.flatMap((option, i) => (option.isCorrect ? [i] : []));
+  const reasons = question.options.filter((option) => option.rationale?.trim()).length;
+  // Going from select-all to one answer with several marked right: ask which one stays.
+  const [choosingKeep, setChoosingKeep] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+
+  const chooseType = (next: QuestionType) => {
+    if (next === question.type) return;
+    if (next === "single" && rightOptions.length > 1) {
+      setChoosingKeep(true);
+      return;
+    }
+    dispatch({ type: "setType", level, key, questionType: next });
+  };
 
   return (
     <li
@@ -88,6 +114,9 @@ export function QuestionCard({ level, question, index, total, problem, dispatch 
             onClick={() => dispatch({ type: "moveQuestion", level, key, by: 1 })}
           >
             <ChevronDown className="size-4" aria-hidden="true" />
+          </IconButton>
+          <IconButton label={`Preview the review of question ${index + 1}`} onClick={() => setPreviewing(true)}>
+            <Eye className="size-4" aria-hidden="true" />
           </IconButton>
           <IconButton
             label={`Duplicate question ${index + 1}`}
@@ -128,19 +157,83 @@ export function QuestionCard({ level, question, index, total, problem, dispatch 
         </div>
 
         <fieldset>
+          <legend className="mb-2 text-sm font-medium">Question type</legend>
+          <div className="inline-flex flex-wrap gap-2">
+            {TYPE_CHOICES.map((choice) => (
+              <label key={choice.value} className="cursor-pointer">
+                <input
+                  type="radio"
+                  name={`${baseId}-type`}
+                  value={choice.value}
+                  checked={question.type === choice.value}
+                  onChange={() => chooseType(choice.value)}
+                  className="peer sr-only"
+                />
+                <span
+                  className={cn(
+                    "inline-flex min-h-11 items-center rounded-md border px-3 text-sm transition-fast",
+                    "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
+                    question.type === choice.value
+                      ? "border-accent bg-accent/10 text-text"
+                      : "border-border text-text-muted hover:border-border-strong hover:text-text"
+                  )}
+                >
+                  {choice.label}
+                </span>
+              </label>
+            ))}
+          </div>
+          {choosingKeep && (
+            <Alert variant="warning" className="mt-3">
+              <p>
+                {rightOptions.length} options are marked correct, and a one-answer question has one. Which
+                one stays correct?
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {rightOptions.map((optionIndex) => (
+                  <Button
+                    key={optionIndex}
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      dispatch({ type: "setType", level, key, questionType: "single", keep: optionIndex });
+                      setChoosingKeep(false);
+                    }}
+                  >
+                    Keep {letter(optionIndex)}
+                  </Button>
+                ))}
+                <Button size="sm" variant="ghost" onClick={() => setChoosingKeep(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </Alert>
+          )}
+        </fieldset>
+
+        <fieldset>
           <legend className="mb-2 text-sm font-medium">
             Answer options
-            <span className="ml-2 font-normal text-text-muted">Select the correct one.</span>
+            <span className="ml-2 font-normal text-text-muted">
+              {multiple ? "Tick every correct option." : "Select the correct one."}
+            </span>
           </legend>
           <div className="space-y-2">
             {question.options.map((option, optionIndex) => (
               <div key={optionIndex} className="flex items-center gap-2">
                 <input
-                  type="radio"
+                  type={multiple ? "checkbox" : "radio"}
                   name={`${baseId}-correct`}
                   checked={option.isCorrect}
-                  onChange={() => dispatch({ type: "setCorrect", level, key, index: optionIndex })}
-                  aria-label={`Option ${optionIndex + 1} is the correct answer`}
+                  onChange={() =>
+                    dispatch({
+                      type: multiple ? "toggleCorrect" : "setCorrect",
+                      level,
+                      key,
+                      index: optionIndex,
+                    })
+                  }
+                  aria-label={`Option ${optionIndex + 1} is ${multiple ? "a" : "the"} correct answer`}
                   className="size-5 shrink-0 accent-[var(--color-teal)]"
                 />
                 <input
@@ -181,6 +274,46 @@ export function QuestionCard({ level, question, index, total, problem, dispatch 
           </Button>
         </fieldset>
 
+        <details open={reasons > 0} className="group">
+          <summary className="cursor-pointer text-sm text-text-muted transition-fast hover:text-text">
+            Add a reason for each option (optional)
+            <span className="ml-2 font-mono text-xs">
+              {reasons} of {question.options.length} written
+            </span>
+          </summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-sm text-text-muted">
+              Players see the reason under a right option, and under a wrong one they picked. The other
+              reasons are folded away in their review.
+            </p>
+            {question.options.map((option, optionIndex) => (
+              <div key={optionIndex}>
+                <label
+                  htmlFor={`${baseId}-why-${optionIndex}`}
+                  className="mb-1 block text-sm font-medium"
+                >
+                  Why option {letter(optionIndex)} is {option.isCorrect ? "right" : "wrong"}
+                </label>
+                <textarea
+                  id={`${baseId}-why-${optionIndex}`}
+                  value={option.rationale ?? ""}
+                  rows={2}
+                  onChange={(event) =>
+                    dispatch({
+                      type: "optionRationale",
+                      level,
+                      key,
+                      index: optionIndex,
+                      value: event.target.value,
+                    })
+                  }
+                  className={cn(fieldClasses, "min-h-16 resize-y py-2 leading-relaxed")}
+                />
+              </div>
+            ))}
+          </div>
+        </details>
+
         <details open={hasExtras} className="group">
           <summary className="cursor-pointer text-sm text-text-muted transition-fast hover:text-text">
             Explanation and image (optional)
@@ -220,6 +353,7 @@ export function QuestionCard({ level, question, index, total, problem, dispatch 
           </div>
         </details>
       </div>
+      <PreviewReview question={question} open={previewing} onClose={() => setPreviewing(false)} />
     </li>
   );
 }

@@ -1,7 +1,7 @@
 import type { ExamQuestion } from "./types";
 
-/** questionId -> the option index the person picked, or null while unanswered. */
-export type AnswerMap = Record<string, number | null>;
+/** questionId -> the option indexes the person picked (sorted; `[]` while unanswered). */
+export type AnswerMap = Record<string, number[]>;
 
 /** questionIds the person flagged for review. */
 export type FlagMap = Record<string, true>;
@@ -10,15 +10,59 @@ export function getOptionText(option: string | null | undefined, index: number):
   return option || `Option ${index + 1}`;
 }
 
+/**
+ * Reads one answer in any shape it has been stored or sent in: a list of picks, or the older single
+ * `number | null`. The result is sorted and unique, with every index inside the options; a `single`
+ * question keeps at most its lowest pick.
+ */
+export function toPicks(
+  value: unknown,
+  optionCount: number,
+  type: "single" | "multiple" = "multiple"
+): number[] {
+  const list = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value];
+  const picks = [
+    ...new Set(
+      list.filter(
+        (item): item is number =>
+          typeof item === "number" && Number.isInteger(item) && item >= 0 && item < optionCount
+      )
+    ),
+  ].sort((a, b) => a - b);
+  return type === "single" ? picks.slice(0, 1) : picks;
+}
+
+/** Choosing an option: a `single` question swaps its pick, a `multiple` one toggles it. */
+export function togglePick(
+  current: number[] | null | undefined,
+  option: number,
+  type: "single" | "multiple"
+): number[] {
+  const picks = current ?? [];
+  if (type === "single") return picks.length === 1 && picks[0] === option ? picks : [option];
+  return picks.includes(option)
+    ? picks.filter((pick) => pick !== option)
+    : [...picks, option].sort((a, b) => a - b);
+}
+
+export const isAnswered = (picks: number[] | null | undefined): boolean =>
+  !!picks && picks.length > 0;
+
+/** All-or-nothing: the picks are the right options exactly. A question with no key is never right. */
+export const picksMatch = (correct: readonly number[], picks: readonly number[]): boolean =>
+  correct.length > 0 &&
+  picks.length === correct.length &&
+  picks.every((pick) => correct.includes(pick));
+
 export type QuestionStatus = "correct" | "incorrect" | "unanswered";
 
-/** Only meaningful after a submit, once the server has revealed the right option. */
+/** Only meaningful after a submit, once the server has revealed the right options. */
 export function getQuestionStatus(
-  correctIndex: number | null,
-  answer: number | null | undefined
+  correct: readonly number[],
+  picks: readonly number[] | null | undefined
 ): QuestionStatus {
-  if (answer === null || answer === undefined) return "unanswered";
-  return answer === correctIndex ? "correct" : "incorrect";
+  if (!picks || picks.length === 0) return "unanswered";
+  return picksMatch(correct, picks) ? "correct" : "incorrect";
 }
 
 export interface AttemptSummary {
@@ -46,8 +90,7 @@ export function summarize(
   };
 
   questions.forEach((question, index) => {
-    const answer = answers[question.id];
-    if (answer === null || answer === undefined) {
+    if (!isAnswered(answers[question.id])) {
       summary.unanswered++;
       summary.unansweredIndexes.push(index);
     } else {

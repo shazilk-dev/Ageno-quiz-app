@@ -45,6 +45,7 @@ export default function ExamShell({
     next,
     previous,
     select,
+    clear,
   } = attempt;
 
   const total = questions.length;
@@ -67,7 +68,8 @@ export default function ExamShell({
           target.tagName === "TEXTAREA" ||
           target.tagName === "SELECT" ||
           (target.tagName === "INPUT" &&
-            (target as HTMLInputElement).type !== "radio"))
+            (target as HTMLInputElement).type !== "radio" &&
+            (target as HTMLInputElement).type !== "checkbox"))
       ) {
         return;
       }
@@ -121,9 +123,9 @@ export default function ExamShell({
                 question={question}
                 position={index + 1}
                 total={total}
-                selected={answers[question.id] ?? null}
+                selected={answers[question.id] ?? []}
                 onSelect={select}
-                onClear={() => select(null)}
+                onClear={clear}
               />
             </div>
 

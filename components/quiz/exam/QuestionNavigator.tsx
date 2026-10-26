@@ -1,7 +1,7 @@
 "use client";
 
 import { Flag } from "lucide-react";
-import type { AnswerMap, FlagMap } from "@/lib/exam/answers";
+import { isAnswered, type AnswerMap, type FlagMap } from "@/lib/exam/answers";
 import type { ExamQuestion } from "@/lib/exam/types";
 import { cn } from "@/lib/utils";
 
@@ -24,9 +24,7 @@ export default function QuestionNavigator({
   current,
   onSelect,
 }: QuestionNavigatorProps) {
-  const answered = questions.filter(
-    (question) => answers[question.id] !== null && answers[question.id] !== undefined
-  ).length;
+  const answered = questions.filter((question) => isAnswered(answers[question.id])).length;
 
   return (
     <div>
@@ -37,8 +35,7 @@ export default function QuestionNavigator({
       <ol className="mt-4 grid grid-cols-5 gap-2">
         {questions.map((question, index) => {
           const isCurrent = index === current;
-          const isAnswered =
-            answers[question.id] !== null && answers[question.id] !== undefined;
+          const done = isAnswered(answers[question.id]);
           const isFlagged = !!flagged[question.id];
           return (
             <li key={question.id}>
@@ -47,13 +44,13 @@ export default function QuestionNavigator({
                 onClick={() => onSelect(index)}
                 aria-current={isCurrent ? "step" : undefined}
                 aria-label={`Question ${index + 1}, ${
-                  isAnswered ? "answered" : "not answered"
+                  done ? "answered" : "not answered"
                 }${isFlagged ? ", flagged for review" : ""}`}
                 className={cn(
                   "relative grid size-11 place-items-center rounded-md border font-mono text-sm tabular-nums transition-fast",
                   isCurrent
                     ? "border-accent bg-accent text-ink"
-                    : isAnswered
+                    : done
                       ? "border-accent/50 bg-accent/15 text-text hover:border-accent"
                       : "border-border text-text-muted hover:border-border-strong hover:text-text"
                 )}

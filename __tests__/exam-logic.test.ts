@@ -5,8 +5,12 @@ import {
   formatClock,
   getOptionText,
   getQuestionStatus,
+  isAnswered,
+  picksMatch,
   secondsUntil,
   summarize,
+  togglePick,
+  toPicks,
 } from "../lib/exam/answers";
 import {
   applyEvents,
@@ -14,7 +18,12 @@ import {
   MAX_STORED_EVENTS,
   type IntegrityState,
 } from "../lib/exam/integrity";
-import { normalizeQuestion, type StoredQuestion } from "../lib/exam/normalize";
+import {
+  normalizeQuestion,
+  upgradeStoredQuestion,
+  type StoredQuestion,
+} from "../lib/exam/normalize";
+import { buildReview, reviewCorrect, upgradeResult } from "../lib/exam/review";
 import { scoreAttempt } from "../lib/exam/scoring";
 import { seedFromServer } from "../lib/exam/seed";
 import {
@@ -25,7 +34,7 @@ import {
   saveAttempt,
   type SavedAttempt,
 } from "../lib/exam/storage";
-import type { AttemptState, ExamQuestion } from "../lib/exam/types";
+import type { AttemptState, ExamQuestion, SubmitResult } from "../lib/exam/types";
 
 const flagged = (correct: number, count = 3) =>
   Array.from({ length: count }, (_, i) => ({
@@ -40,42 +49,79 @@ describe("normalizeQuestion", () => {
       id: "1",
       text: "Q",
       options: ["A", "B", "C"],
-      correctIndex: 1,
+      type: "single",
+      correct: [1],
     });
   });
 
   it("prefers the flags over a legacy correctIndex that disagrees", () => {
     expect(
-      normalizeQuestion("1", { options: flagged(1), correctIndex: 2 }).correctIndex
-    ).toBe(1);
+      normalizeQuestion("1", { options: flagged(1), correctIndex: 2 }).correct
+    ).toEqual([1]);
   });
 
   it("falls back to correctIndex when no option is flagged (legacy questions)", () => {
     expect(
-      normalizeQuestion("1", { options: flagged(-1), correctIndex: 2 }).correctIndex
-    ).toBe(2);
+      normalizeQuestion("1", { options: flagged(-1), correctIndex: 2 }).correct
+    ).toEqual([2]);
   });
 
   it("handles options stored as bare strings, and numbered fields", () => {
     const strings = normalizeQuestion("1", { options: ["Yes", "No"], correctIndex: 0 });
     expect(strings.options).toEqual(["Yes", "No"]);
-    expect(strings.correctIndex).toBe(0);
+    expect(strings.correct).toEqual([0]);
 
     const numbered = normalizeQuestion("1", { 0: "x", 1: "y", 2: "z", correctIndex: 1 });
     expect(numbered.options).toEqual(["x", "y", "z"]);
-    expect(numbered.correctIndex).toBe(1);
+    expect(numbered.correct).toEqual([1]);
   });
 
-  it("returns null when the data names no right answer or points outside the options", () => {
+  it("has no right option when the data names none or points outside the options", () => {
     const options = flagged(-1, 1);
-    expect(normalizeQuestion("1", { options }).correctIndex).toBeNull();
-    expect(normalizeQuestion("1", { options, correctIndex: 5 }).correctIndex).toBeNull();
-    expect(normalizeQuestion("1", { options, correctIndex: -1 }).correctIndex).toBeNull();
-    expect(normalizeQuestion("1", { options, correctIndex: 0.5 }).correctIndex).toBeNull();
+    expect(normalizeQuestion("1", { options }).correct).toEqual([]);
+    expect(normalizeQuestion("1", { options, correctIndex: 5 }).correct).toEqual([]);
+    expect(normalizeQuestion("1", { options, correctIndex: -1 }).correct).toEqual([]);
+    expect(normalizeQuestion("1", { options, correctIndex: 0.5 }).correct).toEqual([]);
   });
 
   it("does not guess option 0 when a question has no key", () => {
-    expect(normalizeQuestion("1", { options: ["a", "b"] }).correctIndex).toBeNull();
+    expect(normalizeQuestion("1", { options: ["a", "b"] }).correct).toEqual([]);
+  });
+
+  it("reads several right options as a select-all question, whatever the type field says", () => {
+    const options = [
+      { text: "a", isCorrect: true },
+      { text: "b", isCorrect: false },
+      { text: "c", isCorrect: true },
+    ];
+    expect(normalizeQuestion("1", { options, type: "multiple" })).toMatchObject({
+      type: "multiple",
+      correct: [0, 2],
+    });
+    expect(normalizeQuestion("1", { options, type: "single" })).toMatchObject({
+      type: "multiple",
+      correct: [0, 2],
+    });
+  });
+
+  it("keeps a select-all question with one right option as select-all", () => {
+    const options = [{ text: "a", isCorrect: true }, { text: "b", isCorrect: false }];
+    expect(normalizeQuestion("1", { options, type: "multiple" })).toMatchObject({
+      type: "multiple",
+      correct: [0],
+    });
+  });
+
+  it("reads the reason on each option, with blanks as null so positions line up", () => {
+    const question = normalizeQuestion("1", {
+      options: [
+        { text: "a", isCorrect: false, rationale: "Not this." },
+        { text: "b", isCorrect: true },
+        { text: "c", isCorrect: false, rationale: "   " },
+      ],
+    });
+    expect(question.rationales).toEqual(["Not this.", null, null]);
+    expect(normalizeQuestion("1", { options: flagged(0) }).rationales).toBeUndefined();
   });
 
   it("keeps only text, options, image and explanation, and fills in blank option text", () => {
@@ -91,7 +137,8 @@ describe("normalizeQuestion", () => {
       id: "1",
       text: "Q",
       options: ["Option 1", "Second"],
-      correctIndex: null,
+      type: "single",
+      correct: [],
       imageUrl: "https://x/y.png",
       explanation: "Because.",
     });
@@ -103,14 +150,15 @@ describe("scoreAttempt", () => {
     id,
     text: id,
     options: ["a", "b", "c"],
-    correctIndex,
+    type: "single",
+    correct: correctIndex === null ? [] : [correctIndex],
   });
   const questions = [stored("1", 1), stored("2", 0), stored("3", 2), stored("4", null)];
 
   it("counts correct answers against every question, answered or not", () => {
     const score = scoreAttempt({
       questions,
-      answers: { "1": 1, "2": 1, "3": null },
+      answers: { "1": [1], "2": [1], "3": [] },
       autoCheck: true,
       multiplier: 1,
     });
@@ -126,9 +174,9 @@ describe("scoreAttempt", () => {
   });
 
   it("applies the difficulty multiplier and caps at 100", () => {
-    const answers = { "1": 1, "2": 0, "3": 2 };
+    const answers = { "1": [1], "2": [0], "3": [2] };
     expect(scoreAttempt({ questions, answers, autoCheck: true, multiplier: 1.5 }).score).toBe(100);
-    const half = { "1": 1, "2": 0 };
+    const half = { "1": [1], "2": [0] };
     expect(scoreAttempt({ questions, answers: half, autoCheck: true, multiplier: 1.5 })).toMatchObject({
       rawPercent: 50,
       score: 75,
@@ -137,7 +185,7 @@ describe("scoreAttempt", () => {
   });
 
   it("treats a missing, tiny or broken multiplier as 1", () => {
-    const answers = { "1": 1, "2": 0 };
+    const answers = { "1": [1], "2": [0] };
     for (const multiplier of [0, 0.5, -2, NaN, Infinity]) {
       expect(scoreAttempt({ questions, answers, autoCheck: true, multiplier }).score).toBe(50);
     }
@@ -146,11 +194,75 @@ describe("scoreAttempt", () => {
   it("never counts an answer to a question with no key, or one outside the options as nothing", () => {
     const score = scoreAttempt({
       questions,
-      answers: { "4": 0 },
+      answers: { "4": [0] },
       autoCheck: true,
       multiplier: 1,
     });
     expect(score).toMatchObject({ answered: 1, correct: 0, score: 0 });
+  });
+
+  it("still scores an attempt whose answers were stored as a single number or null", () => {
+    const score = scoreAttempt({
+      questions,
+      answers: { "1": 1, "2": 1, "3": null },
+      autoCheck: true,
+      multiplier: 1,
+    });
+    expect(score).toMatchObject({ answered: 2, correct: 1, score: 25 });
+  });
+
+  it("counts a pick outside the options as answered and wrong", () => {
+    const score = scoreAttempt({ questions, answers: { "1": [7] }, autoCheck: true, multiplier: 1 });
+    expect(score).toMatchObject({ answered: 1, correct: 0, isCorrect: { "1": false } });
+  });
+
+  describe("select-all questions (all or nothing)", () => {
+    const multi: StoredQuestion = {
+      id: "m",
+      text: "m",
+      options: ["a", "b", "c", "d"],
+      type: "multiple",
+      correct: [0, 2],
+    };
+    const score = (picks: number[] | undefined) =>
+      scoreAttempt({
+        questions: [multi],
+        answers: picks ? { m: picks } : {},
+        autoCheck: true,
+        multiplier: 1,
+      });
+
+    it("is right only when the picks equal the right set, in any order", () => {
+      expect(score([0, 2])).toMatchObject({ correct: 1, score: 100, isCorrect: { m: true } });
+      expect(score([2, 0])).toMatchObject({ correct: 1 });
+    });
+
+    it("is wrong for a missing pick, an extra pick, a wrong pick, or all of them", () => {
+      expect(score([0])).toMatchObject({ answered: 1, correct: 0, isCorrect: { m: false } });
+      expect(score([0, 2, 3])).toMatchObject({ answered: 1, correct: 0 });
+      expect(score([1, 3])).toMatchObject({ correct: 0 });
+      expect(score([0, 1, 2, 3])).toMatchObject({ correct: 0 });
+    });
+
+    it("counts a duplicated pick once", () => {
+      expect(score([0, 0, 2])).toMatchObject({ correct: 1 });
+    });
+
+    it("counts no picks as unanswered", () => {
+      expect(score([])).toMatchObject({ answered: 0, correct: 0, isCorrect: {} });
+      expect(score(undefined)).toMatchObject({ answered: 0 });
+    });
+
+    it("does not let a single-answer question take two picks", () => {
+      const single: StoredQuestion = { ...multi, type: "single", correct: [0] };
+      const result = scoreAttempt({
+        questions: [single],
+        answers: { m: [0, 2] },
+        autoCheck: true,
+        multiplier: 1,
+      });
+      expect(result).toMatchObject({ answered: 1, correct: 1 });
+    });
   });
 
   it("scores zero for no answers and for an empty quiz", () => {
@@ -163,14 +275,14 @@ describe("scoreAttempt", () => {
 
   it("gives no score, no correct count and no per-question result when the quiz is checked by hand", () => {
     expect(
-      scoreAttempt({ questions, answers: { "1": 1 }, autoCheck: false, multiplier: 2 })
+      scoreAttempt({ questions, answers: { "1": [1] }, autoCheck: false, multiplier: 2 })
     ).toMatchObject({ graded: false, score: null, correct: null, rawPercent: null, answered: 1 });
   });
 
   it("rounds the weighted score once, from the unrounded raw share", () => {
     // 1 of 3 correct = 33.33…%; times 1.5 is 50, not 33 * 1.5 = 49.5 -> 50 by luck, so use 2: 66.67 -> 67.
     const three = [stored("1", 0), stored("2", 0), stored("3", 0)];
-    expect(scoreAttempt({ questions: three, answers: { "1": 0 }, autoCheck: true, multiplier: 2 })).toMatchObject({
+    expect(scoreAttempt({ questions: three, answers: { "1": [0] }, autoCheck: true, multiplier: 2 })).toMatchObject({
       rawPercent: 33,
       score: 67,
     });
@@ -182,17 +294,27 @@ describe("getQuestionStatus and summarize", () => {
     id,
     text: id,
     options: ["a", "b", "c"],
+    type: "single" as const,
   }));
 
-  it("classifies answers once the right option is known", () => {
-    expect(getQuestionStatus(1, 1)).toBe("correct");
-    expect(getQuestionStatus(1, 0)).toBe("incorrect");
-    expect(getQuestionStatus(1, null)).toBe("unanswered");
-    expect(getQuestionStatus(1, undefined)).toBe("unanswered");
+  it("classifies answers once the right options are known", () => {
+    expect(getQuestionStatus([1], [1])).toBe("correct");
+    expect(getQuestionStatus([1], [0])).toBe("incorrect");
+    expect(getQuestionStatus([1], [])).toBe("unanswered");
+    expect(getQuestionStatus([1], null)).toBe("unanswered");
+    expect(getQuestionStatus([1], undefined)).toBe("unanswered");
     // A pick of option 0 is an answer, not "empty".
-    expect(getQuestionStatus(1, 0)).not.toBe("unanswered");
+    expect(getQuestionStatus([1], [0])).not.toBe("unanswered");
     // No answer key: nothing can be right.
-    expect(getQuestionStatus(null, 0)).toBe("incorrect");
+    expect(getQuestionStatus([], [0])).toBe("incorrect");
+  });
+
+  it("is right for a select-all question only on an exact match", () => {
+    expect(getQuestionStatus([0, 2], [2, 0])).toBe("correct");
+    expect(getQuestionStatus([0, 2], [0])).toBe("incorrect");
+    expect(getQuestionStatus([0, 2], [0, 1, 2])).toBe("incorrect");
+    expect(picksMatch([0, 2], [0, 2])).toBe(true);
+    expect(picksMatch([], [])).toBe(false);
   });
 
   it("falls back to a label for an option with no text", () => {
@@ -203,7 +325,7 @@ describe("getQuestionStatus and summarize", () => {
   it("counts answered, unanswered and flagged, with positions", () => {
     const summary = summarize(
       questions,
-      { "1": 1, "2": 0, "3": null },
+      { "1": [1], "2": [0], "3": [] },
       { "2": true, "4": true }
     );
     expect(summary).toEqual({
@@ -214,6 +336,13 @@ describe("getQuestionStatus and summarize", () => {
       unansweredIndexes: [2, 3],
       flaggedIndexes: [1, 3],
     });
+  });
+
+  it("counts a select-all question as answered once it has any pick", () => {
+    expect(summarize(questions, { "1": [0, 2] }, {}).answered).toBe(1);
+    expect(isAnswered([])).toBe(false);
+    expect(isAnswered(undefined)).toBe(false);
+    expect(isAnswered([0])).toBe(true);
   });
 
   it("handles an unanswered attempt and an empty quiz", () => {
@@ -251,10 +380,10 @@ describe("seedFromServer", () => {
     deadline: 1_600_000,
     serverNow: 1_005_000,
     questions: [
-      { id: "1", text: "one", options: ["a", "b"] },
-      { id: "2", text: "two", options: ["a", "b"] },
+      { id: "1", text: "one", options: ["a", "b"], type: "single" },
+      { id: "2", text: "two", options: ["a", "b"], type: "single" },
     ],
-    answers: { "1": 1, "2": null },
+    answers: { "1": [1], "2": [] },
     flagged: {},
     index: 0,
     tabSwitches: 1,
@@ -276,7 +405,7 @@ describe("seedFromServer", () => {
 
   it("resumes from the server's answers when this device has nothing newer", () => {
     expect(seedFromServer(state, { resume: true, receivedAt: 1_005_000 }).progress).toEqual({
-      answers: { "1": 1, "2": null },
+      answers: { "1": [1], "2": [] },
       flagged: {},
       index: 0,
       tabSwitches: 1,
@@ -296,7 +425,7 @@ describe("seedFromServer", () => {
       startedAt: 0,
       durationSec: 600,
       questionIds: ["1", "2"],
-      answers: { "1": 1, "2": 0 },
+      answers: { "1": [1], "2": [0] },
       flagged: { "2": true },
       index: 1,
       tabSwitches: 0,
@@ -308,7 +437,7 @@ describe("seedFromServer", () => {
     };
     const { progress } = seedFromServer(state, { local, resume: true, receivedAt: 1_005_000 });
     expect(progress).toEqual({
-      answers: { "1": 1, "2": 0 },
+      answers: { "1": [1], "2": [0] },
       flagged: { "2": true },
       index: 1,
       tabSwitches: 1,
@@ -320,10 +449,10 @@ describe("seedFromServer", () => {
   });
 
   it("ignores a saved copy of a different attempt", () => {
-    const other = { attemptId: "zzz", answers: { "1": 0 } } as unknown as SavedAttempt;
+    const other = { attemptId: "zzz", answers: { "1": [0] } } as unknown as SavedAttempt;
     expect(
       seedFromServer(state, { local: other, resume: true, receivedAt: 1_005_000 }).progress?.answers
-    ).toEqual({ "1": 1, "2": null });
+    ).toEqual({ "1": [1], "2": [] });
   });
 });
 
@@ -428,7 +557,7 @@ describe("autosave storage", () => {
     startedAt: 1_000,
     durationSec: 600,
     questionIds: ["1", "2"],
-    answers: { "1": 0, "2": null },
+    answers: { "1": [0], "2": [] },
     flagged: { "2": true },
     index: 1,
     tabSwitches: 2,
@@ -445,7 +574,13 @@ describe("autosave storage", () => {
     const key = attemptKey("quiz1", "u1");
     saveAttempt(key, saved);
     expect(loadAttempt(key)).toEqual(saved);
-    expect(loadAttempt(key)?.answers["1"]).toBe(0);
+    expect(loadAttempt(key)?.answers["1"]).toEqual([0]);
+  });
+
+  it("reads a copy saved before answers became lists (a number or null per question)", () => {
+    const key = attemptKey("quiz1", "u1");
+    store.set(key, JSON.stringify({ ...saved, answers: { "1": 0, "2": null, "3": 2 } }));
+    expect(loadAttempt(key)?.answers).toEqual({ "1": [0], "2": [], "3": [2] });
   });
 
   it("clears an attempt", () => {
@@ -488,5 +623,124 @@ describe("autosave storage", () => {
 
   it("computes the deadline from the start and the limit", () => {
     expect(attemptDeadline(saved)).toBe(1_000 + 600_000);
+  });
+});
+
+describe("answers as lists", () => {
+  it("reads any stored shape into sorted, unique, in-range picks", () => {
+    expect(toPicks(null, 4)).toEqual([]);
+    expect(toPicks(undefined, 4)).toEqual([]);
+    expect(toPicks(2, 4)).toEqual([2]);
+    expect(toPicks(0, 4)).toEqual([0]);
+    expect(toPicks([3, 1, 1, 9, -1, 0.5, "2", null], 4)).toEqual([1, 3]);
+    expect(toPicks("nonsense", 4)).toEqual([]);
+  });
+
+  it("keeps at most one pick for a single-answer question", () => {
+    expect(toPicks([2, 1], 4, "single")).toEqual([1]);
+    expect(toPicks([2, 1], 4, "multiple")).toEqual([1, 2]);
+  });
+
+  it("swaps the pick of a single-answer question and toggles one of a select-all question", () => {
+    expect(togglePick([], 1, "single")).toEqual([1]);
+    expect(togglePick([1], 2, "single")).toEqual([2]);
+    expect(togglePick([1], 1, "single")).toEqual([1]);
+    expect(togglePick(undefined, 3, "multiple")).toEqual([3]);
+    expect(togglePick([3], 1, "multiple")).toEqual([1, 3]);
+    expect(togglePick([1, 3], 1, "multiple")).toEqual([3]);
+  });
+});
+
+describe("upgradeStoredQuestion (attempts already running when the key became a list)", () => {
+  it("reads the older snapshot shape", () => {
+    expect(
+      upgradeStoredQuestion({
+        id: "q1",
+        text: "Q",
+        options: ["a", "b", "c"],
+        correctIndex: 2,
+        explanation: "Because.",
+      })
+    ).toEqual({
+      id: "q1",
+      text: "Q",
+      options: ["a", "b", "c"],
+      type: "single",
+      correct: [2],
+      explanation: "Because.",
+    });
+  });
+
+  it("reads a snapshot with no key, and one with a bad index", () => {
+    expect(upgradeStoredQuestion({ id: "q", options: ["a"], correctIndex: null }).correct).toEqual([]);
+    expect(upgradeStoredQuestion({ id: "q", options: ["a"], correctIndex: 4 }).correct).toEqual([]);
+  });
+
+  it("reads the current shape unchanged and cleans its key", () => {
+    const current: StoredQuestion = {
+      id: "q",
+      text: "Q",
+      options: ["a", "b", "c"],
+      type: "multiple",
+      correct: [0, 2],
+      rationales: [null, "No.", null],
+    };
+    expect(upgradeStoredQuestion(current)).toEqual(current);
+    expect(upgradeStoredQuestion({ ...current, correct: [2, 0, 0, 9] }).correct).toEqual([0, 2]);
+  });
+
+  it("survives junk", () => {
+    expect(upgradeStoredQuestion(null)).toEqual({ id: "", text: "", options: [], type: "single", correct: [] });
+  });
+});
+
+describe("review shapes", () => {
+  it("reads the right options from a stored v1 review entry or a current one", () => {
+    expect(reviewCorrect({ correctIndex: 1 })).toEqual([1]);
+    expect(reviewCorrect({ correctIndex: null })).toEqual([]);
+    expect(reviewCorrect({ correct: [2, 0] })).toEqual([0, 2]);
+    expect(reviewCorrect(undefined)).toEqual([]);
+  });
+
+  const base: SubmitResult = {
+    responseId: "r",
+    graded: true,
+    score: 50,
+    rawPercent: 50,
+    correct: 1,
+    total: 2,
+    answered: 2,
+    multiplier: 1,
+    timeTakenSec: 5,
+    late: false,
+    answers: { a: 1 as unknown as number[], b: null as unknown as number[] },
+    tabSwitches: 0,
+    blurs: 0,
+    fullscreenExits: 0,
+    review: { a: { correctIndex: 1, explanation: "Because." }, b: { correctIndex: null } } as never,
+  };
+
+  it("upgrades a whole stored result: answers as lists, review entries with `correct`", () => {
+    const upgraded = upgradeResult(base, { a: 3, b: 3 });
+    expect(upgraded.answers).toEqual({ a: [1], b: [] });
+    expect(upgraded.review).toEqual({
+      a: { correct: [1], explanation: "Because." },
+      b: { correct: [] },
+    });
+  });
+
+  it("leaves a result with no review without one", () => {
+    expect(upgradeResult({ ...base, review: null }, {}).review).toBeNull();
+  });
+
+  it("builds a review from the questions of an attempt", () => {
+    const questions: StoredQuestion[] = [
+      { id: "a", text: "A", options: ["x", "y"], type: "single", correct: [1], explanation: "E", rationales: ["No.", "Yes."] },
+      { id: "b", text: "B", options: ["x", "y"], type: "multiple", correct: [] },
+    ];
+    expect(buildReview(questions)).toEqual({
+      a: { correct: [1], explanation: "E", optionRationales: ["No.", "Yes."] },
+      b: { correct: [] },
+    });
   });
 });

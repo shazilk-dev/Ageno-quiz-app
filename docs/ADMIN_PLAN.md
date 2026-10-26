@@ -1,0 +1,392 @@
+# Ageno Quiz Admin Plan
+
+**Purpose:** make the admin side fast, safe and pleasant to run: bring a whole quiz in from a file (or from an AI) in minutes, support questions with several correct answers, attach reasoning to every answer option, and see how each question performs. Same rules as the other plans: phases, checkbox tasks, a status table and a session log.
+
+- **Created:** 2026-10-26
+- **Last updated:** 2026-10-26 (Session 12: A1 built and verified except the admin emulator suite and the browser check)
+- **Current phase:** A1 (built; waiting on the browser check in MANUAL_STEPS and one run of `admin-api.test.ts`; then A1.10 one release later, then A2)
+- **Related:** `docs/IMPROVEMENT_ROADMAP.md` (its Phase 8 "Pro exam features" items are folded in here where they touch admin), `docs/PERFORMANCE_PLAN.md` (speed rules still apply), `docs/MANUAL_STEPS.md` (things only the user can do)
+
+---
+
+## How to use this file (for AI sessions)
+
+1. Read the **Status** table and the **Session Log** first, then **Recommended order**.
+2. Pick the first unchecked task in the current phase. Read the files it names before editing; line numbers drift.
+3. After each task run `npx tsc --noEmit` and `npm run lint`, plus the tests the task names. At the end of a phase run `npm run build` and look at the screens in `npm run dev`.
+4. Tick a box only for what you verified. Update Status, "Current phase", "Last updated" and add a Session Log entry.
+5. Obey the architecture rules in `CLAUDE.md`. The ones this plan leans on hardest:
+   - the browser never touches Firestore; every admin action is a route under `app/api/admin/*` guarded by `requireAdmin`;
+   - `lib/quiz-schema.ts` is the one description of a quiz; the editor and the server both call `validateQuizInput`;
+   - any code path that writes a quiz or its questions must call `invalidateQuiz(id)`;
+   - any code that writes `responses` must keep `leaderboard/*` and `userTotals/*` in step;
+   - UI follows the Agenoverse design system (dark ink + teal, tokens, `components/ui`, no component library, no emoji).
+6. **Data changes follow "expand, then contract"** (see 3.2): add the new shape, make every reader accept old and new, ship, backfill, and only later remove the old reading code. Never a big-bang migration.
+7. Reference task IDs in commits: `feat(admin): A1.3 multi-answer scoring`.
+
+---
+
+## Status
+
+| Phase | Title | Priority | Status |
+|---|---|---|---|
+| A0 | Decisions | now | Done (2026-10-26) |
+| A1 | Question model v2: several correct answers, reasoning per option, a cheaper submit | P0 | In progress (built; browser check and `admin-api` run outstanding) |
+| A2 | Quiz format, import/export, and the AI skill | P0 | Not started |
+| A3 | Faster editing | P1 | Not started |
+| A4 | Quiz lifecycle (draft, schedule, trash, versions) | P1 | Not started |
+| A5 | Insights (question analytics, attempt review) | P1 | Not started |
+| A6 | Governance (audit log, editor role, user tools) | P2 | Not started |
+| A7 | AI built into the app (optional) | P3 | Not started |
+
+Status values: `Not started`, `In progress`, `Done`, `Blocked (reason)`.
+
+---
+
+## A0: Decisions made
+
+| # | Decision |
+|---|---|
+| 1 | Questions mostly arrive from AI conversions of existing question sets, so a **strict, versioned JSON format plus an AI skill** is the main way in. Paste-from-spreadsheet, CSV and a plain-text format stay as the human routes. `.xlsx` upload and GIFT/QTI wait until someone asks. |
+| 2 | Review shows the correct option(s) always, your wrong picks with their reasons, and the other options' reasons in a fold. |
+| 3 | One `admin` role now. The editor role (A6.2) waits for a second administrator. |
+| 4 | The AI **skill** (outside the app, run by the admin's own AI) is in. AI **inside** the app (A7) is not, until A1–A5 are done. |
+| 5 | A large replace may close the quiz for new attempts for a moment while it applies (chunked path, A2.8). |
+| 6 | **Several correct answers are supported.** Questions have an explicit `type`: `single` or `multiple`. Multiple scores **all-or-nothing** (the picked set must equal the correct set). Partial credit is a later per-question option. Players are told how many to choose ("Choose 2"). True/false is a single question with two options. Short answer is deferred. |
+| 7 | The canonical import/export format is **JSON** ("Ageno Quiz Format v1"), the same shape the editor and server validate, with a small envelope. |
+| 8 | The data structure changes where it should (A1): answers become lists, the correct key becomes a list, questions carry `type` and `schemaVersion`, and a submit stops writing one document per answer. |
+
+---
+
+## Part 1. How admin works today
+
+Read from the code on 2026-10-26.
+
+**Screens** (`app/(admin)`, served at `/dashboard`, `/quizzes`, `/users`, `/quiz-reports`): dashboard (totals, average score, recent results, score and time bands), quiz list, a read-only quiz view, one editor for create and edit, users, reports.
+
+**Access.** Server layout verifies the session cookie and the role on every request (`lib/server/admin-access.ts`); every `/api/admin/*` route calls `requireAdmin`. Two roles: `admin` and `user`. Demotion revokes sessions; you can't change your own role or delete the last admin. This part is solid.
+
+**Quiz data.** A quiz is one document plus one subcollection per difficulty (`questions_easy|medium|hard`). Saving is one transaction with a `version` check. A question is `{ text, options: [{ text, isCorrect }], type: "single", points: 1, explanation?, imageUrl?, order }`: one correct option, one optional explanation. The server copies the questions (key included) into each attempt document.
+
+**Getting questions in.** Typing in the editor, or the JSON dialog (`ImportDialog.tsx`): one level at a time, questions only, no preview, no per-row errors.
+
+**Gaps**
+
+| Area | Gap |
+|---|---|
+| Question types | **Exactly one correct answer, everywhere.** `validateQuestion` rejects more than one; an answer is one number (`sanitizeAnswers`, `AnswerMap`); `scoreAttempt` compares one index; the exam uses radios; the review marks one. |
+| Reasoning | One explanation per question. No reason per option. |
+| Authoring | No bulk entry beyond JSON. No spreadsheet or text import. No whole-quiz import. No duplicate quiz. No preview-as-player. Images are pasted https links. |
+| Submit cost | A submit writes a document per answered question under `responses/{id}/answers/*` **in the same transaction**. Nothing in the app reads them (only tests do). That is up to 400 wasted writes per submit, ties the question limit to Firestore's 500-write transaction cap, and makes per-question analytics a read-per-answer. |
+| Safety | Deleting a quiz **permanently deletes every result with it**, immediately. No trash, no undo, no version history, no audit log of admin actions. |
+| Lifecycle | Only `active` and `isPublic`. No draft state, no open/close window, no attempt limits, no tags. |
+| Insight | Reports show score and integrity counts per attempt. No per-question view. The admin can't see an attempt's answers or its integrity timeline (`integrityEvents` is stored, never shown). |
+| Users | List capped at 500, filtered in the browser. No disable account, no per-user history. |
+| Write limits | A save is one transaction of at most 500 writes. Replacing a 400-question level can need 800, so it is refused. |
+| Attempt size | An attempt document holds the questions **and** the stored result with the review (explanations twice). Per-option reasons would roughly double that against the 1 MiB document limit. |
+
+---
+
+## Part 2. What the research says
+
+Searches run 2026-10-26. Where a search did not find what I wanted, this says so.
+
+**Bulk import (Canvas, Moodle, vendor LMS docs).** Proven pattern: official **template** → upload → **validate and report per row** → import the good rows → summary of failures. Vendors stress exact headers, UTF-8, one answer per cell. [uteach](https://uteach.io/support/products/import-quiz-questions-with-bulk-import), [SmartWinnr](https://help.smartwinnr.com/article/46-how-to-use-import-questions), [Learnamp](https://learnamp.atlassian.net/wiki/spaces/KB/pages/1157005326/Quiz+Import). Moodle's formats are GIFT and Moodle XML. [Moodle export docs](https://docs.moodle.org/501/en/question/export). Not found: Kahoot/Quizizz/Google Forms details, QTI 3.0.
+**Excel security:** the `xlsx` package on npm stops at 0.18.5 with known prototype-pollution and ReDoS advisories; fixed versions ship only from SheetJS's own site. So: no npm `xlsx`; CSV/TSV and JSON need no risky parser. [Snyk](https://security.snyk.io/package/npm/xlsx/0.18.2)
+
+**Reasoning per option.** Sources agree distractors built on common misconceptions are diagnostic and that plausible distractors make learners think about several concepts. [The eLearning Coach](https://theelearningcoach.com/elearning_design/tests/the-importance-of-writing-effective-distractors/), [Learning & the Brain](https://www.learningandthebrain.com/blog/can-multiple-choice-tests-really-help-students/). A 2005 meta-analysis cited there found three options are often enough. **I found no study isolating "a reason on every option" from "a reason on the correct answer only"**, so it stays optional.
+
+**Item analysis.** Difficulty index (target about 30–70% correct), discrimination index (above about 0.25 is good; negative suggests a wrong key), distractor efficiency (an option picked by under 5% is non-functional). [PMC](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11040895/), [APIMS](https://apims.net/apims/article/view/9). No platform's screen layout was found; A5's design is mine.
+
+**AI-drafted questions.** LMS products make the feature opt-in, AI drafts, a named reviewer accepts or rejects each item, nothing goes live unapproved; education guidance says not to use it unreviewed for high-stakes assessment. [OpenEduCat](https://openeducat.org/glossary/what-is-ai-quiz-generator/), [ZenQMS](https://support.zenqms.com/hc/en-us/articles/52105778114835-AI-Generated-Training-Challenge-Questions-on-Documents). Not found: standards for answer-key validation.
+
+**Audit logs.** Append-only, who/what/when on each entry; hash-chaining is the heavy version. With a database only the server touches (`firestore.rules` denies browsers), append-only writes from one module are enough. [Overview](https://www.techinterview.org/post/3233465643/system-design-audit-log/). Not found: soft delete or version history patterns; A4 uses ordinary practice (trash with retention, typed confirmation for permanent delete, full-snapshot revisions), not a cited standard.
+
+**Data evolution** (not searched; standard practice): version the stored shape, make readers tolerant, add before removing ("expand and contract"), backfill with a dry-run script. The repo already works this way (`migrate:questions`, `backfill:leaderboard`).
+
+---
+
+## Part 3. Design
+
+### 3.1 Question model v2
+
+**Stored question** (`quizzes/{id}/questions_{level}/{qid}`):
+
+```
+{
+  schemaVersion: 2,
+  type: "single" | "multiple",
+  text, order, points: 1,                      // points kept for older readers
+  options: [{ text, isCorrect, rationale? }],
+  explanation?, imageUrl?
+}
+```
+
+- `type` already exists as the constant `"single"`; it becomes real. Rules: `single` = exactly one correct option; `multiple` = at least one correct option (a warning if every option is correct). 2–10 options, as now.
+- `rationale` (≤ `LIMITS.rationale` = 1000 chars) is per option; `explanation` stays as the overall note. Both optional, independently, per question. No quiz-level requirement.
+- `scoring` (`all_or_nothing` | `partial`) is **not stored yet**; the field name is reserved and added when partial credit is built. Default behaviour = all-or-nothing.
+- Old documents (no `schemaVersion`, `type: "single"`, string options, `correctIndex`) keep reading through `normalizeQuestion`, which becomes the only place that understands every shape.
+
+**In memory on the server** (`StoredQuestion`, used by attempts and scoring):
+
+```
+{ id, text, options: string[], type, correct: number[], rationales?: (string|null)[], explanation?, imageUrl? }
+```
+`correctIndex: number | null` is replaced by `correct: number[]` (empty = no key; nothing counts as right, as today). A helper `upgradeStoredQuestion()` accepts the old `correctIndex` shape, because **attempts already in progress hold old-shape snapshots** and must finish.
+
+**Answers** become lists everywhere: `AnswerMap = Record<questionId, number[]>`, indexes sorted, unique, in range; `[]` means unanswered. `single` allows at most one pick. The server's `sanitizeAnswers` accepts the old `number | null` too (old browser tabs, the device autosave under `ageno:quiz:attempt:*`, in-progress attempt documents) and always stores the list form.
+
+**Scoring** (`lib/exam/scoring.ts`, still server-only): a question is correct when the picked set equals the correct set. `answered` = non-empty pick. `correct`, `rawPercent`, the multiplier and the leaderboard arithmetic are unchanged, so the leaderboard needs no change.
+
+**What players are told.** `ExamQuestion` gains `type` and, for `multiple`, `pickCount` (the number of correct options, so the UI can say "Choose 2"). That is the only key-related thing sent before submit, and it is intentional. Nothing else about the key or any reason is sent.
+
+**Exam UI.** `single` stays a radio group. `multiple` is a checkbox group ("Select all that apply · Choose 2"), keys 1–9 / A–F toggle, the navigator's "answered" means at least one pick. Mobile targets stay ≥ 44px.
+
+**Review and results.** `ReviewItem` becomes `{ correct: number[], explanation?, optionRationales? }`. Each option shows its tags (Your answer / Correct answer), then its reason if there is one. Wrong picks show their reason emphasised; the correct options' reasons are always shown; the remaining options' reasons are in a "Why the others are wrong" fold. A question with only an `explanation` renders as today. Stored results from before v2 (`correctIndex`) are read through one helper, `reviewCorrect()`.
+
+### 3.2 Data structure changes (done properly)
+
+Ship in this order, all in A1:
+
+1. **Expand.** New fields and shapes are written from the first deploy; every reader accepts old and new. Question docs get `schemaVersion: 2` only when saved by the new editor, so existing quizzes aren't touched until someone edits them.
+2. **Responses get a compact answer sheet and stop writing one doc per answer.**
+   ```
+   responses/{attemptId}: { …existing fields…, schemaVersion: 2,
+     sheet: { [questionId]: { p: number[], ok: boolean } } }   // p = picked options, ok = scored correct
+   ```
+   Same data the `answers/*` documents held, plus multi-select, in one document (≤ ~10 KB at 400 questions). A submit now writes about four documents instead of up to 404, so the question limit no longer depends on the transaction cap. Per-question analytics (A5) read one document per response, not one per answer. The old `answers/*` documents stay where they exist (user and quiz deletion already `recursiveDelete` them). `backfill:sheets` (dry run unless `-- --apply`) builds `sheet` for older responses from their `answers/*`.
+   Pick indexes are the **canonical option positions**, so future per-attempt option shuffling can map back; analytics ignore a question's picks if its option texts changed since (`sheet` entries carry no hash; analysis compares the response's `submittedAt` with the question's last change in revisions once A4.4 exists, and until then states the caveat).
+3. **Review is derived, not stored.** `result.review` stops carrying text; the review is rebuilt from the attempt's own `questions` snapshot when a result is returned (submit and `GET /api/attempts/[id]/result`), so reasons and explanations are stored once. Old attempts with a stored review keep using it.
+4. **Size budget.** `LIMITS.maxLevelBytes` (about 300 KB of question text, options, reasons and explanations per level) enforced by `validateQuizInput` with a clear message, plus a size meter in the editor. A test builds a worst-case attempt and asserts it stays well under 1 MiB.
+5. **Contract, later.** After a release in which no new write uses the old shapes, and after the backfills, a follow-up task (A1.10) removes the compatibility code that is no longer reachable, keeping the normalizers for stored quizzes.
+6. **No data migration of questions is required**: old questions read as `type: "single"`. A `migrate:questions-v2` script (dry run by default) may rewrite them to the v2 shape for tidiness; optional.
+
+Firestore rules stay "deny everything"; no new rules. New indexes are only needed if a new query appears (A4/A5 note theirs).
+
+### 3.3 The format and the AI skill (A2)
+
+**Ageno Quiz Format v1** is JSON: the editor's `QuizInput` plus an envelope. One schema, not two.
+
+```json
+{
+  "format": "ageno-quiz",
+  "version": 1,
+  "quiz": {
+    "title": "Network basics",
+    "description": "…",
+    "duration": 20,
+    "examMode": "practice",
+    "showAnswerReview": true
+  },
+  "levels": {
+    "easy": {
+      "duration": 20,
+      "pointsMultiplier": 1,
+      "questions": [
+        {
+          "type": "single",
+          "text": "Which protocol encrypts web traffic?",
+          "options": [
+            { "text": "HTTP",  "isCorrect": false, "rationale": "Sends data in plain text." },
+            { "text": "HTTPS", "isCorrect": true,  "rationale": "Adds TLS on top of HTTP." },
+            { "text": "FTP",   "isCorrect": false }
+          ],
+          "explanation": "The S stands for secure.",
+          "imageUrl": "https://example.com/diagram.png",
+          "note": "AI inferred the answer; please check."
+        }
+      ]
+    }
+  }
+}
+```
+
+- Required: a `levels` entry with `questions`, each with `text`, `options` (with `isCorrect`). `type` defaults to `single` when exactly one option is correct and `multiple` when more than one is (the file may state it; a mismatch is an error).
+- `quiz` and the level settings are optional. A file may also be a bare list of questions or one level, for adding to an existing quiz.
+- `id` on a question is optional and means "update this question"; without it the question is new. Export writes ids.
+- `note` is never stored; the import preview shows it so guessed answers get checked.
+- `version` is checked: unknown versions are refused with a clear message; older ones keep being read. The format version is separate from the stored `schemaVersion`.
+- Cell and field text is plain text everywhere, never HTML.
+
+**One source of truth, generated artifacts.** The rules live in `lib/quiz-format/` (pure TypeScript) built on `LIMITS` and `validateQuizInput`. A script `npm run build:format` generates, from that code:
+- `public/ageno-quiz/schema.json` (JSON Schema, served by the app at a stable URL),
+- `skills/ageno-quiz-format/validate.mjs` (one dependency-free file the AI can run on its output),
+- the example files and the template CSV.
+`npm run build:format -- --check` fails if the generated files are stale; a test also checks that every fixture the JSON Schema accepts passes `validateQuizInput` and the other way round (contract test with `ajv` as a dev dependency).
+
+**The skill** (`skills/ageno-quiz-format/`): `SKILL.md` (name, description, rules), `schema.json`, `validate.mjs`, `examples/`. Rules for the AI:
+1. Ask only for what's missing (level, time, whether to add reasons); don't ask what the source already says.
+2. Never invent a correct answer the source doesn't give. If it had to infer one, say so in `note`.
+3. Use `multiple` only when the source says select-all-that-apply or more than one answer is right.
+4. 3–5 options unless the source has more; don't pad with silly distractors; vary where the correct answer sits; no "all/none of the above".
+5. Add `rationale`s and `explanation`s when asked or when the source provides them, never fabricated "facts".
+6. Keep within the limits (text lengths, ≤ 400 questions per level); split into several files otherwise.
+7. Run `validate.mjs`, fix what it reports, and only then hand over `quiz.ageno.json`.
+
+**No-install fallback.** The admin "AI & formats" page (A2.7) has a "Copy AI instructions" button (the same rules plus the schema, ready to paste into any AI chat), the template downloads, and a link to the skill folder or a zip of it. Check the current way skills are packaged for Claude Code and claude.ai when building this; don't rely on this plan's description.
+
+### 3.4 The import flow (A2)
+
+1. **Pick the way in** (page `/quizzes/import`, also from the editor): upload or paste **JSON** (the AI route); **paste cells copied from Excel or Sheets** (clipboard text is tab-separated, so no file parser is needed); **upload CSV** (UTF-8 with BOM handled); paste/upload the **plain-text format**. All routes produce the same `QuizInput`.
+2. **Map** spreadsheet columns by header name; ask only when ambiguous.
+3. **Preview and check.** Table of every question with ok / warning / error, inline fixes, summary ("46 questions: 44 ready, 2 need fixing (rows 7, 31)"). Warnings: duplicate text (in the file and against the quiz), one option, no correct answer, `multiple` with every option correct, correct answer naming a missing option, very long option, non-https image, any `note` from the AI.
+4. **Choose the target:** new quiz / add to a level / replace a level / **update in place by question id**.
+5. **Show the plan** before writing: "12 new, 30 changed, 5 removed, 3 unchanged" (exactly `planQuestionWrites`'s output).
+6. **Commit** through the existing create/save routes; the server runs `validateQuizInput` again.
+
+Spreadsheet columns (one row per question; the template has an instructions row and a sample row, and import skips rows starting with `#`):
+`level | type | question | option_a … option_f | correct | explanation | a_why … f_why | image`
+`correct` accepts `B`, `b`, `2`, the exact option text, or a list for multiple (`A,C`).
+
+Plain-text format (human typing; `[x]` = correct, `~` = reason for the option above, `>` = overall explanation, `!` = image):
+
+```
+# Network basics
+## Easy | 20 min | x1
+
+1. Which protocol encrypts web traffic?
+   - HTTP
+     ~ Sends data in plain text.
+   - [x] HTTPS
+     ~ Adds TLS on top of HTTP.
+   > The S stands for secure.
+```
+More than one `[x]` makes the question `multiple`.
+
+Parsing is pure code in `lib/quiz-import/` (no Firebase, no DOM), runs in the browser, and is tested on awkward input: quoted commas, line breaks inside cells, BOM, CRLF, stray whitespace, empty trailing rows, duplicate headers.
+
+**Export.** "Download quiz" as JSON (the format above, with ids and reasons), CSV or text. It is also the backup and the edit-in-Excel loop.
+
+**Big writes.** `updateQuiz` is one transaction capped at 500 writes, and "replace a 400-question level" can need 800. Under the cap: unchanged. Over it: the route sets `importing: true` on the quiz (new attempts get a polite "this quiz is being updated"; running attempts finish because they hold a snapshot), writes in chunks of 450 with `BulkWriter`, then sets the final quiz fields, clears the flag and calls `invalidateQuiz`. If a chunk fails, the flag stays and the admin sees what state it is in with Retry or Undo; never claim "atomic" for this path. `createQuiz` already chunks with rollback; reuse it. Considered and rejected for now: a `setVersion` pointer swap (cleaner semantics, but every reader changes).
+
+### 3.5 Editing speed (A3)
+
+Grid view (one row per question, keyboard navigation, paste many rows); draft autosave to the device (`ageno:admin:draft:<quizId|new>`) with a restore prompt; preview as player (the real `QuestionView` and `QuestionReview`); a Checks panel (duplicates, answer position patterns, "all of the above", no explanation, options never chosen once A5 exists); duplicate quiz, copy/move questions between levels, multi-select; image upload to Firebase Storage (admin-only route, Storage rules, size/type limits) last.
+
+### 3.6 Lifecycle (A4)
+
+`status` (`draft | published | archived`; existing `active` quizzes migrate to published, inactive to archived); `opensAt` / `closesAt` and attempt limit / cooldown enforced in `startAttempt`; **trash** (soft delete, results kept, leaderboard rows hidden, Restore, and "Delete forever" that needs the title typed and states how many results go); **revisions** (full snapshot per save, last 20, restore = a normal save, chunked path for big ones); tags and list filters; bulk actions on the list.
+
+### 3.7 Insights (A5)
+
+Per quiz, a Questions tab: attempts, % correct, discrimination (top vs bottom 27% by score), per-option pick rate with a flag under 5%, and flags ("very hard < 30%", "very easy > 90%", "negative discrimination: check the key"). Reads `sheet` from the latest N responses (default 2000, one document each), cached 5 minutes; no hot counter document (one counter would cap submits near one write per second during a mass exam). Multi-select questions show pick rates per option the same way. Attempt detail from a report row: answers against the key, the integrity timeline (`integrityEvents`), **void** (same code path that keeps `leaderboard/*` and `userTotals/*` right) and **allow another attempt**. Dashboard "needs attention" strip and a 30-day trend from cached count queries.
+
+### 3.8 Governance (A6)
+
+`adminAudit/{autoId}` written only by `recordAdminAction()` from every admin route (actor, action, target, small before/after summary with no answer keys or personal data, time), in `after()`; no route updates or deletes it. Editor role as least privilege (`requireRole`). Users: server-side search and paging, disable/enable account, per-user page, CSV, optional groups.
+
+### 3.9 AI inside the app (A7, optional)
+
+Server-side only, off by default, admin-only, rate-limited, drafts only. Fill empty reasons for existing questions as suggestions; draft questions from pasted text into the A2 import preview, marked "AI draft" until accepted. Source documents are untrusted text: output is only ever data validated by the schema, never an action. Entries in the audit log say content was AI-drafted.
+
+---
+
+## Part 4. Phases and tasks
+
+### Phase A1: Question model v2 (P0)
+
+Files: `lib/quiz-schema.ts`, `lib/exam/{normalize,scoring,answers,types,storage}.ts`, `lib/server/attempts.ts`, `hooks/useQuizAttempt.ts`, `components/quiz/exam/{QuestionView,QuestionNavigator,ExamShell,ResultsScreen,QuestionReview}.tsx`, `components/admin/quiz-editor/*`, `app/(admin)/quizzes/[quizId]/page.tsx`, `scripts/`.
+
+- [x] **A1.1 Schema and normalizers.** `type`, `rationale`, `schemaVersion`, `LIMITS.rationale` / `maxLevelBytes`; `validateQuestion` per type (single exactly one, multiple at least one); `questionToDoc`, `questionFromStored`, `normalizeQuestion` (→ `correct: number[]`, `rationales`), `upgradeStoredQuestion`. Tests in `quiz-schema.test.ts` and `exam-logic.test.ts` covering every legacy shape.
+- [x] **A1.2 Answers as lists.** `AnswerMap`, `sanitizeAnswers` (accepts old and new, enforces `single` ≤ 1), device-storage reader accepts the old shape, `ProgressPatch`; attempt documents read old snapshots and answers.
+- [x] **A1.3 Scoring.** Set equality; `answered`, `isCorrect`, the result fields; tests for single, multiple, none picked, extra pick, missing pick, no key, unknown index.
+- [x] **A1.4 Wire types and leak check** (verified by `attempts-api`: start, resume and the public quiz routes carry only `type` and `pickCount`). `ExamQuestion.type` / `pickCount`; `ReviewItem` v2 with `reviewCorrect()` for stored v1 results; assertions in `attempts-api.test.ts` that start, resume and the public quiz routes never contain `isCorrect`, `correct`, reasons or explanations (only `type` and `pickCount`).
+- [ ] **A1.5 Cheaper submit** (done and verified in `attempts-api`: a 400-question submit writes a sheet and no `answers/*`; the `backfill:sheets` test is in `admin-api.test.ts` and has not been run; tick when it has). Write `responses.sheet` and `schemaVersion`, stop writing `answers/*`; update `attempts-api.test.ts` and `admin-api.test.ts`; assert a 400-question submit writes a handful of documents; `backfill:sheets` script (dry run by default) and its test.
+- [x] **A1.6 Review derived from the snapshot; size budget** (verified: `attempts-api` review rebuilt from the snapshot and old stored reviews still read; size-budget unit test and editor meter pass). Stop storing review text in `result`; both result entry points rebuild it; old attempts with a stored review still work (emulator test); `maxLevelBytes` validation, editor size meter, worst-case attempt under 1 MiB test.
+- [x] **A1.7 Exam UI.** Checkbox group for `multiple` with "Select all that apply · Choose N", keyboard toggling, navigator "answered", submit dialog counts; update `quiz-attempt.test.tsx` (single and multiple, keyboard only, resume from an old-shape autosave).
+- [ ] **A1.8 Results UI** (built and covered by jsdom tests; the 390×844 look is in MANUAL_STEPS). Per-option reasons and the fold as in 3.1, in both result entry points; check at 390×844 and with long text.
+- [x] **A1.9 Editor.** Question type switch (changing `multiple` → `single` with several correct asks which to keep), radios vs checkboxes for "correct", per-question "Add a reason for each option", completeness line, `editor-state` actions, `quiz-editor.test.tsx`; the admin quiz view shows reasons and types; a "Preview review" dialog using the real `QuestionReview`.
+- [ ] **A1.10 Contract.** One release later: remove compatibility paths that no new write can reach; keep the normalizers for stored data. Update `CLAUDE.md` (data layer, the quiz-taking flow) and the `lib/quiz-schema.ts` header comment as part of this phase, not after.
+
+**Done when:** an admin builds a quiz with a single question, a select-all question and reasons on some options; a player finishes it and sees checkboxes with "Choose N", is scored all-or-nothing, and the review shows the right reasons; an attempt started *before* the deploy still submits and shows its result; no response before submit contains a key, a reason or an explanation; a submit writes about four documents; tsc, lint, the named unit tests and the emulator tests pass.
+
+### Phase A2: Quiz format, import/export and the AI skill (P0)
+
+Files: new `lib/quiz-format/`, `lib/quiz-import/`, `components/admin/quiz-import/`, `app/(admin)/quizzes/import/`, `app/(admin)/quizzes/ai/`, `skills/ageno-quiz-format/`, `lib/server/admin-quizzes.ts`, `scripts/build-format.ts`.
+
+- [ ] **A2.1 Format core (pure).** Envelope, version check, bare-list forms, `type` inference/mismatch, `note` handling; fixtures; contract test with `ajv`.
+- [ ] **A2.2 Generated artifacts.** `npm run build:format` (+ `--check`): `public/ageno-quiz/schema.json`, `skills/ageno-quiz-format/validate.mjs`, examples, template CSV. A test runs the generated validator on the examples and on deliberately broken files.
+- [ ] **A2.3 Other parsers.** CSV/TSV, text format, existing JSON; all return `{ questions, issues[] }` with row/line numbers and end in the same `QuizInput`.
+- [ ] **A2.4 Checks.** Duplicates in file and against the quiz, per-row status, summary line, warnings from 3.4.
+- [ ] **A2.5 Wizard UI** with every route, mapping, preview with inline fixes, target choice, plan summary, commit with progress and a result summary; empty/error/success states; keyboard-only works; replaces the old `ImportDialog` (delete it when nothing uses it).
+- [ ] **A2.6 Export.** JSON, CSV, text, with ids and reasons; round-trip test: export → import with "update in place" yields zero changes.
+- [ ] **A2.7 "AI & formats" page and the skill.** `SKILL.md` per 3.3, the copyable AI instructions, template and example downloads, the schema link. Try the skill end to end with a real source set (a handful of questions in plain text, one with several answers, one with no key given) and record the outcome in the Session Log.
+- [ ] **A2.8 Big-write path.** Chunked update with the `importing` flag, lobby message, retry/undo; `invalidateQuiz` at the end; emulator tests: an 800-write replace succeeds, a failing chunk leaves a recoverable state, attempts started before the import still finish.
+- [ ] **A2.9 Later/optional:** `.xlsx` upload (only with a parser that is safe on untrusted files, checked at the time) and GIFT/Moodle XML; not before someone asks.
+
+**Done when:** an admin gives an AI their question set and the skill, gets a `quiz.ageno.json` that the validator passes, drops it into the wizard, sees a preview with any AI-flagged answers highlighted, and has a working quiz with an access code in a couple of minutes; a file with bad rows says exactly which and why; export → import changes nothing; a 400-question replace succeeds.
+
+### Phase A3: Faster editing (P1)
+- [ ] **A3.1** Draft autosave and restore. **A3.2** Grid view with multi-row paste. **A3.3** Preview as player. **A3.4** Checks panel. **A3.5** Duplicate quiz, copy/move questions, multi-select. **A3.6** Image upload to Storage (note the rules deploy in `MANUAL_STEPS.md`).
+
+**Done when:** twenty typos across a quiz can be fixed without leaving the grid, and a closed laptop doesn't lose unsaved work.
+
+### Phase A4: Quiz lifecycle (P1)
+- [ ] **A4.1** `status` with the migration from `active`. **A4.2** Schedule, attempt limit, cooldown (server-enforced, shown in the lobby). **A4.3** Trash: soft delete, restore, typed-title permanent delete; leaderboard and counts stay right. **A4.4** Revisions. **A4.5** Tags, filters, bulk actions.
+
+**Done when:** deleting a quiz by mistake is a two-click recovery, and a quiz can be prepared in draft and opened at a set time.
+
+### Phase A5: Insights (P1)
+- [ ] **A5.1** Run `backfill:sheets -- --apply` (if not already). **A5.2** `lib/item-analysis.ts` (pure, unit-tested: difficulty, discrimination at 27%, distractor rates incl. multi-select) and `lib/server/admin-insights.ts`; the quiz's Questions tab. **A5.3** Attempt detail with answers and integrity timeline; void; allow another attempt. **A5.4** Dashboard "needs attention" and trend. **A5.5** Per-question results CSV.
+
+**Done when:** an admin opens a quiz and sees which questions are too hard, possibly mis-keyed, or have dead options, on one screen.
+
+### Phase A6: Governance (P2)
+- [ ] **A6.1** Audit log + screen (test: every admin route writes one entry, none contains a key or personal data). **A6.2** Editor role (when a second admin exists). **A6.3** Users: server-side search/paging, disable account, per-user page, CSV. **A6.4** Groups and assignment (optional).
+
+**Done when:** "who deleted that quiz and when" is answered on screen.
+
+### Phase A7: AI inside the app (P3, optional)
+- [ ] **A7.1** Draft reasons for existing questions. **A7.2** Draft questions from text into the import preview. **A7.3** Guardrails: off by default, rate limit, audit entries, "AI draft" marking, prompt-injection fixtures.
+
+**Done when:** nothing AI-written reaches a player without an admin accepting it.
+
+---
+
+## Recommended order
+
+1. **A1** — the data and scoring change. It comes first because everything after it (the format, the importer, the editor grid, analytics) is built on the question shape, and changing that shape later would mean redoing them. Ship it in two or three small releases (A1.1–A1.4 behind the same deploy, then A1.5–A1.6, then the UIs), each keeping old attempts working.
+2. **A2** — format, importer and skill. Build the pure format core and generated validator before any UI.
+3. **A4.3 (trash)** can jump the queue at any point: today one wrong click on Delete destroys a quiz's results for good.
+4. Then **A3, A4, A5**, then **A6**, and **A7** only if you want it.
+
+Estimated size (sessions of the kind the other plans used): A1 ≈ 3–4, A2 ≈ 3, A3 ≈ 2, A4 ≈ 2, A5 ≈ 2, A6 ≈ 2, A7 ≈ 1–2.
+
+## Risks to watch
+
+- **Attempts in progress during the A1 deploy.** Old snapshots, old answers and old device-storage drafts must all still finish and show a result. Emulator tests for each shape are part of A1, not optional.
+- **Key and reason leaks.** Only `type` and `pickCount` may travel before submit; test every pre-submit route.
+- **Attempt document size** — keep the budget test green.
+- **Write limits** — the chunked import path is not atomic; always report its state honestly.
+- **Cache.** Every new write path (import, trash, restore, revisions) calls `invalidateQuiz`.
+- **Leaderboard.** Voiding, trashing and restoring touch `responses`/`leaderboard`; reuse the existing update code and compare with `backfill:leaderboard` (dry run).
+- **Generated files drifting** from the code — `build:format -- --check` in the verification steps.
+- **Untrusted input** — plain-text rendering only, size limits, no npm `xlsx`, AI output treated as data.
+
+## Manual steps likely needed (move to `docs/MANUAL_STEPS.md` when reached)
+
+- Run `backfill:sheets` dry run, then `-- --apply`, against production (A1.5 / A5.1).
+- New Firestore indexes for any new query in A4/A5 (`firebase deploy --only firestore:indexes`).
+- Storage rules and bucket setup for image upload (A3.6).
+- Installing the skill in your own AI tool, and trying it on a real question set (A2.7).
+- `ANTHROPIC_API_KEY` in Vercel (A7 only).
+- Vercel cron for trash purge (A4.3, optional).
+
+---
+
+## Session Log
+
+Add new entries at the top.
+
+### 2026-10-26 — Session 12 (A1 built)
+- Done: A1.1–A1.9 in code. `lib/exam/normalize.ts` (`type`, `correct: number[]`, `rationales`, `upgradeStoredQuestion` for attempts begun before this), `answers.ts` (answers as lists: `toPicks`, `togglePick`, `picksMatch`), `scoring.ts` (set equality), new `lib/exam/review.ts` (`buildReview`, `upgradeResult`, `reviewCorrect`), `lib/response-sheet.ts`, `lib/server/response-sheets.ts` + `scripts/backfill-sheets.ts` (`npm run backfill:sheets`). Server: sanitiser accepts old and new answers, `owned()` reads old attempt documents into the new shape, a submit writes `responses.sheet` (+ `schemaVersion: 2`) and no `answers/*`, the stored result has `review: null` and both result entry points rebuild it from the snapshot. Schema: `type`, `rationale`, `LIMITS.rationale`, `LIMITS.maxLevelBytes` (300 KB), `levelBytes`. UI: checkboxes with "Select all that apply · Choose N", keyboard toggling, review with per-option reasons and the "Why the others are wrong" fold, editor type switch (asks which option stays correct), per-option reasons, size meter, "Preview the review" dialog, admin quiz view shows types and reasons.
+- Decisions: a `sheet` entry omits `ok` when the quiz is not scored; a question with several correct options is read as `multiple` whatever its stored `type` says; `single` with several picks keeps the lowest.
+- Verified: `npx tsc --noEmit` clean, `npm run lint` clean, `npm run build` passes. Passing: `exam-logic` (62), `quiz-schema` (31), `quiz-editor` (24), `quiz-attempt` (47), and the emulator suite `attempts-api` (62: select-all start/score/review, no key or reason before submit, a 400-question submit writes a sheet and no `answers/*`, attempts begun before the update finish, old stored results still read, review rebuilt from the snapshot). Bundle: `/q/[id]` still 169 kB; `/my-quizzes/[attemptId]` about 171 kB (was 170.5, the review UI grew a little; within noise of the 170 budget, watch it). One `attempts-api` leaderboard test failed once on a count off by one and passed on rerun (looks like a flake, not this change). **Not verified:** `admin-api.test.ts` (emulator; includes the `backfillSheets` test): two attempts to start it hit "port taken" from a leftover `java.exe`; nothing looked at in a browser.
+- Note for next time: the full `attempts-api` suite takes about 8 minutes; `emulators:exec` leaves its `java.exe` behind on Windows each time, so stop it between runs.
+- Next up: the user checks the deployed site (MANUAL_STEPS, Admin Phase A1) and tick A1.8; run `admin-api.test.ts` once (`firebase emulators:exec --only firestore --project demo-ageno-admin "npx vitest run __tests__/admin-api.test.ts"`, stop the leftover `java.exe` first) and tick A1.5; A1.10 one release later; then A2.
+
+### 2026-10-26 — Session 11 (planning, finalised)
+- Done: audited the admin code; researched bulk import, option feedback, item analysis, AI-draft review and audit logs; wrote this plan; then revised it with the user's decisions: several correct answers, JSON as the canonical format plus an AI skill, and a proper data-structure change (answers and keys as lists, `type`/`schemaVersion`, per-option reasons, a compact `sheet` on responses instead of one document per answer, review derived from the snapshot).
+- Verified: nothing run; no code changed. Confirmed in code that no app code reads `responses/{id}/answers/*` (only tests do), and that the whole pipeline is single-answer today.
+- Notes: research gaps are stated in Part 2 (no study on per-option reasons; nothing cited for soft delete/versioning; no platform layout for item analysis).
+- Next up: A1.1.

@@ -5,6 +5,7 @@
 - **Created:** 2026-10-23
 - **Last updated:** 2026-10-26 (Session 10)
 - **Current phase:** 7 (App-wide polish and accessibility). P7.1 to P7.5 are done; the user hasn't looked at any of them yet.
+- **Admin plan:** `docs/ADMIN_PLAN.md` (written 2026-10-26, nothing built yet) covers the admin side: several correct answers and reasoning per option (A1, includes a data-structure change), the quiz format, import/export and an AI skill (A2), lifecycle, insights. Decisions are made; the first step is A1.1.
 - **Next up:** P7.6 (palette: what still has stock colours is the four `(auth)` pages, the two `(dev)` pages and `app/layout.tsx`'s `<body>`). Items carried over: the raw-vs-weighted *headline* decision for the results screen (the leaderboard no longer depends on it), rate limiting, the speed plan (now its own file: `docs/PERFORMANCE_PLAN.md`; S0–S5 code done, S5 not merged yet; the manual steps in `docs/MANUAL_STEPS.md` are what's left). Note for P7.6: the `useauth-test` dev page no longer exists (deleted in S4.5), so one `(dev)` page is left.
 
 ---

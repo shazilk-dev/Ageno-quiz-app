@@ -52,10 +52,7 @@ export default function ResultsScreen({
       new Map(
         questions.map((question) => [
           question.id,
-          getQuestionStatus(
-            review?.[question.id]?.correctIndex ?? null,
-            answers?.[question.id]
-          ),
+          getQuestionStatus(review?.[question.id]?.correct ?? [], answers?.[question.id]),
         ])
       ),
     [questions, review, answers]
@@ -187,9 +184,9 @@ export default function ResultsScreen({
                     <QuestionReview
                       key={question.id}
                       question={question}
-                      review={review[question.id] ?? { correctIndex: null }}
+                      review={review[question.id] ?? { correct: [] }}
                       position={index + 1}
-                      answer={answers[question.id] ?? null}
+                      answer={answers[question.id] ?? []}
                     />
                   ))}
                 </ol>

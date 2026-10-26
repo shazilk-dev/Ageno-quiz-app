@@ -3,11 +3,19 @@
  * which option is right until the attempt has been submitted (`SubmitResult.review`).
  */
 
+import type { QuestionType } from "./normalize";
+
+export type { QuestionType };
+
 export interface ExamQuestion {
   id: string;
   text: string;
   /** Option texts, in the order they are shown. */
   options: string[];
+  /** `single` is a radio group, `multiple` a checkbox group. */
+  type: QuestionType;
+  /** How many options are right, sent for `multiple` only, so the screen can say "Choose 2". */
+  pickCount?: number;
   imageUrl?: string;
 }
 
@@ -35,8 +43,8 @@ export interface AttemptState {
   /** The server's clock when it answered, so the browser can correct for a wrong local clock. */
   serverNow: number;
   questions: ExamQuestion[];
-  /** questionId -> picked option index (or null), as last saved. */
-  answers: Record<string, number | null>;
+  /** questionId -> picked option indexes, as last saved (`[]` while unanswered). */
+  answers: Record<string, number[]>;
   flagged: Record<string, true>;
   index: number;
   /** What the server has recorded so far. */
@@ -48,9 +56,11 @@ export interface AttemptState {
 }
 
 export interface ReviewItem {
-  /** Null when the question has no answer key; nothing counts as right then. */
-  correctIndex: number | null;
+  /** The right options. Empty when the question has no answer key; nothing counts as right then. */
+  correct: number[];
   explanation?: string;
+  /** Why each option is right or wrong, by option position; null where nothing was written. */
+  optionRationales?: (string | null)[];
 }
 
 export interface SubmitResult {
@@ -70,7 +80,7 @@ export interface SubmitResult {
   /** The submit arrived after the deadline plus grace; what counted is the last autosave before it. */
   late: boolean;
   /** The answers that were scored (after a late submit these can differ from what the browser held). */
-  answers: Record<string, number | null>;
+  answers: Record<string, number[]>;
   /** What the server recorded during the attempt. */
   tabSwitches: number;
   blurs: number;
@@ -94,7 +104,7 @@ export interface AttemptResult {
 }
 
 export interface ProgressPatch {
-  answers?: Record<string, number | null>;
+  answers?: Record<string, number[]>;
   flagged?: Record<string, true>;
   index?: number;
   /** Events not yet reported. The server derives its counts from these, never from a number we send. */
@@ -106,7 +116,7 @@ export type QuestionCounts = Record<string, number>;
 
 /** Where a resumed attempt picks up. */
 export interface AttemptProgress {
-  answers: Record<string, number | null>;
+  answers: Record<string, number[]>;
   flagged: Record<string, true>;
   index: number;
   tabSwitches: number;

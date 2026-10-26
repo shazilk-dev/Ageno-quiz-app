@@ -1,4 +1,4 @@
-import type { AnswerMap, FlagMap } from "./answers";
+import { toPicks, type AnswerMap, type FlagMap } from "./answers";
 import type { ClientIntegrityEvent } from "./types";
 
 /**
@@ -67,7 +67,13 @@ export function loadAttempt(key: string): SavedAttempt | null {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    return isSavedAttempt(parsed) ? parsed : null;
+    if (!isSavedAttempt(parsed)) return null;
+    // Copies saved before answers became lists hold a single number or null per question.
+    const answers: AnswerMap = {};
+    for (const [id, value] of Object.entries(parsed.answers as Record<string, unknown>)) {
+      answers[id] = toPicks(value, Number.MAX_SAFE_INTEGER);
+    }
+    return { ...parsed, answers };
   } catch {
     return null;
   }

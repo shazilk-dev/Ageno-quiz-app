@@ -57,7 +57,7 @@ const option = (text: string, isCorrect: boolean) => ({ id: text, text, isCorrec
 const QUESTIONS: Record<string, Record<string, unknown>> = {
   q1: {
     text: "One",
-    options: [option("a", false), option("b", true), option("c", false)],
+    options: [{ ...option("a", false), rationale: "A is wrong." }, option("b", true), option("c", false)],
     points: 1,
     explanation: "B is right.",
   },
@@ -70,6 +70,24 @@ const QUESTIONS: Record<string, Record<string, unknown>> = {
     points: 1,
     imageUrl: "https://example.com/three.png",
   },
+};
+
+// A single-answer question and a select-all one (two of four options are right), with reasons.
+const MULTI_QUESTIONS: Record<string, Record<string, unknown>> = {
+  m1: {
+    schemaVersion: 2,
+    type: "multiple",
+    text: "Pick two",
+    options: [
+      option("a", true),
+      option("b", false),
+      { ...option("c", true), rationale: "C is right." },
+      { ...option("d", false), rationale: "D is wrong." },
+    ],
+    points: 1,
+    explanation: "A and C.",
+  },
+  s1: { schemaVersion: 2, type: "single", text: "Pick one", options: [option("a", true), option("b", false)], points: 1 },
 };
 
 let counter = 0;
@@ -228,16 +246,16 @@ describe.skipIf(!emulator)("starting an attempt", () => {
     const state = JSON.parse(raw) as AttemptState;
 
     expect(response.status).toBe(201);
-    expect(raw).not.toMatch(/correctIndex|isCorrect|explanation|B is right/);
+    expect(raw).not.toMatch(/correct|isCorrect|explanation|rationale|B is right|A is wrong/i);
     expect(state.questions.map((q) => q.id)).toEqual(["q1", "q2", "q3"]);
-    expect(state.questions[0]).toEqual({ id: "q1", text: "One", options: ["a", "b", "c"] });
+    expect(state.questions[0]).toEqual({ id: "q1", text: "One", options: ["a", "b", "c"], type: "single" });
     expect(state.questions[2].options).toEqual(["x", "y", "z"]);
     expect(state.questions[2].imageUrl).toBe("https://example.com/three.png");
     expect(state.durationSec).toBe(600); // the quiz's own 10 minutes for "medium"
     expect(state.deadline - state.startedAt).toBe(600_000);
     expect(state.startedAt).toBeGreaterThanOrEqual(before - 1);
     expect(Math.abs(state.serverNow - Date.now())).toBeLessThan(5_000);
-    expect(state.answers).toEqual({ q1: null, q2: null, q3: null });
+    expect(state.answers).toEqual({ q1: [], q2: [], q3: [] });
     expect(state).toMatchObject({ tabSwitches: 0, blurs: 0, fullscreenExits: 0, eventSeq: 0 });
   });
 
@@ -336,7 +354,7 @@ describe.skipIf(!emulator)("resuming and autosave", () => {
     const saved = await patch(
       attemptId,
       {
-        answers: { q1: 1, q2: null, q3: 0 },
+        answers: { q1: [1], q2: [], q3: [0] },
         flagged: { q3: true },
         index: 2,
         events: [ev(1, "tab_hidden"), ev(2, "tab_hidden"), ev(3, "window_blur")],
@@ -348,8 +366,8 @@ describe.skipIf(!emulator)("resuming and autosave", () => {
     const response = await get(attemptId, "erin");
     const raw = await response.text();
     const state = JSON.parse(raw) as AttemptState;
-    expect(raw).not.toMatch(/correctIndex|isCorrect/);
-    expect(state.answers).toEqual({ q1: 1, q2: null, q3: 0 });
+    expect(raw).not.toMatch(/correct|isCorrect|rationale/i);
+    expect(state.answers).toEqual({ q1: [1], q2: [], q3: [0] });
     expect(state.flagged).toEqual({ q3: true });
     expect(state.index).toBe(2);
     expect(state).toMatchObject({ tabSwitches: 2, blurs: 1, fullscreenExits: 0, eventSeq: 3 });
@@ -360,13 +378,29 @@ describe.skipIf(!emulator)("resuming and autosave", () => {
     const { attemptId } = await startOk(quizId, "medium", "erin");
     await patch(
       attemptId,
-      { answers: { q1: 7, q2: -1, q3: 1.5, other: 0 }, flagged: { other: true, q1: true }, index: 99 },
+      { answers: { q1: [7], q2: [-1], q3: [1.5], other: [0] }, flagged: { other: true, q1: true }, index: 99 },
       "erin"
     );
     const state = (await (await get(attemptId, "erin")).json()) as AttemptState;
-    expect(state.answers).toEqual({ q1: null, q2: null, q3: null });
+    expect(state.answers).toEqual({ q1: [], q2: [], q3: [] });
     expect(state.flagged).toEqual({ q1: true });
     expect(state.index).toBe(2);
+  });
+
+  it("accepts the older single-number answers from a tab opened before the update", async () => {
+    const quizId = await seedQuiz();
+    const { attemptId } = await startOk(quizId, "medium", "olga");
+    await patch(attemptId, { answers: { q1: 1, q2: null, q3: 0, bogus: 2 } }, "olga");
+    const state = (await (await get(attemptId, "olga")).json()) as AttemptState;
+    expect(state.answers).toEqual({ q1: [1], q2: [], q3: [0] });
+  });
+
+  it("keeps a single-answer question to one pick, and sorts and de-duplicates the rest", async () => {
+    const quizId = await seedQuiz({}, { questions: MULTI_QUESTIONS });
+    const { attemptId } = await startOk(quizId, "medium", "pia");
+    await patch(attemptId, { answers: { s1: [1, 0], m1: [3, 0, 0, 2, 9] } }, "pia");
+    const state = (await (await get(attemptId, "pia")).json()) as AttemptState;
+    expect(state.answers).toEqual({ s1: [0], m1: [0, 2, 3] });
   });
 
   it("counts from the events it is sent, never from a number the browser claims", async () => {
@@ -435,18 +469,18 @@ describe.skipIf(!emulator)("resuming and autosave", () => {
       saveProgress(state.attemptId, "erin", { answers: { q1: 2 } }, { now: state.deadline + SUBMIT_GRACE_MS + 1 })
     ).rejects.toMatchObject({ status: 409, code: "time_expired" });
     // The late write didn't land.
-    expect((await getAttempt(state.attemptId, "erin")).answers.q1).toBe(1);
+    expect((await getAttempt(state.attemptId, "erin")).answers.q1).toEqual([1]);
   });
 });
 
 describe.skipIf(!emulator)("submitting", () => {
-  it("scores on the server, writes the response and answers, and reveals the review", async () => {
+  it("scores on the server, writes the response with its answer sheet, and reveals the review", async () => {
     const quizId = await seedQuiz();
     const { attemptId } = await startOk(quizId, "medium", "frank");
     const response = await submit(
       attemptId,
       {
-        answers: { q1: 1, q2: 1, q3: null },
+        answers: { q1: [1], q2: [1], q3: [] },
         events: [ev(1, "tab_hidden"), ev(2, "tab_hidden"), ev(3, "fullscreen_exit"), ev(4, "window_blur")],
       },
       "frank"
@@ -464,15 +498,15 @@ describe.skipIf(!emulator)("submitting", () => {
       score: 33, // medium has no multiplier
       multiplier: 1,
       late: false,
-      answers: { q1: 1, q2: 1, q3: null },
+      answers: { q1: [1], q2: [1], q3: [] },
       tabSwitches: 2,
       blurs: 1,
       fullscreenExits: 1,
     });
     expect(result.review).toEqual({
-      q1: { correctIndex: 1, explanation: "B is right." },
-      q2: { correctIndex: 0 },
-      q3: { correctIndex: 2 },
+      q1: { correct: [1], explanation: "B is right.", optionRationales: ["A is wrong.", null, null] },
+      q2: { correct: [0] },
+      q3: { correct: [2] },
     });
 
     const doc = (await db.collection("responses").doc(attemptId).get()).data()!;
@@ -502,11 +536,34 @@ describe.skipIf(!emulator)("submitting", () => {
     expect(doc.integrityEvents[0].at).toBeGreaterThan(0);
     expect(doc.startedAt.toMillis()).toBeLessThanOrEqual(doc.submittedAt.toMillis());
 
-    const answers = await db.collection(`responses/${attemptId}/answers`).get();
-    const byId = Object.fromEntries(answers.docs.map((d) => [d.id, d.data()]));
-    expect(Object.keys(byId).sort()).toEqual(["q1", "q2"]);
-    expect(byId.q1).toEqual({ questionId: "q1", selectedIndex: 1, isCorrect: true });
-    expect(byId.q2).toEqual({ questionId: "q2", selectedIndex: 1, isCorrect: false });
+    // One compact sheet on the response, not a document per answer.
+    expect(doc.schemaVersion).toBe(2);
+    expect(doc.sheet).toEqual({ q1: { p: [1], ok: true }, q2: { p: [1], ok: false } });
+    expect((await db.collection(`responses/${attemptId}/answers`).get()).empty).toBe(true);
+  });
+
+  it("writes a handful of documents however many questions there are", async () => {
+    const many = Object.fromEntries(
+      Array.from({ length: 400 }, (_, i) => [
+        `big${String(i).padStart(3, "0")}`,
+        { text: `Question ${i}`, options: [option("a", i % 2 === 0), option("b", i % 2 === 1)], points: 1 },
+      ])
+    );
+    const quizId = await seedQuiz({}, { questions: many });
+    const me = unique("many");
+    const state = await startOk(quizId, "medium", me);
+    expect(state.questions).toHaveLength(400);
+    const picks = Object.fromEntries(state.questions.map((q, i) => [q.id, [i % 2]]));
+    const response = await submit(state.attemptId, { answers: picks }, me);
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as SubmitResult).score).toBe(100);
+
+    const doc = (await db.collection("responses").doc(state.attemptId).get()).data()!;
+    expect(Object.keys(doc.sheet)).toHaveLength(400);
+    expect((await db.collection(`responses/${state.attemptId}/answers`).get()).size).toBe(0);
+    // The attempt document with 400 questions, their key and the sheet stays far below Firestore's 1 MiB.
+    const attemptDoc = (await db.collection("attempts").doc(state.attemptId).get()).data()!;
+    expect(Buffer.byteLength(JSON.stringify(attemptDoc))).toBeLessThan(300_000);
   });
 
   it("leaves out the integrity fields on a clean attempt", async () => {
@@ -601,7 +658,7 @@ describe.skipIf(!emulator)("submitting", () => {
       { now: state.deadline + SUBMIT_GRACE_MS + 1 }
     );
     expect(result.late).toBe(true);
-    expect(result.answers).toEqual({ q1: 1, q2: null, q3: null });
+    expect(result.answers).toEqual({ q1: [1], q2: [], q3: [] });
     expect(result).toMatchObject({ correct: 1, answered: 1, score: 33, tabSwitches: 1 });
     expect(result.timeTakenSec).toBe(600); // never more than the time allowed
     expect((await db.collection("responses").doc(state.attemptId).get()).data()).toMatchObject({
@@ -643,8 +700,8 @@ describe.skipIf(!emulator)("submitting", () => {
     expect(result).toMatchObject({ graded: false, score: null, correct: null, rawPercent: null, review: null, answered: 1 });
 
     expect((await db.collection("responses").doc(attemptId).get()).data()!.score).toBeNull();
-    const answer = (await db.doc(`responses/${attemptId}/answers/q1`).get()).data()!;
-    expect(answer.isCorrect).toBeNull();
+    // Nothing is scored, so the sheet records the pick but not whether it was right.
+    expect((await db.collection("responses").doc(attemptId).get()).data()!.sheet).toEqual({ q1: { p: [1] } });
   });
 
   it("withholds the review when the quiz owner turned it off, but still scores", async () => {
@@ -1059,9 +1116,61 @@ describe.skipIf(!emulator)("a finished attempt's result", () => {
 
     const text = await (await result(attempt.attemptId, me)).text();
     expect(JSON.parse(text).result.review).toBeNull();
-    for (const secret of ["isCorrect", "correctIndex", "B is right."]) {
+    for (const secret of ["isCorrect", '"correct":[', "optionRationales", "B is right.", "A is wrong."]) {
       expect(text).not.toContain(secret);
     }
+  });
+
+  it("rebuilds the review from the attempt's own snapshot instead of storing it", async () => {
+    const quizId = await seedQuiz({ title: "Derived" });
+    const me = unique("me");
+    const attempt = await startOk(quizId, "medium", me);
+    const submitted = (await (await submit(attempt.attemptId, { answers: { q1: [1] } }, me)).json()) as SubmitResult;
+    expect(submitted.review?.q1).toEqual({
+      correct: [1],
+      explanation: "B is right.",
+      optionRationales: ["A is wrong.", null, null],
+    });
+
+    // Not stored on the attempt (reasons and explanations live once, in the question snapshot)...
+    const stored = (await db.collection("attempts").doc(attempt.attemptId).get()).data()!;
+    expect(stored.result.review).toBeNull();
+
+    // ...and the quiz being edited afterwards changes nothing in what the person sees.
+    await db.doc(`quizzes/${quizId}/questions_medium/q1`).update({ explanation: "Changed later." });
+    const again = await (await result(attempt.attemptId, me)).json();
+    expect(again.result.review.q1.explanation).toBe("B is right.");
+  });
+
+  it("still reads a result stored before the key became a list", async () => {
+    const quizId = await seedQuiz();
+    const me = unique("me");
+    const attempt = await startOk(quizId, "medium", me);
+    await submit(attempt.attemptId, { answers: { q1: [1], q2: [0] } }, me);
+
+    // What an attempt submitted under the older model looked like on disk.
+    await db.collection("attempts").doc(attempt.attemptId).update({
+      questions: [
+        { id: "q1", text: "One", options: ["a", "b", "c"], correctIndex: 1, explanation: "B is right." },
+        { id: "q2", text: "Two", options: ["a", "b"], correctIndex: 0 },
+        { id: "q3", text: "Three", options: ["x", "y", "z"], correctIndex: 2 },
+      ],
+      answers: { q1: 1, q2: 0, q3: null },
+      "result.answers": { q1: 1, q2: 0, q3: null },
+      "result.review": {
+        q1: { correctIndex: 1, explanation: "B is right." },
+        q2: { correctIndex: 0 },
+        q3: { correctIndex: 2 },
+      },
+    });
+    const body = await (await result(attempt.attemptId, me)).json();
+    expect(body.result.answers).toEqual({ q1: [1], q2: [0], q3: [] });
+    expect(body.result.review).toEqual({
+      q1: { correct: [1], explanation: "B is right." },
+      q2: { correct: [0] },
+      q3: { correct: [2] },
+    });
+    expect(body.questions[0]).toEqual({ id: "q1", text: "One", options: ["a", "b", "c"], type: "single" });
   });
 
   it("refuses an attempt that is still running, someone else's, an unknown id, and no sign-in", async () => {
@@ -1078,5 +1187,93 @@ describe.skipIf(!emulator)("a finished attempt's result", () => {
     expect((await result("does-not-exist", me)).status).toBe(404);
     expect((await result("a%2Fb", me)).status).toBe(400);
     expect((await result(attempt.attemptId)).status).toBe(401);
+  });
+});
+
+describe.skipIf(!emulator)("select-all questions", () => {
+  const seedMulti = () => seedQuiz({}, { questions: MULTI_QUESTIONS });
+  const result = (id: string, user?: string) =>
+    resultRoute(request(`/api/attempts/${id}/result`, "GET", user), ctx(id));
+
+  it("tells the player the type and how many to choose, and nothing about which", async () => {
+    const quizId = await seedMulti();
+    const response = await start({ quizId, difficulty: "medium" }, "mona");
+    const raw = await response.text();
+    const state = JSON.parse(raw) as AttemptState;
+
+    expect(state.questions).toEqual([
+      { id: "m1", text: "Pick two", options: ["a", "b", "c", "d"], type: "multiple", pickCount: 2 },
+      { id: "s1", text: "Pick one", options: ["a", "b"], type: "single" },
+    ]);
+    expect(raw).not.toMatch(/isCorrect|rationale|C is right|D is wrong|A and C|"correct"/);
+
+    // Resuming and the public routes say no more.
+    const resumed = await (await get(state.attemptId, "mona")).text();
+    expect(resumed).not.toMatch(/isCorrect|rationale|C is right|D is wrong|A and C|"correct"/);
+    const publicQuiz = await (await quizRoute(request("/x", "GET"), { params: Promise.resolve({ quizId }) })).text();
+    expect(publicQuiz).not.toMatch(/isCorrect|rationale|C is right|A and C|Pick two/);
+  });
+
+  it("scores all or nothing: the picked set must equal the right set", async () => {
+    const quizId = await seedMulti();
+    const take = async (picks: number[], user: string) => {
+      const { attemptId } = await startOk(quizId, "medium", user);
+      return (await (await submit(attemptId, { answers: { m1: picks, s1: [0] } }, user)).json()) as SubmitResult;
+    };
+    expect(await take([0, 2], unique("u"))).toMatchObject({ correct: 2, score: 100 });
+    expect(await take([2, 0], unique("u"))).toMatchObject({ correct: 2, score: 100 });
+    expect(await take([0], unique("u"))).toMatchObject({ correct: 1, score: 50 }); // a missing pick
+    expect(await take([0, 2, 3], unique("u"))).toMatchObject({ correct: 1, score: 50 }); // an extra pick
+    expect(await take([1, 3], unique("u"))).toMatchObject({ correct: 1, score: 50 }); // the wrong two
+    expect(await take([], unique("u"))).toMatchObject({ correct: 1, answered: 1, score: 50 });
+  });
+
+  it("reveals the right set and every reason in the review, and records the picks on the sheet", async () => {
+    const quizId = await seedMulti();
+    const me = unique("me");
+    const { attemptId } = await startOk(quizId, "medium", me);
+    const submitted = (await (await submit(attemptId, { answers: { m1: [0, 3], s1: [1] } }, me)).json()) as SubmitResult;
+
+    expect(submitted.answers).toEqual({ m1: [0, 3], s1: [1] });
+    expect(submitted.review).toEqual({
+      m1: {
+        correct: [0, 2],
+        explanation: "A and C.",
+        optionRationales: [null, null, "C is right.", "D is wrong."],
+      },
+      s1: { correct: [0] },
+    });
+    const doc = (await db.collection("responses").doc(attemptId).get()).data()!;
+    expect(doc.sheet).toEqual({ m1: { p: [0, 3], ok: false }, s1: { p: [1], ok: false } });
+  });
+
+  it("finishes an attempt that began before the update, with its old snapshot and old answers", async () => {
+    const quizId = await seedQuiz();
+    const me = unique("old");
+    const state = await startOk(quizId, "medium", me);
+    // What the attempt document looked like when the key was one number and an answer was one number.
+    await db.collection("attempts").doc(state.attemptId).update({
+      questions: [
+        { id: "q1", text: "One", options: ["a", "b", "c"], correctIndex: 1, explanation: "B is right." },
+        { id: "q2", text: "Two", options: ["a", "b"], correctIndex: 0 },
+        { id: "q3", text: "Three", options: ["x", "y", "z"], correctIndex: null },
+      ],
+      answers: { q1: 1, q2: 0, q3: null },
+    });
+
+    const resumed = (await (await get(state.attemptId, me)).json()) as AttemptState;
+    expect(resumed.answers).toEqual({ q1: [1], q2: [0], q3: [] });
+    expect(resumed.questions.map((q) => q.type)).toEqual(["single", "single", "single"]);
+
+    // A tab from before the update still sends single numbers.
+    const finished = (await (await submit(state.attemptId, { answers: { q1: 1, q2: 1, q3: 0 } }, me)).json()) as SubmitResult;
+    expect(finished).toMatchObject({ correct: 1, answered: 3, total: 3, score: 33 });
+    expect(finished.answers).toEqual({ q1: [1], q2: [1], q3: [0] });
+    expect(finished.review).toEqual({
+      q1: { correct: [1], explanation: "B is right." },
+      q2: { correct: [0] },
+      q3: { correct: [] },
+    });
+    expect((await result(state.attemptId, me)).status).toBe(200);
   });
 });

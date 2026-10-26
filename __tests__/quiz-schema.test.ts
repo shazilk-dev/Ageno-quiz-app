@@ -6,6 +6,7 @@ import {
   LIMITS,
   blankQuestion,
   exportQuestions,
+  levelBytes,
   makeAccessCode,
   parseImportedQuestions,
   planLegacyQuestions,
@@ -16,9 +17,11 @@ import {
   type EditorQuestion,
   type Level,
 } from "@/lib/quiz-schema";
+import { normalizeQuestion } from "@/lib/exam/normalize";
 import { emptyExisting, planQuestionWrites } from "@/lib/quiz-writes";
 
 const question = (text = "What is 2 + 2?", extra: Partial<EditorQuestion> = {}): EditorQuestion => ({
+  type: "single",
   text,
   options: [
     { text: "3", isCorrect: false },
@@ -112,13 +115,18 @@ describe("validateQuizInput", () => {
     });
   });
 
-  it("needs exactly one correct option, filled-in options, and 2 to 10 of them", () => {
+  it("needs a correct option, filled-in options, and 2 to 10 of them", () => {
     const levelWith = (q: unknown) => ({ easy: { duration: 10, pointsMultiplier: 1, questions: [q] } });
     const two = (isCorrect: boolean[]) => ({
       text: "Q",
       options: isCorrect.map((c, i) => ({ text: `o${i}`, isCorrect: c })),
     });
-    expect(issuesOf(validQuiz({ levels: levelWith(two([true, true])) }))[0]).toMatch(/only one option can be correct/);
+    expect(issuesOf(validQuiz({ levels: levelWith({ ...two([true, true]), type: "single" }) }))[0]).toMatch(
+      /one correct option/
+    );
+    // Without a stated type, two right options make a select-all question.
+    expect(issuesOf(validQuiz({ levels: levelWith(two([true, true])) }))).toEqual([]);
+    expect(issuesOf(validQuiz({ levels: levelWith(two([false, false])) }))[0]).toMatch(/pick the correct answer/);
     expect(issuesOf(validQuiz({ levels: levelWith(two([true])) }))[0]).toMatch(/between 2 and 10 options/);
     expect(issuesOf(validQuiz({ levels: levelWith(two(Array(11).fill(false))) }))[0]).toMatch(/between 2 and 10 options/);
     expect(
@@ -159,9 +167,84 @@ describe("validateQuizInput", () => {
   });
 });
 
+describe("question types and reasons", () => {
+  const withQuestion = (raw: Record<string, unknown>) =>
+    validQuiz({ levels: { easy: { duration: 10, pointsMultiplier: 1, questions: [raw] } } });
+  const options = (...flags: boolean[]) => flags.map((isCorrect, i) => ({ text: `o${i}`, isCorrect }));
+  const firstQuestion = (raw: unknown) => {
+    const result = validateQuizInput(raw);
+    if (!result.ok) throw new Error(result.issues.map((i) => i.message).join("; "));
+    return result.value.levels.easy!.questions[0];
+  };
+
+  it("infers the type when the question does not say: one right option is single, several is multiple", () => {
+    expect(firstQuestion(withQuestion({ text: "Q", options: options(false, true, false) })).type).toBe("single");
+    expect(firstQuestion(withQuestion({ text: "Q", options: options(true, true, false) })).type).toBe("multiple");
+  });
+
+  it("accepts a select-all question with one right option, or with several", () => {
+    expect(firstQuestion(withQuestion({ type: "multiple", text: "Q", options: options(false, true) })).type).toBe("multiple");
+    expect(firstQuestion(withQuestion({ type: "multiple", text: "Q", options: options(true, true, false) })).type).toBe("multiple");
+  });
+
+  it("refuses two right options on a single-answer question, and none on either type", () => {
+    expect(issuesOf(withQuestion({ type: "single", text: "Q", options: options(true, true) }))[0]).toMatch(
+      /one correct option/
+    );
+    expect(issuesOf(withQuestion({ type: "single", text: "Q", options: options(false, false) }))[0]).toMatch(
+      /pick the correct answer/
+    );
+    expect(issuesOf(withQuestion({ type: "multiple", text: "Q", options: options(false, false) }))[0]).toMatch(
+      /pick the correct answer/
+    );
+  });
+
+  it("refuses an unknown type", () => {
+    expect(issuesOf(withQuestion({ type: "essay", text: "Q", options: options(true, false) }))[0]).toMatch(
+      /"single" or "multiple"/
+    );
+  });
+
+  it("keeps a trimmed reason on an option, and drops a blank one", () => {
+    const q = firstQuestion(
+      withQuestion({
+        text: "Q",
+        options: [
+          { text: "a", isCorrect: true, rationale: "  Because.  " },
+          { text: "b", isCorrect: false, rationale: "   " },
+          { text: "c", isCorrect: false },
+        ],
+      })
+    );
+    expect(q.options[0].rationale).toBe("Because.");
+    expect(q.options[1]).not.toHaveProperty("rationale");
+    expect(q.options[2]).not.toHaveProperty("rationale");
+  });
+
+  it("limits the length of a reason", () => {
+    const long = "x".repeat(LIMITS.rationale + 1);
+    expect(
+      issuesOf(withQuestion({ text: "Q", options: [{ text: "a", isCorrect: true, rationale: long }, { text: "b", isCorrect: false }] }))[0]
+    ).toMatch(/reason for option 1/);
+  });
+
+  it("limits the text of a level, in bytes", () => {
+    // 150 questions of about 2.1 KB each is about 315 KB.
+    const big = Array.from({ length: 150 }, (_, i) =>
+      question(`Question ${i}`, { explanation: "é".repeat(1000) })
+    );
+    const messages = issuesOf(validQuiz({ levels: { easy: { duration: 10, pointsMultiplier: 1, questions: big } } }));
+    expect(messages[0]).toMatch(/too much text/);
+    expect(levelBytes(big)).toBeGreaterThan(LIMITS.maxLevelBytes);
+    expect(levelBytes([question("Short")])).toBeLessThan(100);
+  });
+});
+
 describe("stored shape", () => {
   it("writes one canonical document, keeping the explanation and image only when set", () => {
     expect(questionToDoc(question("Q"), 3)).toEqual({
+      schemaVersion: 2,
+      type: "single",
       text: "Q",
       options: [
         { text: "3", isCorrect: false },
@@ -169,11 +252,30 @@ describe("stored shape", () => {
         { text: "5", isCorrect: false },
       ],
       points: 1,
-      type: "single",
       order: 3,
     });
     const full = questionToDoc(question("Q", { explanation: "Because.", imageUrl: "https://example.com/a.png" }), 0);
     expect(full).toMatchObject({ explanation: "Because.", imageUrl: "https://example.com/a.png" });
+  });
+
+  it("writes the type, the schema version and the reasons, and reads them back", () => {
+    const written = questionToDoc(
+      question("Q", {
+        type: "multiple",
+        options: [
+          { text: "a", isCorrect: true, rationale: "Yes." },
+          { text: "b", isCorrect: true },
+          { text: "c", isCorrect: false, rationale: "No." },
+        ],
+      }),
+      0
+    );
+    expect(written).toMatchObject({ schemaVersion: 2, type: "multiple" });
+    expect(written.options[1]).not.toHaveProperty("rationale");
+    const back = questionFromStored("id", written as unknown as Record<string, unknown>);
+    expect(back).toMatchObject({ id: "id", type: "multiple" });
+    expect(back.options.map((o) => o.isCorrect)).toEqual([true, true, false]);
+    expect(back.options.map((o) => o.rationale)).toEqual(["Yes.", undefined, "No."]);
   });
 
   it("reads every older shape back into the same editor form", () => {
@@ -330,5 +432,29 @@ describe("access codes, import and export", () => {
     const blank = blankQuestion();
     expect(blank.options).toHaveLength(4);
     expect(blank.options.some((o) => o.isCorrect)).toBe(false);
+  });
+});
+
+describe("the size budget", () => {
+  it("keeps an attempt far below Firestore's 1 MiB document limit for the largest level allowed", () => {
+    // 400 questions that together fill the byte budget: 100 + 10 x (20 + 40) + 50 = 750 bytes each.
+    const questions: EditorQuestion[] = Array.from({ length: LIMITS.maxQuestionsPerLevel }, (_, i) => ({
+      type: "multiple",
+      text: `${i}`.padEnd(100, "q"),
+      options: Array.from({ length: 10 }, (_, o) => ({
+        text: `${o}`.padEnd(20, "o"),
+        isCorrect: o % 3 === 0,
+        rationale: `${o}`.padEnd(40, "r"),
+      })),
+      explanation: "e".repeat(50),
+    }));
+    expect(levelBytes(questions)).toBe(LIMITS.maxLevelBytes);
+    expect(issuesOf(validQuiz({ levels: { hard: { duration: 30, pointsMultiplier: 1, questions } } }))).toEqual([]);
+
+    // What an attempt stores: the questions as the server copies them, answers, and the result's copy of them.
+    const snapshot = questions.map((question, i) => normalizeQuestion(`question-id-${i}`.padEnd(20, "-"), questionToDoc(question, i) as never));
+    const answers = Object.fromEntries(snapshot.map((q) => [q.id, [0, 3, 6, 9]]));
+    const attempt = { questions: snapshot, answers, result: { answers, review: null }, events: [] };
+    expect(Buffer.byteLength(JSON.stringify(attempt))).toBeLessThan(600_000);
   });
 });

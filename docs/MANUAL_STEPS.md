@@ -130,3 +130,16 @@ Checks on the deployed site (about 5 minutes):
 - [ ] Take a quiz, then open the leaderboard: your new result counts straight away on **All time** (Week and Month can take up to 30 seconds).
 - [ ] Change your display name on Profile: the leaderboard shows the new name (within a few seconds).
 - [ ] As admin, **Quizzes**: the result counts match the **Reports** screen for each quiz.
+
+## Admin Phase A1 (question model v2; on branch `phase-7-polish`, not merged or pushed yet)
+
+A1 lets a question have several correct answers, adds a reason per option, and stores a result's answers as one `sheet` on the result instead of one document each. Old quizzes, old results and attempts in progress keep working without any step from you.
+
+- [ ] After the deploy is live, run `npm run backfill:sheets` (a dry run: it prints how many older results would get a sheet), then `npm run backfill:sheets -- --apply`. Nothing reads the sheets yet (they are for the per-question reports in A5), so this can wait, but do it before A5. Safe to run again.
+
+Check in a real browser after the deploy (about 10 minutes):
+- [ ] As admin, edit a quiz: add a **Select all that apply** question with two correct options and a reason on a few options. Use **Preview the review** (eye icon) on it. Save, then open the quiz view: the type and reasons show.
+- [ ] As a player, take that quiz: the question shows checkboxes and "Select all that apply · Choose 2". Submit with one of the two ticked: it counts as wrong. The review shows the correct options with their reasons, your wrong pick with its reason, and a **Why the others are wrong** fold.
+- [ ] On a phone-sized window (390 wide) look at the question and the review with long option text: nothing runs off the screen, tap targets are comfortable.
+- [ ] Start a quiz **before** the deploy and finish it **after** it: it still submits and shows its result. (Only possible if you have an attempt open when it goes live; otherwise skip.)
+- [ ] Open an old result under **My quizzes**: the review still shows.

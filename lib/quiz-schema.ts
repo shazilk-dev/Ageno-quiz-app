@@ -1,13 +1,19 @@
-import { normalizeQuestion } from "./exam/normalize";
+import { normalizeQuestion, QUESTION_TYPES, type QuestionType } from "./exam/normalize";
+
+export { QUESTION_TYPES, type QuestionType };
 
 // The one description of a quiz as an admin edits it and as it is stored. Pure code (no Firebase), so the
 // editor in the browser and the admin routes on the server validate and convert the same way.
 //
 // Stored shape (the only one written): `quizzes/{id}` plus one subcollection per level,
 // `quizzes/{id}/questions_{easy|medium|hard}`, each document
-//   { text, options: [{ text, isCorrect }], points: 1, type: "single", order, imageUrl?, explanation? }
-// Older quizzes may still hold `questions` (one collection for every level) or string options with a
-// `correctIndex`; `normalizeQuestion` reads those and `planLegacyQuestions` moves them over.
+//   { schemaVersion: 2, type: "single" | "multiple", text, options: [{ text, isCorrect, rationale? }],
+//     points: 1, order, imageUrl?, explanation? }
+// `single` has exactly one correct option, `multiple` at least one (scored all or nothing). A reason can
+// be attached to each option (`rationale`) besides the overall `explanation`.
+// Older quizzes may still hold documents without `schemaVersion`, `questions` (one collection for every
+// level) or string options with a `correctIndex`; `normalizeQuestion` reads all of those and
+// `planLegacyQuestions` moves the shared collection over.
 
 export const LEVELS = ["easy", "medium", "hard"] as const;
 export type Level = (typeof LEVELS)[number];
@@ -27,11 +33,18 @@ export const LIMITS = {
   questionText: 2000,
   optionText: 1000,
   explanation: 2000,
+  /** The reason attached to one answer option. */
+  rationale: 1000,
   imageUrl: 2000,
   minOptions: 2,
   maxOptions: 10,
-  /** One attempt copies a level's questions into a single document and submits one write per answer. */
+  /** One attempt copies a level's questions into a single document. */
   maxQuestionsPerLevel: 400,
+  /**
+   * Text of one level (questions, options, reasons, explanations, image links) in UTF-8 bytes. An attempt
+   * holds a copy of it in one document, which Firestore caps at 1 MiB; this leaves room for the rest.
+   */
+  maxLevelBytes: 300_000,
   minMinutes: 1,
   maxMinutes: 600,
   minMultiplier: 1,
@@ -44,11 +57,14 @@ export type ExamMode = (typeof EXAM_MODES)[number];
 export interface EditorOption {
   text: string;
   isCorrect: boolean;
+  /** Why this option is right or wrong. Optional, independently of the question's `explanation`. */
+  rationale?: string;
 }
 
 export interface EditorQuestion {
   /** Missing on a new question; the server hands out the id. */
   id?: string;
+  type: QuestionType;
   text: string;
   options: EditorOption[];
   imageUrl?: string;
@@ -149,8 +165,9 @@ const isHttpsUrl = (value: string): boolean => {
 const where = (level: Level, question: number) =>
   `${LEVEL_LABELS[level]} · Question ${question + 1}`;
 
-export function blankQuestion(): EditorQuestion {
+export function blankQuestion(type: QuestionType = "single"): EditorQuestion {
   return {
+    type,
     text: "",
     options: [
       { text: "", isCorrect: false },
@@ -176,7 +193,7 @@ function validateQuestion(
   }
   const before = issues.length;
 
-  const question: EditorQuestion = { text: "", options: [] };
+  const question: EditorQuestion = { type: "single", text: "", options: [] };
 
   if (raw.id !== undefined && raw.id !== null && raw.id !== "") {
     if (typeof raw.id === "string" && SAFE_ID.test(raw.id)) question.id = raw.id;
@@ -187,6 +204,13 @@ function validateQuestion(
   if (!text) fail("write the question.");
   else if (text.length > LIMITS.questionText) fail(`keep the question under ${LIMITS.questionText} characters.`);
   question.text = text;
+
+  // A question that does not say what it is: one right option makes it single, more than one multiple.
+  let declaredType: QuestionType | null = null;
+  if (raw.type !== undefined && raw.type !== null) {
+    if ((QUESTION_TYPES as readonly unknown[]).includes(raw.type)) declaredType = raw.type as QuestionType;
+    else fail('the type must be "single" or "multiple".');
+  }
 
   if (!Array.isArray(raw.options)) {
     fail("add the answer options.");
@@ -200,10 +224,23 @@ function validateQuestion(
       if (!optionText) fail(`option ${optionIndex + 1} is empty.`);
       else if (optionText.length > LIMITS.optionText) fail(`keep option ${optionIndex + 1} under ${LIMITS.optionText} characters.`);
       if (isCorrect) correct++;
-      question.options.push({ text: optionText, isCorrect });
+      const clean: EditorOption = { text: optionText, isCorrect };
+      const rationale = isRecord(option) ? option.rationale : undefined;
+      if (rationale !== undefined && rationale !== null && rationale !== "") {
+        const reason = typeof rationale === "string" ? rationale.trim() : "";
+        if (!reason) {
+          // Whitespace only: treated as not set.
+        } else if (reason.length > LIMITS.rationale) {
+          fail(`keep the reason for option ${optionIndex + 1} under ${LIMITS.rationale} characters.`);
+        } else clean.rationale = reason;
+      }
+      question.options.push(clean);
     });
+    question.type = declaredType ?? (correct > 1 ? "multiple" : "single");
     if (correct === 0) fail("pick the correct answer.");
-    else if (correct > 1) fail("only one option can be correct.");
+    else if (question.type === "single" && correct > 1) {
+      fail("a single-answer question has one correct option. Untick the others, or make it select-all.");
+    }
   }
 
   if (raw.explanation !== undefined && raw.explanation !== null && raw.explanation !== "") {
@@ -223,6 +260,19 @@ function validateQuestion(
   }
 
   return issues.length === before ? question : null;
+}
+
+const encoder = new TextEncoder();
+const bytes = (value: string | undefined) => (value ? encoder.encode(value).length : 0);
+
+/** The text of a level's questions in UTF-8 bytes, which is what `LIMITS.maxLevelBytes` caps. */
+export function levelBytes(questions: readonly EditorQuestion[]): number {
+  let total = 0;
+  for (const question of questions) {
+    total += bytes(question.text) + bytes(question.explanation) + bytes(question.imageUrl);
+    for (const option of question.options) total += bytes(option.text) + bytes(option.rationale);
+  }
+  return total;
 }
 
 const asInteger = (value: unknown): number | null =>
@@ -288,6 +338,13 @@ function validateLevel(
   });
 
   if (issues.length > before) return null;
+  if (levelBytes(questions) > LIMITS.maxLevelBytes) {
+    issues.push({
+      message: `${label}: the questions hold too much text (the limit is about ${Math.round(LIMITS.maxLevelBytes / 1000)} KB per level). Shorten some, or move questions to another level.`,
+      level,
+    });
+    return null;
+  }
   return {
     duration: duration as number,
     pointsMultiplier: Math.round((multiplier as number) * 100) / 100,
@@ -402,10 +459,11 @@ export const levelsOf = (levels: QuizInput["levels"]): Level[] =>
 
 /** A question as it is stored: always this shape, whatever the older one looked like. */
 export interface QuestionDoc {
+  schemaVersion: 2;
+  type: QuestionType;
   text: string;
-  options: { text: string; isCorrect: boolean }[];
+  options: { text: string; isCorrect: boolean; rationale?: string }[];
   points: number;
-  type: "single";
   order: number;
   imageUrl?: string;
   explanation?: string;
@@ -413,14 +471,16 @@ export interface QuestionDoc {
 
 export function questionToDoc(question: EditorQuestion, order: number): QuestionDoc {
   return {
+    schemaVersion: 2,
+    type: question.type,
     text: question.text,
     options: question.options.map((option) => ({
       text: option.text,
       isCorrect: option.isCorrect,
+      ...(option.rationale ? { rationale: option.rationale } : {}),
     })),
     // Every question counts the same in the score; the field stays for older readers.
     points: 1,
-    type: "single",
     order,
     ...(question.imageUrl ? { imageUrl: question.imageUrl } : {}),
     ...(question.explanation ? { explanation: question.explanation } : {}),
@@ -432,10 +492,12 @@ export function questionFromStored(id: string, data: Record<string, unknown>): E
   const stored = normalizeQuestion(id, data);
   return {
     id,
+    type: stored.type,
     text: stored.text,
     options: stored.options.map((text, index) => ({
       text,
-      isCorrect: index === stored.correctIndex,
+      isCorrect: stored.correct.includes(index),
+      ...(stored.rationales?.[index] ? { rationale: stored.rationales[index] as string } : {}),
     })),
     ...(stored.imageUrl ? { imageUrl: stored.imageUrl } : {}),
     ...(stored.explanation ? { explanation: stored.explanation } : {}),
@@ -486,10 +548,12 @@ export function planLegacyQuestions(
 export function exportQuestions(questions: EditorQuestion[]): string {
   return JSON.stringify(
     questions.map((question) => ({
+      type: question.type,
       text: question.text,
       options: question.options.map((option) => ({
         text: option.text,
         isCorrect: option.isCorrect,
+        ...(option.rationale ? { rationale: option.rationale } : {}),
       })),
       ...(question.explanation ? { explanation: question.explanation } : {}),
       ...(question.imageUrl ? { imageUrl: question.imageUrl } : {}),

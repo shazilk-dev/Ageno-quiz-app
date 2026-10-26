@@ -1,9 +1,13 @@
+import { picksMatch, toPicks } from "./answers";
 import type { StoredQuestion } from "./normalize";
 
 export interface ScoreInput {
   questions: StoredQuestion[];
-  /** questionId -> picked option index, or null/missing when unanswered. */
-  answers: Record<string, number | null | undefined>;
+  /**
+   * questionId -> picked option indexes, `[]` or missing when unanswered. The older single `number | null`
+   * is read too, so an attempt saved before answers became lists still scores.
+   */
+  answers: Record<string, number[] | number | null | undefined>;
   /** False for quizzes that are checked by hand: nothing is scored. */
   autoCheck: boolean;
   /** The difficulty multiplier. Anything that isn't a finite number of at least 1 counts as 1. */
@@ -26,7 +30,8 @@ export interface ScoreOutput {
 
 /**
  * The one scoring function; it only ever runs on the server. The denominator is every question in the
- * attempt, answered or not, and an answer outside the options (or a question with no key) is wrong.
+ * attempt, answered or not. A question is right when the picked set equals the right set (all or nothing,
+ * so a missing or an extra pick is wrong); a pick outside the options, or a question with no key, is wrong.
  */
 export function scoreAttempt({
   questions,
@@ -43,10 +48,11 @@ export function scoreAttempt({
   const isCorrect: Record<string, boolean> = {};
 
   for (const question of questions) {
-    const answer = answers[question.id];
-    if (typeof answer !== "number") continue;
+    const raw = answers[question.id];
+    const picks = toPicks(raw, Number.MAX_SAFE_INTEGER, question.type);
+    if (picks.length === 0) continue;
     answered++;
-    const right = question.correctIndex !== null && answer === question.correctIndex;
+    const right = picksMatch(question.correct, picks);
     isCorrect[question.id] = right;
     if (right) correct++;
   }

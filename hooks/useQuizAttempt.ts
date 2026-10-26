@@ -13,6 +13,8 @@ import {
   type AnswerMap,
   type FlagMap,
   summarize,
+  toPicks,
+  togglePick,
 } from "@/lib/exam/answers";
 import type { PublicQuiz } from "@/lib/quiz-data";
 import { attemptKey, clearAttempt, saveAttempt } from "@/lib/exam/storage";
@@ -37,7 +39,8 @@ interface State {
 }
 
 type Action =
-  | { type: "select"; questionId: string; option: number | null }
+  | { type: "select"; questionId: string; option: number; kind: "single" | "multiple" }
+  | { type: "clear"; questionId: string }
   | { type: "flag"; questionId: string }
   | { type: "goto"; index: number };
 
@@ -46,7 +49,11 @@ function init(seed: AttemptSeed): State {
   const answers: AnswerMap = {};
   const flagged: FlagMap = {};
   for (const question of questions) {
-    answers[question.id] = progress?.answers[question.id] ?? null;
+    answers[question.id] = toPicks(
+      progress?.answers[question.id],
+      question.options?.length ?? 0,
+      question.type
+    );
     if (progress?.flagged[question.id]) flagged[question.id] = true;
   }
   const index = Math.min(
@@ -61,8 +68,17 @@ function reducer(state: State, action: Action): State {
     case "select":
       return {
         ...state,
-        answers: { ...state.answers, [action.questionId]: action.option },
+        answers: {
+          ...state.answers,
+          [action.questionId]: togglePick(
+            state.answers[action.questionId],
+            action.option,
+            action.kind
+          ),
+        },
       };
+    case "clear":
+      return { ...state, answers: { ...state.answers, [action.questionId]: [] } };
     case "flag": {
       const flagged = { ...state.flagged };
       if (flagged[action.questionId]) delete flagged[action.questionId];
@@ -287,8 +303,10 @@ export function useQuizAttempt(
     goTo,
     next: () => goTo(state.index + 1),
     previous: () => goTo(state.index - 1),
-    select: (option: number | null) =>
-      dispatch({ type: "select", questionId: question.id, option }),
+    /** Pick an option: swaps the answer of a single-answer question, toggles one of a select-all question. */
+    select: (option: number) =>
+      dispatch({ type: "select", questionId: question.id, option, kind: question.type }),
+    clear: () => dispatch({ type: "clear", questionId: question.id }),
     toggleFlag: () => dispatch({ type: "flag", questionId: question.id }),
     submit,
     /** Count one exit from fullscreen (strict exams). Ignored once the attempt is over. */

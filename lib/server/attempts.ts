@@ -6,14 +6,19 @@ import {
   type IntegrityState,
   type StoredIntegrityEvent,
 } from "@/lib/exam/integrity";
-import { normalizeQuestion, type StoredQuestion } from "@/lib/exam/normalize";
+import { toPicks } from "@/lib/exam/answers";
+import {
+  normalizeQuestion,
+  upgradeStoredQuestion,
+  type StoredQuestion,
+} from "@/lib/exam/normalize";
+import { buildReview, upgradeResult } from "@/lib/exam/review";
 import { scoreAttempt } from "@/lib/exam/scoring";
 import type {
   AttemptResult,
   AttemptState,
   ExamQuestion,
   ProgressPatch,
-  ReviewItem,
   SubmitResult,
 } from "@/lib/exam/types";
 import { quizFromData } from "@/lib/quiz-data";
@@ -34,7 +39,7 @@ import { ApiError, assertSafeId } from "./request";
 
 /** Answers and the final submit are still accepted this long after the deadline (network and clock slack). */
 export const SUBMIT_GRACE_MS = 30_000;
-/** One attempt document holds a copy of the questions and its submit writes one doc per answer. */
+/** One attempt document holds a copy of the questions, answer key and reasons included. */
 export const MAX_QUESTIONS = LIMITS.maxQuestionsPerLevel;
 
 const SAFE_LEVEL = /^[a-z]{1,20}$/;
@@ -48,12 +53,16 @@ interface AttemptDoc {
   startedAt: Timestamp;
   deadline: Timestamp;
   durationSec: number;
-  /** A copy taken at the start: editing the quiz mid-attempt can't change what this attempt is scored on. */
+  /**
+   * A copy taken at the start: editing the quiz mid-attempt can't change what this attempt is scored on.
+   * Attempts begun under the older question model hold `correctIndex`; `owned` reads them into this shape.
+   */
   questions: StoredQuestion[];
   autoCheck: boolean;
   showAnswerReview: boolean;
   multiplier: number;
-  answers: Record<string, number | null>;
+  /** Picks per question. Older attempts hold `number | null`; `owned` converts. */
+  answers: Record<string, number[]>;
   flagged: Record<string, true>;
   index: number;
   tabSwitches: number;
@@ -122,12 +131,28 @@ async function readQuestions(
   return sortQuestionDocs(docs).map((doc) => normalizeQuestion(doc.id, doc.data));
 }
 
+/** The only key-related facts that leave the server before a submit: the type, and how many to choose. */
 const toExamQuestion = (question: StoredQuestion): ExamQuestion => ({
   id: question.id,
   text: question.text,
   options: question.options,
+  type: question.type,
+  ...(question.type === "multiple" &&
+    question.correct.length > 0 && { pickCount: question.correct.length }),
   ...(question.imageUrl && { imageUrl: question.imageUrl }),
 });
+
+const optionCountsOf = (questions: StoredQuestion[]): Record<string, number> =>
+  Object.fromEntries(questions.map((q) => [q.id, q.options.length]));
+
+/** The stored result in the current shape, with the review rebuilt from the snapshot when it wasn't stored. */
+function resultOf(data: AttemptDoc): SubmitResult {
+  const result = upgradeResult(data.result as SubmitResult, optionCountsOf(data.questions));
+  if (result.review === null && result.graded && data.showAnswerReview) {
+    return { ...result, review: buildReview(data.questions) };
+  }
+  return result;
+}
 
 function toAttemptState(
   attemptId: string,
@@ -153,25 +178,22 @@ function toAttemptState(
   };
 }
 
-/** Only the attempt's own questions, only whole option numbers; everything else becomes "unanswered". */
+/**
+ * Only the attempt's own questions, only whole option numbers inside the options, at most one pick for a
+ * single-answer question; everything else becomes "unanswered" (`[]`). The older single `number | null`
+ * is read too (a tab opened before the update still sends it).
+ */
 function sanitizeAnswers(
   raw: unknown,
   questions: StoredQuestion[]
-): Record<string, number | null> {
+): Record<string, number[]> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new ApiError(400, "invalid_answers", "Answers must be an object keyed by question.");
   }
   const input = raw as Record<string, unknown>;
-  const answers: Record<string, number | null> = {};
+  const answers: Record<string, number[]> = {};
   for (const question of questions) {
-    const value = input[question.id];
-    answers[question.id] =
-      typeof value === "number" &&
-      Number.isInteger(value) &&
-      value >= 0 &&
-      value < question.options.length
-        ? value
-        : null;
+    answers[question.id] = toPicks(input[question.id], question.options.length, question.type);
   }
   return answers;
 }
@@ -191,13 +213,23 @@ function sanitizeFlags(
   return flags;
 }
 
-/** The attempt, if it exists and belongs to this caller. Someone else's attempt looks like a missing one. */
+/**
+ * The attempt, if it exists and belongs to this caller. Someone else's attempt looks like a missing one.
+ * Attempts begun under the older question model are read into the current one here, so nothing
+ * downstream knows there were two.
+ */
 function owned(snap: DocumentSnapshot, userId: string): AttemptDoc {
   const data = snap.data() as AttemptDoc | undefined;
   if (!snap.exists || !data || data.userId !== userId) {
     throw new ApiError(404, "attempt_not_found", "We couldn't find that attempt.");
   }
-  return data;
+  const questions = data.questions.map(upgradeStoredQuestion);
+  const storedAnswers = (data.answers ?? {}) as Record<string, unknown>;
+  const answers: Record<string, number[]> = {};
+  for (const question of questions) {
+    answers[question.id] = toPicks(storedAnswers[question.id], question.options.length, question.type);
+  }
+  return { ...data, questions, answers };
 }
 
 function assertOpen(data: AttemptDoc) {
@@ -276,7 +308,7 @@ export async function startAttempt(
     autoCheck: quiz.isAutoCheck === true,
     showAnswerReview: quiz.showAnswerReview !== false,
     multiplier: getDifficultyMultiplier(quiz, difficulty),
-    answers: Object.fromEntries(questions.map((q) => [q.id, null])),
+    answers: Object.fromEntries(questions.map((q) => [q.id, [] as number[]])),
     flagged: {},
     index: 0,
     tabSwitches: 0,
@@ -333,7 +365,7 @@ export async function getAttemptResult(
     difficulty: data.difficulty,
     submittedAt: (data.submittedAt ?? data.updatedAt).toMillis(),
     questions: data.questions.map(toExamQuestion),
-    result: data.result,
+    result: resultOf(data),
   };
 }
 
@@ -396,7 +428,7 @@ export async function submitAttempt(
   const { result, fresh, quizId } = await db.runTransaction(async (tx) => {
     const data = owned(await tx.get(attemptRef), userId);
     if (data.status === "submitted" && data.result) {
-      return { result: data.result, fresh: false, quizId: data.quizId };
+      return { result: resultOf(data), fresh: false, quizId: data.quizId };
     }
     assertOpen(data);
 
@@ -421,18 +453,10 @@ export async function submitAttempt(
     // Read before any write (a transaction's rule). A result checked by hand has no score to rank.
     const board = typeof score.score === "number" ? await readBoard(tx, data.quizId, userId) : null;
 
-    const review: Record<string, ReviewItem> | null =
-      score.graded && data.showAnswerReview
-        ? Object.fromEntries(
-            data.questions.map((q) => [
-              q.id,
-              {
-                correctIndex: q.correctIndex,
-                ...(q.explanation && { explanation: q.explanation }),
-              },
-            ])
-          )
-        : null;
+    // Returned to the browser now but not stored: the review is rebuilt from the attempt's own question
+    // snapshot whenever the result is read, so each reason and explanation lives once.
+    const review =
+      score.graded && data.showAnswerReview ? buildReview(data.questions) : null;
 
     const result: SubmitResult = {
       responseId: attemptId,
@@ -455,8 +479,21 @@ export async function submitAttempt(
       review,
     };
 
+    // One compact answer sheet on the response instead of a document per answer: a submit writes a handful
+    // of documents however many questions there are, and a per-question report reads one document each.
+    const sheet: Record<string, { p: number[]; ok?: boolean }> = {};
+    for (const question of data.questions) {
+      const picks = answers[question.id];
+      if (!picks || picks.length === 0) continue;
+      sheet[question.id] = {
+        p: picks,
+        ...(score.graded && { ok: score.isCorrect[question.id] === true }),
+      };
+    }
+
     const submittedAt = Timestamp.fromMillis(now);
     tx.set(responseRef, {
+      schemaVersion: 2,
       quizId: data.quizId,
       userId,
       attemptId,
@@ -474,17 +511,8 @@ export async function submitAttempt(
       ...(integrity.blurs > 0 && { blurCount: integrity.blurs }),
       ...(integrity.fullscreenExits > 0 && { fullscreenExits: integrity.fullscreenExits }),
       ...(integrity.events.length > 0 && { integrityEvents: integrity.events }),
+      sheet,
     });
-
-    for (const question of data.questions) {
-      const selected = answers[question.id];
-      if (typeof selected !== "number") continue;
-      tx.set(responseRef.collection("answers").doc(question.id), {
-        questionId: question.id,
-        selectedIndex: selected,
-        isCorrect: score.graded ? score.isCorrect[question.id] === true : null,
-      });
-    }
 
     tx.update(attemptRef, {
       status: "submitted",
@@ -492,7 +520,7 @@ export async function submitAttempt(
       ...integrityFields(integrity),
       submittedAt,
       updatedAt: submittedAt,
-      result,
+      result: { ...result, review: null },
     });
 
     if (board && typeof score.score === "number") {
