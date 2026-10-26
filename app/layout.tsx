@@ -66,14 +66,15 @@ export const metadata: Metadata = {
 };
 
 // Browser chrome (mobile address bar) matches the ink shell. A raw hex: viewport metadata cannot read CSS
-// variables, so this mirrors --color-ink in app/theme.css. `colorScheme: "dark"` joins it once every
-// screen is migrated (P7.6); until then most pages are still light.
+// variables, so this mirrors --color-ink in app/theme.css. The app is dark by default (the admin switches
+// itself to the bone theme with data-theme="light", which sets its own color-scheme).
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1.0,
   maximumScale: 5.0, // Allow zooming for better accessibility
   userScalable: true, // Allow zooming for better accessibility
   themeColor: "#0e1116",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({
@@ -90,7 +91,7 @@ export default function RootLayout({
       <head>
         <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
       </head>
-      <body className="font-sans antialiased text-gray-800 bg-white overscroll-none">
+      <body className="bg-bg font-sans text-text antialiased overscroll-none">
         {/* The first thing a keyboard user reaches. No wrapper element: it would be page content outside every landmark. */}
         <a
           href="#main-content"

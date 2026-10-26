@@ -160,7 +160,7 @@ export default function AuthFlowTest() {
     <div className="max-w-4xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-6">Authentication Flow Test Suite</h1>
       
-      <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+      <div className="mb-6 p-4 bg-surface rounded-lg">
         <h2 className="text-lg font-semibold mb-3">Test Credentials</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -189,42 +189,42 @@ export default function AuthFlowTest() {
       <div className="flex flex-wrap gap-2 mb-6">
         <button
           onClick={() => testAuthState()}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          className="px-4 py-2 bg-teal text-ink rounded hover:brightness-110 disabled:opacity-50"
           disabled={isRunning}
         >
           Test Auth State
         </button>
         <button
           onClick={() => testSessionCheck()}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          className="px-4 py-2 bg-teal text-ink rounded hover:brightness-110 disabled:opacity-50"
           disabled={isRunning}
         >
           Test Session Check
         </button>
         <button
           onClick={() => testLogin()}
-          className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+          className="px-4 py-2 bg-success text-ink rounded hover:brightness-110 disabled:opacity-50"
           disabled={isRunning || !testEmail || !testPassword}
         >
           Test Login
         </button>
         <button
           onClick={() => testLogout()}
-          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
+          className="px-4 py-2 bg-error text-ink rounded hover:brightness-110 disabled:opacity-50"
           disabled={isRunning || !user}
         >
           Test Logout
         </button>
         <button
           onClick={() => runAllTests()}
-          className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50"
+          className="px-4 py-2 bg-teal text-ink rounded hover:brightness-110 disabled:opacity-50"
           disabled={isRunning}
         >
           Run All Tests
         </button>
         <button
           onClick={() => clearResults()}
-          className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50"
+          className="px-4 py-2 border border-border-strong text-text rounded hover:bg-surface disabled:opacity-50"
           disabled={isRunning || testResults.length === 0}
         >
           Clear Results
@@ -232,34 +232,34 @@ export default function AuthFlowTest() {
       </div>
       
       <div className="border rounded-lg overflow-hidden">
-        <div className="bg-gray-100 p-3 font-medium border-b">
+        <div className="bg-surface-raised p-3 font-medium border-b">
           Test Results
           {isRunning && (
-            <span className="ml-2 inline-block animate-pulse text-blue-500">Running tests...</span>
+            <span className="ml-2 inline-block animate-pulse text-accent">Running tests...</span>
           )}
         </div>
         <div className="max-h-[400px] overflow-y-auto p-2">
           {testResults.length === 0 ? (
-            <p className="text-gray-500 p-4 text-center">No test results yet</p>
+            <p className="text-text-muted p-4 text-center">No test results yet</p>
           ) : (
             <div className="space-y-2">
               {testResults.map((result, index) => (
                 <div 
                   key={index} 
                   className={`p-3 rounded-lg ${
-                    result.status === 'success' ? 'bg-green-50 border border-green-100' : 
-                    result.status === 'error' ? 'bg-red-50 border border-red-100' : 
-                    'bg-blue-50 border border-blue-100'
+                    result.status === 'success' ? 'bg-surface border border-success' : 
+                    result.status === 'error' ? 'bg-surface border border-error' : 
+                    'bg-surface border border-border'
                   }`}
                 >
                   <div className="flex justify-between">
                     <span className="font-medium">{result.name}</span>
-                    <span className="text-xs text-gray-500">{new Date(result.timestamp).toLocaleTimeString()}</span>
+                    <span className="text-xs text-text-muted">{new Date(result.timestamp).toLocaleTimeString()}</span>
                   </div>
                   <p className={`mt-1 text-sm ${
-                    result.status === 'success' ? 'text-green-700' : 
-                    result.status === 'error' ? 'text-red-700' : 
-                    'text-blue-700'
+                    result.status === 'success' ? 'text-success' : 
+                    result.status === 'error' ? 'text-error' : 
+                    'text-link'
                   }`}>
                     {result.message}
                   </p>
@@ -270,7 +270,7 @@ export default function AuthFlowTest() {
         </div>
       </div>
       
-      <div className="mt-6 text-sm text-gray-500">
+      <div className="mt-6 text-sm text-text-muted">
         <p>Current authentication state: {loading ? 'Loading...' : user ? 'Authenticated' : 'Not authenticated'}</p>
         {user && (
           <div className="mt-2">

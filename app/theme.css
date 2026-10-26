@@ -6,14 +6,15 @@
  * every token below as a CSS custom property. `static` keeps unused tokens in the output so plain CSS can
  * always var() them.
  *
- * MIGRATION STATE (docs/IMPROVEMENT_ROADMAP.md):
- *  - Tailwind's default palette is NOT wiped yet (`--color-*: initial` comes in P7.6), because screens that
- *    haven't been redesigned still use indigo-*, gray-* and so on.
- *  - The tokens are dark by default, but <body> stays light until every screen is migrated. The site shell
- *    (header, footer) opts into dark with data-theme="dark". New screens use the tokens (bg-bg, text-text).
+ * Tailwind's default palette is wiped (`--color-*: initial`): `gray-500`, `indigo-600` and friends do not
+ * exist, only the tokens below. The tokens are dark by default and <body> uses them; the admin opts into the
+ * bone theme with data-theme="light". Use token classes (bg-bg, text-text, bg-surface, text-accent).
  */
 
 @theme static {
+	/* The default Tailwind palette is wiped: only the brand tokens below exist as colours (P7.6). */
+	--color-*: initial;
+
 	/* Brand colours */
 	--color-ink: #0e1116;
 	--color-bone: #f6f5f1;

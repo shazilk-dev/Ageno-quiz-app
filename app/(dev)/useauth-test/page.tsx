@@ -139,33 +139,33 @@ export default function UseAuthTest() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Test results */}
-        <div className="border rounded-md p-4 bg-white">
+        <div className="border rounded-md p-4 bg-surface">
           <h2 className="text-lg font-semibold mb-4">Test Results</h2>
           <div className="space-y-3">
             {testResults.map((test, index) => (
-              <div key={index} className="p-3 rounded-md bg-gray-50">
+              <div key={index} className="p-3 rounded-md bg-surface">
                 <div className="flex items-center justify-between">
-                  <span className="font-medium text-gray-800">{test.name}</span>
+                  <span className="font-medium text-text">{test.name}</span>
                   <span
                     className={`text-sm px-2 py-1 rounded-full ${
                       test.status === "passed"
-                        ? "bg-green-100 text-green-800"
+                        ? "bg-surface-raised text-success"
                         : test.status === "failed"
-                        ? "bg-red-100 text-red-800"
-                        : "bg-gray-100 text-gray-800"
+                        ? "bg-surface-raised text-error"
+                        : "bg-surface-raised text-text"
                     }`}
                   >
                     {test.status === "pending" ? "Running..." : test.status}
                   </span>
                 </div>
                 {test.message && (
-                  <p className="text-sm text-gray-600 mt-1">{test.message}</p>
+                  <p className="text-sm text-text-muted mt-1">{test.message}</p>
                 )}
               </div>
             ))}
           </div>
 
-          <div className="mt-4 text-sm text-gray-500">
+          <div className="mt-4 text-sm text-text-muted">
             <p>
               These tests validate that the useAuth hook is properly initialized
               and has access to all the required functionality from the auth
@@ -175,7 +175,7 @@ export default function UseAuthTest() {
         </div>
       </div>
 
-      <div className="mt-8 p-4 bg-gray-50 rounded-md text-sm">
+      <div className="mt-8 p-4 bg-surface rounded-md text-sm">
         <h3 className="font-medium mb-2">Next Steps:</h3>
         <ol className="list-decimal list-inside space-y-1">
           <li>

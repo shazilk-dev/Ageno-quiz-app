@@ -49,8 +49,8 @@ export default function TotpMfaSetup({ user, action, onDone, onCancel }: Props) 
             <p className="text-sm text-text-muted">
               Scan this code with your authenticator app.
             </p>
-            {/* White behind the code so scanners can read it on a dark page. */}
-            <div className="mt-3 w-fit rounded-md bg-white p-3">
+            {/* Light backing behind the code so scanners can read it on a dark page. */}
+            <div className="mt-3 w-fit rounded-md bg-bone p-3">
               <QRCodeSVG
                 value={secret.generateQrCodeUrl(user.email ?? undefined, "Ageno Quiz")}
                 size={176}
