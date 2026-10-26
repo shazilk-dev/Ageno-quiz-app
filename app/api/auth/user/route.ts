@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { auth, db } from "@/firebase/admin";
 import admin from "firebase-admin";
+import { logActivity } from "@/lib/server/activity";
 
 /**
  * Creates or refreshes the signed-in person's own profile. Who they are comes from the verified ID token,
@@ -79,6 +80,8 @@ export async function POST(request: NextRequest) {
           customClaims: { role: "user" },
         });
         await auth.setCustomUserClaims(uid, { role: "user" });
+        const userAgent = request.headers.get("user-agent");
+        after(() => logActivity(uid, "account_created", { method: "email" }, userAgent));
       }
 
       return NextResponse.json(

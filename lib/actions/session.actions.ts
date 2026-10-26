@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // lib/actions/session.actions.ts
 import { User } from "firebase/auth";
@@ -9,124 +8,95 @@ export interface SessionResult {
   details?: any;
 }
 
-// Create a session cookie on the server
-export const createSession = async (user: User): Promise<SessionResult> => {
+const NO_CACHE = { "Cache-Control": "no-cache, no-store, must-revalidate" };
+
+/**
+ * True when the server has probably given this browser a session (the readable `signed_in` cookie set
+ * next to the httpOnly `session` one). Only used to skip pointless session checks; it proves nothing.
+ */
+export const hasSessionHint = (): boolean =>
+  typeof document !== "undefined" && /(?:^|;\s*)signed_in=1(?:;|$)/.test(document.cookie);
+
+/** Sends an ID token to the server, which answers with the session cookie. */
+async function postSession(idToken: string, action: string): Promise<SessionResult> {
   try {
-    // Get the ID token from the current user
-    let idToken;
-    try {
-      idToken = await user.getIdToken(true); // Force refresh to ensure token is fresh
-    } catch (tokenError: any) {
-      console.error("Failed to get ID token:", tokenError);
+    const response = await fetch("/api/auth/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...NO_CACHE },
+      body: JSON.stringify({ idToken }),
+    });
+    const data = await response.json().catch(() => ({ error: "Could not parse server response" }));
+    if (!response.ok) {
+      console.error(`Server rejected session ${action}:`, data);
       return {
         success: false,
-        error: "Failed to get authentication token",
-        details: tokenError.message,
-      };
-    }
-
-    // Send the ID token to the backend to create a session cookie
-    try {
-      const response = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-        },
-        body: JSON.stringify({ idToken }),
-      });
-
-      // Parse response data regardless of status
-      let data;
-      try {
-        data = await response.json();
-      } catch (parseError) {
-        console.error("Failed to parse server response:", parseError);
-        data = { error: "Could not parse server response" };
-      }
-
-      if (!response.ok) {
-        console.error("Server rejected session creation:", data);
-        return {
-          success: false,
-          error: data.error || `Failed to create session (${response.status})`,
-          details: data,
-        };
-      }
-
-      return {
-        success: true,
+        error: data.error || `Failed to ${action} session (${response.status})`,
         details: data,
       };
-    } catch (fetchError: any) {
-      console.error("Network error during session creation:", fetchError);
-      return {
-        success: false,
-        error: "Network error during session creation",
-        details: fetchError.message,
-      };
     }
+    return { success: true, details: data };
   } catch (error: any) {
-    console.error("Unexpected error creating session:", error);
-    return {
-      success: false,
-      error: "Unexpected error creating session",
-      details: error.message,
-    };
+    console.error(`Network error during session ${action}:`, error);
+    return { success: false, error: `Network error during session ${action}`, details: error.message };
   }
+}
+
+/**
+ * Creates the session cookie right after a sign-in. The token the sign-in just minted is used as is:
+ * forcing a refresh here would only add another trip to Google.
+ */
+export const createSession = async (user: User): Promise<SessionResult> => {
+  let idToken: string;
+  try {
+    idToken = await user.getIdToken();
+  } catch (error: any) {
+    console.error("Failed to get ID token:", error);
+    return { success: false, error: "Failed to get authentication token", details: error.message };
+  }
+  return postSession(idToken, "create");
 };
 
-// Clear session cookie from the server
-export const clearSession = async (forceLogout = false): Promise<SessionResult> => {
+/** Renews the session cookie in the background (every 30 minutes) from a freshly minted token. */
+export const refreshSession = async (user: User): Promise<SessionResult> => {
+  let idToken: string;
   try {
-    // Set flag to indicate user initiated logout
-    if (typeof window !== 'undefined' && forceLogout) {
-      sessionStorage.setItem('user_initiated_logout', 'true');
-    }
-    
-    const headers: HeadersInit = {
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-    };
-    
-    // Add force logout header when explicitly requested
-    if (forceLogout) {
-      headers['X-Force-Logout'] = 'true';
-    }
-    
-    const response = await fetch("/api/auth/session", {
+    idToken = await user.getIdToken(true);
+  } catch (error: any) {
+    console.error("Failed to refresh ID token:", error);
+    return { success: false, error: "Failed to refresh authentication token", details: error.message };
+  }
+  return postSession(idToken, "refresh");
+};
+
+/**
+ * Clears this browser's session cookies. With `everywhere`, the server also revokes the person's refresh
+ * tokens, signing them out on every device; pass the signed-in user so their ID token can prove who asks.
+ */
+export const clearSession = async ({
+  everywhere = false,
+  user,
+}: { everywhere?: boolean; user?: User | null } = {}): Promise<SessionResult> => {
+  try {
+    const headers: Record<string, string> = { ...NO_CACHE };
+    if (everywhere && user) headers.Authorization = `Bearer ${await user.getIdToken()}`;
+
+    const response = await fetch(`/api/auth/session${everywhere ? "?scope=all" : ""}`, {
       method: "DELETE",
-      credentials: "include", // Include cookies
+      credentials: "include",
       headers,
     });
-
     if (!response.ok) {
-      let data;
-      try {
-        data = await response.json();
-      } catch (e) {
-        data = { error: "Could not parse response" };
-      }
-
+      const data = await response.json().catch(() => ({ error: "Could not parse response" }));
       return {
         success: false,
         error: data.error || `Failed to clear session (${response.status})`,
         details: data,
       };
     }
-
-    // Clear the logout flag after successful logout
-    if (typeof window !== 'undefined') {
-      sessionStorage.removeItem('user_initiated_logout');
-    }
-
     return { success: true };
   } catch (error: any) {
     console.error("Error clearing session:", error);
-    return {
-      success: false,
-      error: "Network error while clearing session",
-      details: error.message,
-    };
+    return { success: false, error: "Network error while clearing session", details: error.message };
   }
 };
 
@@ -137,161 +107,53 @@ export const checkSession = async (): Promise<{
   error?: string;
   reason?: string;
 }> => {
+  // Don't wait forever for an answer.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3000);
+
   try {
-    // Add a timeout to prevent hanging requests
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch("/api/auth/session/check", {
+      method: "GET",
+      headers: { "Content-Type": "application/json", ...NO_CACHE },
+      credentials: "include",
+      signal: controller.signal,
+    });
 
+    let data;
     try {
-      const response = await fetch("/api/auth/session/check", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-        },
-        credentials: "include", // Include cookies
-        signal: controller.signal,
-      });
+      data = await response.json();
+    } catch (parseError) {
+      console.error("Failed to parse session check response:", parseError);
+      return { isAuthenticated: false, error: "Failed to parse server response", reason: "parse_error" };
+    }
 
-      clearTimeout(timeoutId);
-
-      // Parse the response regardless of status
-      let data;
-      try {
-        data = await response.json();
-      } catch (parseError) {
-        console.error("Failed to parse session check response:", parseError);
-        return {
-          isAuthenticated: false,
-          error: "Failed to parse server response",
-          reason: "parse_error",
-        };
-      }
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          // Handle specific revocation cases
-          if (data.reason === 'token_revoked') {
-            console.warn('Session token has been revoked. Clearing local session data.');
-            
-            // If we have sessionStorage access, mark this as a revocation for UX handling
-            if (typeof window !== 'undefined') {
-              try {
-                sessionStorage.setItem('token_revoked', 'true');
-              } catch (e) {
-                // Ignore storage errors
-              }
-            }
-          }
-          
-          return {
-            isAuthenticated: false,
-            reason: data.reason || "unauthorized",
-          };
+    if (!response.ok) {
+      if (response.status === 401) {
+        if (data.reason === "token_revoked") {
+          console.warn("Session token has been revoked. Clearing local session data.");
         }
-
-        return {
-          isAuthenticated: false,
-          error: data.error || `Session check failed (${response.status})`,
-          reason: data.reason,
-        };
+        return { isAuthenticated: false, reason: data.reason || "unauthorized" };
       }
-
-      return {
-        isAuthenticated: data.isAuthenticated,
-        user: data.user,
-      };
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId);
-      
-      if (fetchError.name === 'AbortError') {
-        console.error("Session check request timed out");
-        return {
-          isAuthenticated: false,
-          error: "Session check request timed out",
-          reason: "timeout",
-        };
-      }
-      
-      console.error("Network error checking session:", fetchError);
       return {
         isAuthenticated: false,
-        error: fetchError.message || "Network error checking session",
-        reason: "network_error",
+        error: data.error || `Session check failed (${response.status})`,
+        reason: data.reason,
       };
     }
+
+    return { isAuthenticated: data.isAuthenticated, user: data.user };
   } catch (error: any) {
-    console.error("Error during session check:", error);
+    if (error.name === "AbortError") {
+      console.error("Session check request timed out");
+      return { isAuthenticated: false, error: "Session check request timed out", reason: "timeout" };
+    }
+    console.error("Network error checking session:", error);
     return {
       isAuthenticated: false,
-      error: error.message || "Error during session check",
-      reason: "unknown_error",
+      error: error.message || "Network error checking session",
+      reason: "network_error",
     };
-  }
-};
-
-// Refresh the session by getting a new ID token and updating the session cookie
-export const refreshSession = async (user: User): Promise<SessionResult> => {
-  try {
-    // Force refresh the token
-    let idToken;
-    try {
-      idToken = await user.getIdToken(true);
-    } catch (tokenError: any) {
-      console.error("Failed to refresh ID token:", tokenError);
-      return {
-        success: false,
-        error: "Failed to refresh authentication token",
-        details: tokenError.message,
-      };
-    }
-
-    // Create a new session with the fresh token
-    try {
-      const response = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-        },
-        body: JSON.stringify({ idToken }),
-      });
-
-      // Get the response data regardless of status
-      let data;
-      try {
-        data = await response.json();
-      } catch (parseError) {
-        data = { error: "Could not parse server response" };
-      }
-
-      if (!response.ok) {
-        console.error("Server rejected session refresh:", data);
-        return {
-          success: false,
-          error: data.error || `Failed to refresh session (${response.status})`,
-          details: data,
-        };
-      }
-
-      return {
-        success: true,
-        details: data,
-      };
-    } catch (fetchError: any) {
-      console.error("Network error during session refresh:", fetchError);
-      return {
-        success: false,
-        error: "Network error during session refresh",
-        details: fetchError.message,
-      };
-    }
-  } catch (error: any) {
-    console.error("Error refreshing session:", error);
-    return {
-      success: false,
-      error: "Unexpected error refreshing session",
-      details: error.message,
-    };
+  } finally {
+    clearTimeout(timeoutId);
   }
 };

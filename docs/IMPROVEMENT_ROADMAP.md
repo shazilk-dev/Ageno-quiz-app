@@ -5,7 +5,7 @@
 - **Created:** 2026-10-23
 - **Last updated:** 2026-10-26 (Session 10)
 - **Current phase:** 7 (App-wide polish and accessibility). P7.1 to P7.5 are done; the user hasn't looked at any of them yet.
-- **Next up:** P7.6 (palette: what still has stock colours is the four `(auth)` pages, the two `(dev)` pages and `app/layout.tsx`'s `<body>`). Items carried over: the raw-vs-weighted *headline* decision for the results screen (the leaderboard no longer depends on it), rate limiting, the speed plan.
+- **Next up:** P7.6 (palette: what still has stock colours is the four `(auth)` pages, the two `(dev)` pages and `app/layout.tsx`'s `<body>`). Items carried over: the raw-vs-weighted *headline* decision for the results screen (the leaderboard no longer depends on it), rate limiting, the speed plan (now its own file: `docs/PERFORMANCE_PLAN.md`).
 
 ---
 

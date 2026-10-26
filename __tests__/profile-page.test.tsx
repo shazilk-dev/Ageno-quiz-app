@@ -21,6 +21,7 @@ vi.mock("qrcode.react", () => ({ QRCodeSVG: () => null }));
 const auth = {
   user: { uid: "u1", displayName: "Ada", email: "ada@example.com", emailVerified: false },
   loading: false,
+  logoutEverywhere: vi.fn(),
 };
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => auth }));
 
@@ -32,6 +33,7 @@ const type = (label: string, value: string) =>
 
 beforeEach(() => {
   Object.values(actions).forEach((fn) => fn.mockReset());
+  auth.logoutEverywhere.mockReset();
   actions.getMfaStatus.mockReturnValue({ enrolled: false, availableFactors: [] });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -116,5 +118,29 @@ describe("Profile page", () => {
     expect(await screen.findByText("Second factor removed.")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("Phone (+1 555)")).toBeNull());
     expect(actions.unenrollMfaFactor).toHaveBeenCalledWith(auth.user, "f1");
+  });
+
+  it("signs out of every device only after a second, explicit click", async () => {
+    auth.logoutEverywhere.mockResolvedValue(true);
+    render(<ProfilePage />);
+    goTo("Security");
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out of all devices" }));
+    expect(auth.logoutEverywhere).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("button", { name: "Sign out everywhere" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out of all devices" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out everywhere" }));
+    await waitFor(() => expect(auth.logoutEverywhere).toHaveBeenCalledTimes(1));
+  });
+
+  it("says so when signing out everywhere fails", async () => {
+    auth.logoutEverywhere.mockResolvedValue(false);
+    render(<ProfilePage />);
+    goTo("Security");
+    fireEvent.click(screen.getByRole("button", { name: "Sign out of all devices" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out everywhere" }));
+    expect(await screen.findByText(/couldn't sign you out of your other devices/)).toBeTruthy();
   });
 });

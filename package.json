@@ -10,6 +10,7 @@
     "migrate:questions": "tsx --env-file=.env.local scripts/migrate-legacy-questions.ts"
   },
   "dependencies": {
+    "@vercel/speed-insights": "^2.0.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "firebase": "^11.6.1",

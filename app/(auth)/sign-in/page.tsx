@@ -12,6 +12,7 @@ import { safeRedirectPath } from "@/lib/navigation";
 const SUCCESS_MESSAGES: Record<string, string> = {
   verification: "Email verified. You can sign in now.",
   password_reset: "Your password was reset. Sign in with the new one.",
+  account_created: "Your account is ready. Sign in to start. We've also sent you an email to verify your address.",
 };
 
 /** What to tell the person for a failed email sign-in. Raw Firebase codes never reach the screen. */

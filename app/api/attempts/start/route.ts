@@ -5,6 +5,7 @@ import {
   readJsonBody,
   requireUserId,
 } from "@/lib/server/request";
+import { ServerTiming } from "@/lib/server/timing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,16 +15,15 @@ export const dynamic = "force-dynamic";
  * without their answers. Needs a signed-in user.
  */
 export async function POST(request: Request) {
+  const timing = new ServerTiming();
   try {
-    const userId = await requireUserId(request);
+    const userId = await timing.time("auth", requireUserId(request));
     const body = await readJsonBody(request);
-    return json(
-      await startAttempt(body.quizId, body.difficulty, userId, {
-        accessCode: body.accessCode,
-      }),
-      201
+    const attempt = await timing.time("db", () =>
+      startAttempt(body.quizId, body.difficulty, userId, { accessCode: body.accessCode })
     );
+    return timing.apply(json(attempt, 201));
   } catch (error) {
-    return errorResponse(error);
+    return timing.apply(errorResponse(error));
   }
 }

@@ -11,6 +11,12 @@ const authState = vi.hoisted(() => ({
   revoked: [] as string[],
 }));
 
+// `after()` needs a real Next.js request around it; here its work just runs once the route has answered.
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => void Promise.resolve().then(task),
+}));
+
 vi.mock("@/firebase/admin", async () => {
   const { getApps, initializeApp } = await import("firebase-admin/app");
   const { getFirestore } = await import("firebase-admin/firestore");

@@ -121,6 +121,12 @@ describe("Sign in", () => {
     render(<SignInPage />);
     expect(screen.getByText(/Your password was reset/)).toBeTruthy();
   });
+
+  it("says the account is ready after a sign-up", () => {
+    nav.params = new URLSearchParams("success=account_created");
+    render(<SignInPage />);
+    expect(screen.getByText(/Your account is ready/)).toBeTruthy();
+  });
 });
 
 describe("Sign up", () => {
@@ -151,7 +157,7 @@ describe("Sign up", () => {
     expect(screen.getByText("Password strength: medium")).toBeTruthy();
   });
 
-  it("creates the account, signs out, and offers the way to sign in", async () => {
+  it("creates the account, signs out, and goes straight to sign in", async () => {
     auth.signUp.mockResolvedValue({ success: true });
     actions.signOut.mockResolvedValue(true);
     render(<SignUpPage />);
@@ -161,7 +167,7 @@ describe("Sign up", () => {
     type("Confirm password", "abcDEF12");
     click("Create account");
 
-    expect(await screen.findByRole("link", { name: "Go to sign in" })).toBeTruthy();
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith("/sign-in?success=account_created"));
     expect(auth.signUp).toHaveBeenCalledWith("ada@example.com", "abcDEF12", "Ada Lovelace");
     expect(actions.signOut).toHaveBeenCalled();
   });

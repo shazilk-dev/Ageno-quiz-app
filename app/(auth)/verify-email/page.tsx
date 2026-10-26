@@ -31,12 +31,15 @@ function VerifyEmailContent() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  // Coming from the link in the email: Firebase has done the check, so reload to pick up the new state.
+  // Coming from the link in the email: Firebase has done the check. Pick up the new state (and a token that
+  // says so) in place; reloading the page kept the link in the address and so reloaded again every 3 seconds.
   useEffect(() => {
-    if (!fromLink) return;
-    const timer = setTimeout(() => window.location.reload(), 3000);
-    return () => clearTimeout(timer);
-  }, [fromLink]);
+    if (!fromLink || !user) return;
+    user
+      .reload()
+      .then(() => user.getIdToken(true))
+      .catch((error) => console.warn("Could not refresh the verified state:", error));
+  }, [fromLink, user]);
 
   const resend = async () => {
     if (!user) return;

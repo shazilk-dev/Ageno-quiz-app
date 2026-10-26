@@ -16,6 +16,7 @@ import {
   createSession,
   clearSession,
   checkSession,
+  hasSessionHint,
   refreshSession,
 } from "@/lib/actions/session.actions";
 import { clearSessionData, storeUserData } from "@/lib/services/session.service";
@@ -46,7 +47,10 @@ interface AuthContextType {
     success: boolean;
     error?: string;
   }>;
+  /** Signs out of this browser only. */
   logout: () => Promise<boolean>;
+  /** Signs out of every device (revokes the person's refresh tokens), then this browser. */
+  logoutEverywhere: () => Promise<boolean>;
   isAdmin: boolean;
   verifySession: () => Promise<boolean>;
   refreshUserSession: () => Promise<boolean>;
@@ -154,14 +158,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         // User is signed out in Firebase, clear state
         setUser(null);
         setIsAdmin(false);
-        
-        // Double-check server session status to catch edge cases
+
+        // Firebase says nobody, but this browser may still hold a session cookie (signed out elsewhere,
+        // storage cleared). Only ask the server when the hint cookie says there is one: a plain signed-out
+        // visitor shouldn't cost a request on every page.
+        if (!hasSessionHint()) {
+          setLoading(false);
+          return;
+        }
         try {
           const response = await checkSession();
           if (response.isAuthenticated) {
             // Server thinks we're still logged in but Firebase doesn't
             // Clear session to be safe
-            await clearSession(true);
+            await clearSession();
           } else if (response.reason === 'token_revoked') {
             clearSessionData();
           }
@@ -269,36 +279,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
   
-  // Log out
+  // Clear everything this browser knows about the person.
+  const resetLocalState = () => {
+    setUser(null);
+    setIsAdmin(false);
+    if (refreshTimerRef.current) {
+      clearInterval(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    clearSessionData();
+  };
+
+  // Log out of this browser. The server session and Firebase are cleared at the same time.
   const logout = async (): Promise<boolean> => {
     try {
-      // Mark this as user-initiated logout for safety checks
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem('user_initiated_logout', 'true');
-      }
-      
-      // First clear the server-side session
-      await clearSession(true).catch(err => console.warn("Error clearing session:", err));
-
-      // Then sign out from Firebase
-      await signOut();
-      
-      // Clear local state
-      setUser(null);
-      setIsAdmin(false);
-      
-      // Cancel refresh timer
-      if (refreshTimerRef.current) {
-        clearInterval(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-      
-      // Clear client-side storage
-      clearSessionData();
-      
+      await Promise.all([
+        clearSession().then((result) => {
+          if (!result.success) console.warn("Error clearing session:", result.error);
+        }),
+        signOut(),
+      ]);
+      resetLocalState();
       return true;
     } catch (error) {
       console.error("Error during logout:", error);
+      return false;
+    }
+  };
+
+  // Log out everywhere. The revocation must succeed before this browser lets go of the person: it needs
+  // their ID token to prove who is asking.
+  const logoutEverywhere = async (): Promise<boolean> => {
+    try {
+      const result = await clearSession({ everywhere: true, user });
+      if (!result.success) return false;
+      await signOut();
+      resetLocalState();
+      return true;
+    } catch (error) {
+      console.error("Error signing out everywhere:", error);
       return false;
     }
   };
@@ -312,6 +331,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         login,
         loginWithGoogle,
         logout,
+        logoutEverywhere,
         isAdmin,
         verifySession,
         refreshUserSession,

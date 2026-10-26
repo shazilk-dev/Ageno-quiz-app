@@ -3,6 +3,7 @@ import "./globals.css";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import localFont from "next/font/local";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Metadata, Viewport } from "next";
 import { ToastProvider } from "@/components/ui/Toast";
 import { AuthProvider } from "@/contexts/auth-context";
@@ -104,6 +105,8 @@ export default function RootLayout({
             <AuthProvider>{children}</AuthProvider>
           </ToastProvider>
         </div>
+        {/* Real visitors' load and interaction timings per route (Vercel dashboard); does nothing elsewhere. */}
+        <SpeedInsights />
       </body>
     </html>
   );

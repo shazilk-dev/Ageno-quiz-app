@@ -26,16 +26,7 @@ import {
   TotpMultiFactorGenerator,
   TotpSecret,
 } from "firebase/auth";
-import {
-  doc,
-  setDoc,
-  getDoc,
-  updateDoc,
-  collection,
-  addDoc,
-  serverTimestamp,
-  arrayUnion,
-} from "firebase/firestore";
+import { doc, updateDoc, serverTimestamp, arrayUnion } from "firebase/firestore";
 import { db } from "@/firebase/client";
 
 export interface AuthError {
@@ -65,9 +56,7 @@ const registerUserWithApi = async (user: User, role: string = "user") => {
     });
 
     if (!response.ok) {
-      console.warn(
-        "Failed to register user with API, falling back to client-side registration"
-      );
+      console.warn("Failed to register user with API; the first sign-in will create the profile");
       return false;
     }
 
@@ -94,44 +83,12 @@ export const signUpWithEmail = async (
     // Update profile with display name
     await updateProfile(userCredential.user, { displayName });
 
-    // Try to register user with the API first
-    const apiSuccess = await registerUserWithApi(userCredential.user);
-
-    // If API registration fails, fall back to client-side Firestore
-    if (!apiSuccess) {
-      try {
-        // Create a user document in Firestore with enhanced structure
-        await setDoc(doc(db, "users", userCredential.user.uid), {
-          email,
-          displayName,
-          role: "user", // Default role
-          emailVerified: false,
-          photoURL: null,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          lastLoginAt: serverTimestamp(),
-          activityLogs: [],
-          customClaims: {
-            role: "user",
-          },
-        });
-      } catch (firestoreError) {
-        console.error("Firestore error during signup:", firestoreError);
-        // Continue even if Firestore fails - auth still succeeded
-      }
-    }
-
-    // Send email verification regardless of registration method
-    await sendEmailVerification(userCredential.user);
-
-    // Log the user activity
-    await logActivityInUserDocument(
-      userCredential.user.uid,
-      "account_created",
-      {
-        method: "email",
-      }
-    );
+    // The profile (made by the server, which also logs `account_created`) and the verification email don't
+    // depend on each other. If the profile call fails, the first sign-in creates the profile instead.
+    await Promise.all([
+      registerUserWithApi(userCredential.user),
+      sendEmailVerification(userCredential.user),
+    ]);
 
     return userCredential.user;
   } catch (error: any) {
@@ -148,16 +105,12 @@ export const signInWithEmail = async (
   password: string
 ): Promise<User | AuthError> => {
   try {
+    // The server logs the sign-in when it creates the session.
     const userCredential = await signInWithEmailAndPassword(
       auth,
       email,
       password
     );
-
-    // Log the signin activity
-    await logActivityInUserDocument(userCredential.user.uid, "login", {
-      method: "email",
-    });
 
     return userCredential.user;
   } catch (error: any) {
@@ -175,7 +128,7 @@ export const sendVerificationEmail = async (
   try {
     await sendEmailVerification(user);
 
-    await logActivityInUserDocument(user.uid, "verification_email_sent");
+    void logActivityInUserDocument(user.uid, "verification_email_sent");
 
     return true;
   } catch (error: any) {
@@ -226,7 +179,7 @@ export const updateUserProfile = async (
       await updateDoc(doc(db, "users", user.uid), updateData);
 
       // Log profile update
-      await logActivityInUserDocument(user.uid, "profile_updated", {
+      void logActivityInUserDocument(user.uid, "profile_updated", {
         fields: Object.keys(data),
       });
     } catch (firestoreError) {
@@ -266,7 +219,7 @@ export const updateUserEmail = async (
       });
 
       // Log email update
-      await logActivityInUserDocument(user.uid, "email_changed", {
+      void logActivityInUserDocument(user.uid, "email_changed", {
         oldEmail: user.email,
         newEmail,
       });
@@ -305,7 +258,7 @@ export const updateUserPassword = async (
     await updatePassword(user, newPassword);
 
     // Log password change
-    await logActivityInUserDocument(user.uid, "password_changed");
+    void logActivityInUserDocument(user.uid, "password_changed");
 
     return true;
   } catch (error: any) {
@@ -319,60 +272,9 @@ export const updateUserPassword = async (
 // Sign in with Google
 export const signInWithGoogle = async (): Promise<User | AuthError> => {
   try {
+    // The session route that runs next creates a new person's profile and logs the sign-in.
     const provider = new GoogleAuthProvider();
     const userCredential = await signInWithPopup(auth, provider, browserPopupRedirectResolver);
-
-    // Try to register user with API first
-    const apiSuccess = await registerUserWithApi(userCredential.user);
-
-    // If API registration fails, fall back to client-side Firestore check
-    if (!apiSuccess) {
-      try {
-        // Check if this is a new user and create a document if needed
-        const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
-
-        if (!userDoc.exists()) {
-          // Create user document with enhanced structure
-          await setDoc(doc(db, "users", userCredential.user.uid), {
-            email: userCredential.user.email,
-            displayName: userCredential.user.displayName,
-            role: "user", // Default role
-            emailVerified: userCredential.user.emailVerified,
-            photoURL: userCredential.user.photoURL,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            lastLoginAt: serverTimestamp(),
-            activityLogs: [],
-            customClaims: {
-              role: "user",
-            },
-          });
-
-          // Log account creation
-          await logActivityInUserDocument(
-            userCredential.user.uid,
-            "account_created",
-            {
-              method: "google",
-            }
-          );
-        } else {
-          // Update login timestamp for existing user
-          await updateDoc(doc(db, "users", userCredential.user.uid), {
-            lastLoginAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-
-          // Log login
-          await logActivityInUserDocument(userCredential.user.uid, "login", {
-            method: "google",
-          });
-        }
-      } catch (firestoreError) {
-        console.error("Firestore error during Google sign-in:", firestoreError);
-        // Continue even if Firestore fails - auth still succeeded
-      }
-    }
 
     return userCredential.user;
   } catch (error: any) {
@@ -386,12 +288,7 @@ export const signInWithGoogle = async (): Promise<User | AuthError> => {
 // Sign out
 export const signOut = async (): Promise<boolean> => {
   try {
-    // Log signout for the current user before signing out
-    const user = auth.currentUser;
-    if (user) {
-      await logActivityInUserDocument(user.uid, "logout");
-    }
-
+    // The server logs the sign-out when it clears the session.
     await firebaseSignOut(auth);
     return true;
   } catch (error) {
@@ -410,62 +307,26 @@ export const onAuthChange = (callback: (user: User | null) => void) => {
   return onAuthStateChanged(auth, callback);
 };
 
-// Log activity in userActivities collection (legacy method)
-export const logUserActivity = async (
-  userId: string,
-  activityType:
-    | "login"
-    | "logout"
-    | "password_change"
-    | "email_change"
-    | "profile_update"
-    | "mfa_enabled"
-    | "mfa_disabled",
-  details?: Record<string, any>
-): Promise<void> => {
-  try {
-    await addDoc(collection(db, "userActivities"), {
-      userId,
-      activityType,
-      details: details || {},
-      timestamp: serverTimestamp(),
-      ipAddress: "client-side", // Will be replaced by a Cloud Function
-      userAgent: navigator.userAgent,
-    });
-  } catch (error) {
-    console.error("Error logging user activity:", error);
-  }
-};
-
-// Log activity directly in user document (new method)
+// Log activity directly in the user document. Callers don't wait for it: it's a record, not part of the action.
+// (Sign-in, sign-up and sign-out are logged by the server instead.)
 export const logActivityInUserDocument = async (
   userId: string,
   activityType: string,
   details?: Record<string, any>
 ): Promise<void> => {
   try {
-    // Get the current user document
-    const userRef = doc(db, "users", userId);
-    const userDoc = await getDoc(userRef);
-
-    if (userDoc.exists()) {
-      // Prepare the activity log entry
-      const activityLog = {
+    // Fails harmlessly when there is no profile yet; no read first, which would be another round trip.
+    await updateDoc(doc(db, "users", userId), {
+      activityLogs: arrayUnion({
         type: activityType,
         timestamp: new Date(),
         details: details || {},
         userAgent: navigator.userAgent,
-      };
-
-      // Update the activityLogs array
-      await updateDoc(userRef, {
-        activityLogs: arrayUnion(activityLog),
-        updatedAt: serverTimestamp(),
-      });
-    }
+      }),
+      updatedAt: serverTimestamp(),
+    });
   } catch (error) {
     console.error("Failed to log user activity:", error);
-    // Don't throw - this is a non-critical operation
   }
 };
 
@@ -559,7 +420,7 @@ export const completePhoneMfaEnrollment = async (
     );
 
     // Log the MFA enrollment in user document
-    await logActivityInUserDocument(user.uid, "mfa_enabled", {
+    void logActivityInUserDocument(user.uid, "mfa_enabled", {
       type: "phone",
       phoneNumber: "redacted",
     });
@@ -617,7 +478,7 @@ export const completeTotpMfaEnrollment = async (
     );
 
     // Log the MFA enrollment in user document
-    await logActivityInUserDocument(user.uid, "mfa_enabled", {
+    void logActivityInUserDocument(user.uid, "mfa_enabled", {
       type: "totp",
     });
 
@@ -640,7 +501,7 @@ export const unenrollMfaFactor = async (
     await multiFactorUser.unenroll(factorUid);
 
     // Log the MFA removal in user document
-    await logActivityInUserDocument(user.uid, "mfa_disabled", {
+    void logActivityInUserDocument(user.uid, "mfa_disabled", {
       factorUid,
     });
 

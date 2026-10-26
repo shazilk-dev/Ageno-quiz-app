@@ -1,9 +1,10 @@
 "use client";
 
 import type { MultiFactorInfo, User } from "firebase/auth";
-import { ChevronRight, Clock, Smartphone } from "lucide-react";
+import { ChevronRight, Clock, LogOut, Smartphone } from "lucide-react";
 import { useState } from "react";
 import { Badge, Button, Card } from "@/components/ui";
+import { useAuth } from "@/contexts/auth-context";
 import {
   getMfaStatus,
   sendVerificationEmail,
@@ -36,7 +37,15 @@ function readFactors(user: User): MultiFactorInfo[] {
 export default function SecuritySection({ user, action }: SectionProps) {
   const [factors, setFactors] = useState(() => readFactors(user));
   const [setup, setSetup] = useState<Setup>(null);
+  const [confirmEverywhere, setConfirmEverywhere] = useState(false);
+  const { logoutEverywhere } = useAuth();
   const { busy, run } = action;
+
+  // Once signed out, the (user) layout sends the person to sign in.
+  const signOutEverywhere = () =>
+    run(logoutEverywhere, {
+      failure: "We couldn't sign you out of your other devices. Please try again.",
+    });
 
   const finishSetup = () => {
     setFactors(readFactors(user));
@@ -138,6 +147,34 @@ export default function SecuritySection({ user, action }: SectionProps) {
             </div>
           )}
         </div>
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg">Signed-in devices</h3>
+            <p className="mt-1 max-w-[65ch] text-sm text-text-muted">
+              Lost a device or signed in somewhere you shouldn&apos;t have? Sign out everywhere, including here.
+            </p>
+          </div>
+          {!confirmEverywhere && (
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => setConfirmEverywhere(true)}>
+              <LogOut className="size-4" aria-hidden="true" />
+              Sign out of all devices
+            </Button>
+          )}
+        </div>
+        {confirmEverywhere && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-border p-4">
+            <p className="min-w-0 flex-1 text-sm">You&apos;ll need to sign in again on every device.</p>
+            <Button variant="danger" size="sm" loading={busy} onClick={() => void signOutEverywhere()}>
+              Sign out everywhere
+            </Button>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmEverywhere(false)}>
+              Cancel
+            </Button>
+          </div>
+        )}
       </Card>
     </div>
   );

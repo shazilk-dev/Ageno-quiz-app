@@ -38,9 +38,23 @@ describe("GET /api/auth/session/check", () => {
 
   it("still answers 401 for a revoked session", async () => {
     state.cookie = "revoked";
-    state.verify.mockResolvedValueOnce({ uid: "u1" }).mockRejectedValueOnce(new Error("revoked"));
+    state.verify.mockRejectedValue(Object.assign(new Error("revoked"), { code: "auth/session-cookie-revoked" }));
     const response = await GET();
     expect(response.status).toBe(401);
     expect(await response.json()).toMatchObject({ reason: "token_revoked" });
+    expect(response.headers.get("set-cookie")).toContain("signed_in=;");
+  });
+
+  it("verifies a good session once, revocation included, and answers from its claims alone", async () => {
+    state.cookie = "good";
+    state.verify.mockResolvedValue({ uid: "u1", email: "ada@example.com", name: "Ada", role: "admin" });
+    const response = await GET();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      isAuthenticated: true,
+      user: { uid: "u1", email: "ada@example.com", displayName: "Ada", role: "admin" },
+    });
+    expect(state.verify).toHaveBeenCalledTimes(1);
+    expect(state.verify).toHaveBeenCalledWith("good", true);
   });
 });

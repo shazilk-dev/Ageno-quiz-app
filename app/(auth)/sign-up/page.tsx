@@ -1,9 +1,8 @@
 "use client";
 
-import { CircleCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useState, type FormEvent } from "react";
 import AuthFrame from "@/components/auth/AuthFrame";
 import GoogleButton, { OrDivider } from "@/components/auth/GoogleButton";
 import { Alert, Button, Input, Skeleton } from "@/components/ui";
@@ -48,6 +47,8 @@ function SignUpContent() {
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirectTo");
   const signInHref = redirectTo ? `/sign-in?redirectTo=${encodeURIComponent(safeRedirectPath(redirectTo))}` : "/sign-in";
+  // Where a new account goes: sign-in, with a note that the account is ready.
+  const createdHref = `${signInHref}${redirectTo ? "&" : "?"}success=account_created`;
   const { signUp, loginWithGoogle } = useAuth();
 
   const [name, setName] = useState("");
@@ -57,14 +58,6 @@ function SignUpContent() {
   const [problem, setProblem] = useState<{ field: Field; text: string } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<"form" | "google" | null>(null);
-  const [created, setCreated] = useState(false);
-
-  // After sign-up they sign in once (so a fresh session is made), a few seconds later or right away.
-  useEffect(() => {
-    if (!created) return;
-    const timer = setTimeout(() => router.push(signInHref), 4000);
-    return () => clearTimeout(timer);
-  }, [created, router, signInHref]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -79,9 +72,9 @@ function SignUpContent() {
     try {
       const result = await signUp(email, password, name.trim());
       if (result.success) {
-        // Sign out any existing session, so they sign in fresh.
+        // They sign in once, so a fresh session is made. Straight there; the sign-in page says the account is ready.
         await signOut();
-        setCreated(true);
+        router.push(createdHref);
       } else {
         setError(signUpMessage(result.error));
       }
@@ -116,23 +109,6 @@ function SignUpContent() {
   };
 
   const errorFor = (field: Field) => (problem?.field === field ? problem.text : undefined);
-
-  if (created) {
-    return (
-      <AuthFrame eyebrow="// ACCOUNT CREATED" title="You're in">
-        <div role="status" className="space-y-5">
-          <p className="flex items-start gap-3 text-text-body">
-            <CircleCheck className="mt-0.5 size-5 shrink-0 text-success" aria-hidden="true" />
-            Your account is ready. Sign in with your new details to start.
-          </p>
-          <Button asChild className="w-full">
-            <Link href={signInHref}>Go to sign in</Link>
-          </Button>
-          <p className="text-center text-sm text-text-muted">Taking you there in a few seconds.</p>
-        </div>
-      </AuthFrame>
-    );
-  }
 
   return (
     <AuthFrame
