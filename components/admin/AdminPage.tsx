@@ -16,8 +16,8 @@ interface AdminPageProps {
 }
 
 /**
- * The frame the admin pages share: title, optional back link and actions, and the paper (light) theme the
- * rest of the admin sits on until its full restyle (P7.3). Pages don't render a `<main>`; the layout does.
+ * The frame the admin pages share: title, optional back link and actions. The light (bone) theme comes
+ * from the admin shell. Pages don't render a `<main>`; the shell does.
  */
 export function AdminPage({
   title,
@@ -29,7 +29,6 @@ export function AdminPage({
 }: AdminPageProps) {
   return (
     <div
-      data-theme="light"
       className={cn(
         "mx-auto w-full px-4 py-8 text-text",
         width === "narrow" ? "max-w-3xl" : "max-w-6xl"

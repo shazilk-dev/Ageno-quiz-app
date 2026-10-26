@@ -1,557 +1,312 @@
-/* eslint-disable @next/next/no-img-element */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import { Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminPage } from "@/components/admin/AdminPage";
 import {
-  collection,
-  getDocs,
-  query,
-  orderBy,
-  doc,
-  updateDoc,
-} from "firebase/firestore";
-import { db } from "@/firebase/client";
-import { FiSearch, FiUserPlus, FiFilter } from "react-icons/fi";
-import { Alert, Button, Dialog, useToast } from "@/components/ui";
+  UsersTable,
+  type SortDirection,
+  type UserSortKey,
+} from "@/components/admin/UsersTable";
+import {
+  Alert,
+  Button,
+  Dialog,
+  EmptyState,
+  FilterTabs,
+  SearchInput,
+  Skeleton,
+  StatStrip,
+  useToast,
+} from "@/components/ui";
+import { useAuth } from "@/contexts/auth-context";
 import { adminUsers } from "@/lib/admin-api";
+import type { AdminUserDTO } from "@/lib/admin-types";
 import { ApiRequestError } from "@/lib/api-client";
 
-interface User {
-  id: string;
-  email: string;
-  displayName: string;
-  role: string;
-  createdAt: any;
-  lastLoginAt: any;
-  emailVerified: boolean;
-  photoURL?: string;
-}
+type RoleFilter = "all" | "admin" | "user";
+
+const message = (error: unknown, fallback: string) =>
+  error instanceof ApiRequestError ? error.message : fallback;
+
+const sortValue = (user: AdminUserDTO, key: UserSortKey): string | number => {
+  switch (key) {
+    case "name":
+      return (user.displayName || user.email).toLowerCase();
+    case "email":
+      return user.email.toLowerCase();
+    case "role":
+      return user.role;
+    case "joined":
+      return user.createdAt ?? 0;
+    case "lastLogin":
+      return user.lastLoginAt ?? 0;
+  }
+};
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [searchTerm, setSearchTerm] = useState<string>("");
-  const [filter, setFilter] = useState<"all" | "admin" | "user">("all");
-  const [sortBy, setSortBy] = useState<string>("createdAt");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const { toast } = useToast();
-  const [deletingUser, setDeletingUser] = useState<User | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [stats, setStats] = useState({
-    total: 0,
-    admins: 0,
-    users: 0,
-    verified: 0,
-  });
+  const { user: me } = useAuth();
+  const [users, setUsers] = useState<AdminUserDTO[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<RoleFilter>("all");
+  const [sortKey, setSortKey] = useState<UserSortKey>("joined");
+  const [direction, setDirection] = useState<SortDirection>("desc");
 
-  // Define filterAndSortUsers using useCallback
-  const filterAndSortUsers = useCallback(() => {
-    // First filter the users
-    const filtered = users.filter((user) => {
-      // Apply role filter
-      if (filter === "admin" && user.role !== "admin") return false;
-      if (filter === "user" && user.role !== "user") return false;
+  const [roleChange, setRoleChange] = useState<AdminUserDTO | null>(null);
+  const [deleting, setDeleting] = useState<AdminUserDTO | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
 
-      // Apply search filter if search term exists
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
-        return (
-          user.email?.toLowerCase().includes(term) ||
-          false ||
-          user.displayName?.toLowerCase().includes(term) ||
-          false
-        );
-      }
-
-      return true;
-    });
-
-    // Then sort the filtered users
-    filtered.sort((a, b) => {
-      let aValue = a[sortBy as keyof User];
-      let bValue = b[sortBy as keyof User];
-
-      // Handle date sorting specifically
-      if (sortBy === "createdAt" || sortBy === "lastLoginAt") {
-        if (aValue && typeof aValue === "object" && "toDate" in aValue) {
-          aValue = aValue.toDate();
-        } else if (typeof aValue === "number") {
-          aValue = new Date(aValue);
-        }
-
-        if (bValue && typeof bValue === "object" && "toDate" in bValue) {
-          bValue = bValue.toDate();
-        } else if (typeof bValue === "number") {
-          bValue = new Date(bValue);
-        }
-
-        // Convert to timestamps for comparison
-        aValue = aValue instanceof Date ? aValue.getTime() : 0;
-        bValue = bValue instanceof Date ? bValue.getTime() : 0;
-      }
-
-      // Apply sort order
-      if (sortOrder === "asc") {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
-    });
-
-    setFilteredUsers(filtered);
-  }, [users, searchTerm, filter, sortBy, sortOrder]);
-
-  const fetchUsers = async () => {
+  const load = useCallback(async () => {
+    setError(null);
+    setUsers(null);
     try {
-      setIsLoading(true);
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, orderBy("createdAt", "desc"));
-      const querySnapshot = await getDocs(q);
+      const result = await adminUsers.list();
+      setUsers(result.users);
+      setTotal(result.total);
+    } catch (failure) {
+      setError(message(failure, "We couldn't load the users. Try again."));
+    }
+  }, []);
 
-      const usersList: User[] = [];
-      querySnapshot.forEach((doc) => {
-        usersList.push({
-          id: doc.id,
-          ...(doc.data() as Omit<User, "id">),
-        });
-      });
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-      setUsers(usersList);
+  const counts = useMemo(() => {
+    const list = users ?? [];
+    const admins = list.filter((user) => user.role === "admin").length;
+    return {
+      all: list.length,
+      admin: admins,
+      user: list.length - admins,
+      verified: list.filter((user) => user.emailVerified).length,
+    };
+  }, [users]);
 
-      // Update stats
-      const adminCount = usersList.filter(
-        (user) => user.role === "admin"
-      ).length;
-      const verifiedCount = usersList.filter(
-        (user) => user.emailVerified
-      ).length;
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const list = (users ?? []).filter(
+      (user) =>
+        (filter === "all" || user.role === filter) &&
+        (!term ||
+          user.email.toLowerCase().includes(term) ||
+          user.displayName.toLowerCase().includes(term))
+    );
+    const sign = direction === "asc" ? 1 : -1;
+    return list.sort((a, b) => {
+      const x = sortValue(a, sortKey);
+      const y = sortValue(b, sortKey);
+      return (x < y ? -1 : x > y ? 1 : 0) * sign;
+    });
+  }, [users, search, filter, sortKey, direction]);
 
-      setStats({
-        total: usersList.length,
-        admins: adminCount,
-        users: usersList.length - adminCount,
-        verified: verifiedCount,
-      });
-    } catch (error) {
-      console.error("Error fetching users:", error);
-    } finally {
-      setIsLoading(false);
+  const sortBy = (key: UserSortKey) => {
+    if (key === sortKey) {
+      setDirection((current) => (current === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // People expect names and roles A to Z, and dates newest first.
+      setDirection(key === "joined" || key === "lastLogin" ? "desc" : "asc");
     }
   };
 
-  // Fetch users on component mount
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-  
-  // Filter and sort users when dependencies change
-  useEffect(() => {
-    filterAndSortUsers();
-  }, [filterAndSortUsers]);
+  const closeDialogs = () => {
+    if (busy) return;
+    setRoleChange(null);
+    setDeleting(null);
+  };
 
-  const handleUpdateRole = async (userId: string, newRole: string) => {
+  const confirmRoleChange = async () => {
+    if (!roleChange) return;
+    const target = roleChange;
+    const role = target.role === "admin" ? "user" : "admin";
+    setBusy(true);
+    setDialogError(null);
     try {
-      setUpdatingUserId(userId);
-
-      // Update the user role in Firestore
-      const userRef = doc(db, "users", userId);
-      await updateDoc(userRef, {
-        role: newRole,
+      await adminUsers.setRole(target.id, role);
+      setUsers((current) => current?.map((user) => (user.id === target.id ? { ...user, role } : user)) ?? null);
+      toast({
+        title: role === "admin" ? "Admin added" : "Admin removed",
+        description: `${target.displayName || target.email} is now ${role === "admin" ? "an admin" : "a member"}.`,
+        variant: "success",
       });
-
-      // Update local state
-      setUsers((prevUsers) =>
-        prevUsers.map((user) =>
-          user.id === userId ? { ...user, role: newRole } : user
-        )
-      );
-
-      // Update stats
-      if (newRole === "admin") {
-        setStats((prevStats) => ({
-          ...prevStats,
-          admins: prevStats.admins + 1,
-          users: prevStats.users - 1,
-        }));
-      } else {
-        setStats((prevStats) => ({
-          ...prevStats,
-          admins: prevStats.admins - 1,
-          users: prevStats.users + 1,
-        }));
-      }
-    } catch (error) {
-      console.error("Error updating user role:", error);
-      alert("Failed to update user role. Please try again.");
+      setRoleChange(null);
+    } catch (failure) {
+      setDialogError(message(failure, "We couldn't change the role. Try again."));
     } finally {
-      setUpdatingUserId(null);
+      setBusy(false);
     }
   };
 
   // Deleting a person removes their sign-in account too (on the server), not just their profile.
-  const confirmDeleteUser = async () => {
-    if (!deletingUser) return;
-    setDeleteBusy(true);
-    setDeleteError(null);
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    const target = deleting;
+    setBusy(true);
+    setDialogError(null);
     try {
-      await adminUsers.remove(deletingUser.id);
-      const deleted = deletingUser;
-      setUsers((prevUsers) => prevUsers.filter((user) => user.id !== deleted.id));
-      setStats((prevStats) => ({
-        ...prevStats,
-        total: prevStats.total - 1,
-        admins: deleted.role === "admin" ? prevStats.admins - 1 : prevStats.admins,
-        users: deleted.role !== "admin" ? prevStats.users - 1 : prevStats.users,
-        verified: deleted.emailVerified ? prevStats.verified - 1 : prevStats.verified,
-      }));
+      await adminUsers.remove(target.id);
+      setUsers((current) => current?.filter((user) => user.id !== target.id) ?? null);
+      setTotal((current) => Math.max(0, current - 1));
       toast({ title: "User deleted", variant: "success" });
-      setDeletingUser(null);
-    } catch (error) {
-      setDeleteError(
-        error instanceof ApiRequestError
-          ? error.message
-          : "We couldn't delete this user. Try again."
-      );
+      setDeleting(null);
+    } catch (failure) {
+      setDialogError(message(failure, "We couldn't delete this user. Try again."));
     } finally {
-      setDeleteBusy(false);
+      setBusy(false);
     }
   };
 
-  // Toggle sort order
-  const handleSort = (field: string) => {
-    if (sortBy === field) {
-      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortBy(field);
-      setSortOrder("asc");
-    }
+  const clearFilters = () => {
+    setSearch("");
+    setFilter("all");
   };
-
-  // Format date to readable string
-  const formatDate = (timestamp: any): string => {
-    if (!timestamp) return "Never";
-
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
+  const targetName = (user: AdminUserDTO | null) => user?.displayName || user?.email || "this person";
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-          <p className="text-gray-600">
-            Manage users and their access permissions
-          </p>
-        </div>
-
-        <button
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
-          // Note: This should be replaced with proper functionality to add users if that feature is needed
-          onClick={() =>
-            alert(
-              "To add users, please have them sign up through the registration page."
-            )
+    <AdminPage title="Users" description="Who has an account, and who can manage the quizzes.">
+      {error ? (
+        <Alert
+          variant="error"
+          title="Couldn't load the users"
+          action={
+            <Button variant="secondary" size="sm" onClick={() => void load()}>
+              Try again
+            </Button>
           }
         >
-          <FiUserPlus className="mr-2" />
-          Invite User
-        </button>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm font-medium text-gray-500">Total Users</p>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {stats.total}
-          </p>
+          {error}
+        </Alert>
+      ) : users === null ? (
+        <div className="space-y-4" aria-busy="true" aria-label="Loading users">
+          <Skeleton className="h-[5.5rem] w-full rounded-lg" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-64 w-full rounded-lg" />
         </div>
+      ) : (
+        <div className="space-y-6">
+          <StatStrip
+            stats={[
+              { label: "People", value: String(total) },
+              { label: "Admins", value: String(counts.admin) },
+              { label: "Members", value: String(counts.user) },
+              { label: "Verified email", value: String(counts.verified) },
+            ]}
+          />
+          {total > users.length && (
+            <Alert variant="info">
+              Showing the {users.length} newest of {total} people. The search and the numbers above cover
+              only these.
+            </Alert>
+          )}
 
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm font-medium text-gray-500">Administrators</p>
-          <p className="mt-1 text-3xl font-semibold text-purple-600">
-            {stats.admins}
-          </p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm font-medium text-gray-500">Standard Users</p>
-          <p className="mt-1 text-3xl font-semibold text-blue-600">
-            {stats.users}
-          </p>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm font-medium text-gray-500">Verified Emails</p>
-          <p className="mt-1 text-3xl font-semibold text-green-600">
-            {stats.verified}
-          </p>
-        </div>
-      </div>
-
-      {/* Search and filters */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <div className="p-4 flex flex-col md:flex-row md:items-center gap-4">
-          <div className="relative flex-grow">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FiSearch className="h-5 w-5 text-gray-400" />
-            </div>
-            <input
-              type="text"
-              placeholder="Search users..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-border border-b">
+            <FilterTabs<RoleFilter>
+              label="Filter by role"
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: "all", label: "Everyone", count: counts.all },
+                { value: "admin", label: "Admins", count: counts.admin },
+                { value: "user", label: "Members", count: counts.user },
+              ]}
+            />
+            <SearchInput
+              label="Search people"
+              placeholder="Search by name or email"
+              value={search}
+              onChange={setSearch}
+              className="mb-2 w-full sm:w-72"
             />
           </div>
 
-          <div className="flex items-center">
-            <FiFilter className="mr-2 text-gray-400" />
-            <select
-              value={filter}
-              onChange={(e) =>
-                setFilter(e.target.value as "all" | "admin" | "user")
+          {users.length === 0 ? (
+            <EmptyState icon={Users} title="No one has signed up yet" description="People show up here once they create an account." />
+          ) : visible.length === 0 ? (
+            <EmptyState
+              title="No one matches"
+              description="Try a different name, or clear the search and filter."
+              action={
+                <Button variant="secondary" onClick={clearFilters}>
+                  Clear search and filter
+                </Button>
               }
-              className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-            >
-              <option value="all">All Users</option>
-              <option value="admin">Admins Only</option>
-              <option value="user">Standard Users Only</option>
-            </select>
-          </div>
+            />
+          ) : (
+            <UsersTable
+              users={visible}
+              currentUid={me?.uid}
+              sortKey={sortKey}
+              direction={direction}
+              onSort={sortBy}
+              onToggleRole={(user) => {
+                setDialogError(null);
+                setRoleChange(user);
+              }}
+              onDelete={(user) => {
+                setDialogError(null);
+                setDeleting(user);
+              }}
+            />
+          )}
         </div>
-      </div>
-
-      {/* Users Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        {isLoading ? (
-          <div className="p-6 text-center">
-            <div className="inline-block animate-spin h-8 w-8 border-4 border-purple-500 border-t-transparent rounded-full"></div>
-            <p className="mt-2 text-gray-600">Loading users...</p>
-          </div>
-        ) : filteredUsers.length === 0 ? (
-          <div className="p-6 text-center">
-            {searchTerm || filter !== "all" ? (
-              <>
-                <p className="text-gray-600">
-                  No users found matching your criteria
-                </p>
-                <button
-                  onClick={() => {
-                    setSearchTerm("");
-                    setFilter("all");
-                  }}
-                  className="mt-2 text-purple-600 hover:text-purple-800 underline"
-                >
-                  Clear filters
-                </button>
-              </>
-            ) : (
-              <p className="text-gray-600">No users available.</p>
-            )}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("name")}
-                  >
-                    <div className="flex items-center">
-                      <span>User</span>
-                      {sortBy === "name" && (
-                        <span className="ml-1">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </div>
-                  </th>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("email")}
-                  >
-                    <div className="flex items-center">
-                      <span>Email</span>
-                      {sortBy === "email" && (
-                        <span className="ml-1">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </div>
-                  </th>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("role")}
-                  >
-                    <div className="flex items-center">
-                      <span>Role</span>
-                      {sortBy === "role" && (
-                        <span className="ml-1">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </div>
-                  </th>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("createdAt")}
-                  >
-                    <div className="flex items-center">
-                      <span>Joined</span>
-                      {sortBy === "createdAt" && (
-                        <span className="ml-1">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </div>
-                  </th>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("lastLogin")}
-                  >
-                    <div className="flex items-center">
-                      <span>Last Login</span>
-                      {sortBy === "lastLogin" && (
-                        <span className="ml-1">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </div>
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        {user.photoURL ? (
-                          <img
-                            src={user.photoURL}
-                            alt={user.displayName || user.email}
-                            className="h-10 w-10 rounded-full"
-                          />
-                        ) : (
-                          <div className="h-10 w-10 rounded-full bg-gradient-to-r from-purple-400 to-purple-600 flex items-center justify-center text-white font-medium">
-                            {(user.displayName || user.email || "?")
-                              .charAt(0)
-                              .toUpperCase()}
-                          </div>
-                        )}
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">
-                            {user.displayName || "No Name"}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-500">{user.email}</div>
-                      {user.emailVerified ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          Verified
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                          Not Verified
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {user.role === "admin" ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                          Admin
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          User
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDate(user.createdAt)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDate(user.lastLoginAt)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-3">
-                        <button
-                          onClick={() =>
-                            handleUpdateRole(
-                              user.id,
-                              user.role === "admin" ? "user" : "admin"
-                            )
-                          }
-                          disabled={updatingUserId === user.id}
-                          className={`text-${
-                            user.role === "admin" ? "blue" : "purple"
-                          }-600 hover:text-${
-                            user.role === "admin" ? "blue" : "purple"
-                          }-900 ${
-                            updatingUserId === user.id
-                              ? "opacity-50 cursor-not-allowed"
-                              : ""
-                          }`}
-                        >
-                          {updatingUserId === user.id
-                            ? "Updating..."
-                            : user.role === "admin"
-                            ? "Make User"
-                            : "Make Admin"}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setDeleteError(null);
-                            setDeletingUser(user);
-                          }}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      )}
 
       <Dialog
-        open={deletingUser !== null}
-        onClose={() => !deleteBusy && setDeletingUser(null)}
-        dismissible={!deleteBusy}
-        title={deletingUser ? `Delete ${deletingUser.displayName || deletingUser.email}?` : "Delete user"}
+        open={roleChange !== null}
+        onClose={closeDialogs}
+        dismissible={!busy}
+        title={
+          roleChange?.role === "admin"
+            ? `Remove admin from ${targetName(roleChange)}?`
+            : `Make ${targetName(roleChange)} an admin?`
+        }
+        description={
+          roleChange?.role === "admin"
+            ? "They lose access to the admin screens straight away, and their current sign-in is ended."
+            : "Admins can create, edit and delete any quiz, see every result and manage other people's accounts."
+        }
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeDialogs} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              variant={roleChange?.role === "admin" ? "danger" : "primary"}
+              onClick={confirmRoleChange}
+              loading={busy}
+            >
+              {roleChange?.role === "admin" ? "Remove admin" : "Make admin"}
+            </Button>
+          </>
+        }
+      >
+        {roleChange && dialogError && <Alert variant="error">{dialogError}</Alert>}
+      </Dialog>
+
+      <Dialog
+        open={deleting !== null}
+        onClose={closeDialogs}
+        dismissible={!busy}
+        title={`Delete ${targetName(deleting)}?`}
         description="This deletes their account, so they can no longer sign in, along with their profile and any attempt in progress. Quiz results they already earned are kept."
         footer={
           <>
-            <Button variant="ghost" onClick={() => setDeletingUser(null)} disabled={deleteBusy}>
+            <Button variant="ghost" onClick={closeDialogs} disabled={busy}>
               Keep user
             </Button>
-            <Button variant="danger" onClick={confirmDeleteUser} loading={deleteBusy}>
+            <Button variant="danger" onClick={confirmDelete} loading={busy}>
               Delete user
             </Button>
           </>
         }
       >
-        {deleteError && <Alert variant="error">{deleteError}</Alert>}
+        {deleting && dialogError && <Alert variant="error">{dialogError}</Alert>}
       </Dialog>
-    </div>
+    </AdminPage>
   );
 }

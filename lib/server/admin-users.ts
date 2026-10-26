@@ -1,4 +1,6 @@
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { auth, db } from "@/firebase/admin";
+import type { AdminUserDTO } from "@/lib/admin-types";
 import { ApiError, assertSafeId } from "./request";
 
 /**
@@ -46,4 +48,87 @@ export async function deleteUserAccount(
   }
   await db.recursiveDelete(profileRef);
   return { deleted: true };
+}
+
+/** Sign-up and login times are server timestamps, but older profiles may hold plain numbers or dates. */
+function toMillis(value: unknown): number | null {
+  if (value instanceof Timestamp) return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** At most this many people are listed; `total` says how many exist. */
+export const MAX_LISTED_USERS = 500;
+
+/**
+ * The people list for the Users screen, newest first. Only the fields the screen shows are read (not the
+ * activity logs kept on the profile).
+ */
+export async function listUsers(): Promise<{ users: AdminUserDTO[]; total: number }> {
+  const [snapshot, count] = await Promise.all([
+    db
+      .collection("users")
+      .select("email", "displayName", "role", "emailVerified", "createdAt", "lastLoginAt")
+      .limit(MAX_LISTED_USERS)
+      .get(),
+    db.collection("users").count().get(),
+  ]);
+
+  const users = snapshot.docs.map((doc): AdminUserDTO => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      email: typeof data.email === "string" ? data.email : "",
+      displayName: typeof data.displayName === "string" ? data.displayName : "",
+      role: data.role === "admin" ? "admin" : "user",
+      emailVerified: data.emailVerified === true,
+      createdAt: toMillis(data.createdAt),
+      lastLoginAt: toMillis(data.lastLoginAt),
+    };
+  });
+  users.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  return { users, total: count.data().count };
+}
+
+/**
+ * Makes someone an admin or a plain user. The role lives in two places the rules read (the `role` claim
+ * and `users/{uid}.role`), so both are set here, and a demotion also ends the person's current sessions:
+ * a token issued while they were an admin would otherwise keep working until it expires.
+ *
+ * You can't change your own role (an admin can't lock themselves out by accident), which also means the
+ * last admin can't be demoted by the one person who could undo it.
+ */
+export async function setUserRole(
+  targetUid: unknown,
+  role: unknown,
+  actingUid: string
+): Promise<{ id: string; role: "admin" | "user" }> {
+  assertSafeId(targetUid, "user");
+  if (role !== "admin" && role !== "user") {
+    throw new ApiError(400, "invalid_role", "The role must be admin or user.");
+  }
+  if (targetUid === actingUid) {
+    throw new ApiError(400, "cannot_change_own_role", "You can't change your own role. Ask another admin.");
+  }
+
+  const profileRef = db.collection("users").doc(targetUid);
+  const profile = await profileRef.get();
+  if (!profile.exists) {
+    throw new ApiError(404, "user_not_found", "We couldn't find that user.");
+  }
+
+  let claims: Record<string, unknown>;
+  try {
+    claims = (await auth.getUser(targetUid)).customClaims ?? {};
+  } catch (error) {
+    if ((error as { code?: string }).code === "auth/user-not-found") {
+      throw new ApiError(404, "user_not_found", "That person's sign-in account no longer exists.");
+    }
+    throw error;
+  }
+
+  await auth.setCustomUserClaims(targetUid, { ...claims, role });
+  await profileRef.update({ role, updatedAt: FieldValue.serverTimestamp() });
+  if (role === "user") await auth.revokeRefreshTokens(targetUid);
+  return { id: targetUid, role };
 }

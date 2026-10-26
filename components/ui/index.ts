@@ -11,4 +11,5 @@ export { FilterTabs, type FilterTabOption } from "./FilterTabs";
 export { SearchInput } from "./SearchInput";
 export { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
 export { Skeleton } from "./Skeleton";
+export { StatStrip, type Stat } from "./StatStrip";
 export { ToastProvider, useToast } from "./Toast";

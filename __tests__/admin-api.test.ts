@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 const authState = vi.hoisted(() => ({
   claims: {} as Record<string, unknown>,
   deleted: [] as string[],
+  revoked: [] as string[],
 }));
 
 vi.mock("@/firebase/admin", async () => {
@@ -26,6 +27,13 @@ vi.mock("@/firebase/admin", async () => {
       setCustomUserClaims: async (uid: string, claims: unknown) => {
         authState.claims[uid] = claims;
       },
+      getUser: async (uid: string) => {
+        if (uid.startsWith("ghost")) throw Object.assign(new Error("gone"), { code: "auth/user-not-found" });
+        return { customClaims: authState.claims[uid] ?? { keep: "me" } };
+      },
+      revokeRefreshTokens: async (uid: string) => {
+        authState.revoked.push(uid);
+      },
       deleteUser: async (uid: string) => {
         if (uid.startsWith("ghost")) throw Object.assign(new Error("gone"), { code: "auth/user-not-found" });
         authState.deleted.push(uid);
@@ -41,7 +49,8 @@ import { DELETE as deleteQuizRoute, GET as getQuizRoute, PUT as putQuizRoute } f
 import { GET as listRoute, POST as createRoute } from "@/app/api/admin/quizzes/route";
 import { GET as reportsRoute } from "@/app/api/admin/reports/route";
 import { GET as statsRoute } from "@/app/api/admin/stats/route";
-import { DELETE as deleteUserRoute } from "@/app/api/admin/users/[uid]/route";
+import { DELETE as deleteUserRoute, PATCH as patchUserRoute } from "@/app/api/admin/users/[uid]/route";
+import { GET as listUsersRoute } from "@/app/api/admin/users/route";
 import { POST as startRoute } from "@/app/api/attempts/start/route";
 import { POST as submitRoute } from "@/app/api/attempts/[id]/submit/route";
 import { GET as publicQuizRoute } from "@/app/api/quizzes/[quizId]/route";
@@ -124,6 +133,8 @@ describe.skipIf(!emulator)("the admin guard", () => {
       save(id, { ...input(), version: 0 }, token),
       remove(id, token),
       deleteUserRoute(request("/api/admin/users/x", "DELETE", token ?? undefined), { params: Promise.resolve({ uid: "x" }) }),
+      patchUserRoute(request("/api/admin/users/x", "PATCH", token ?? undefined, { role: "admin" }), { params: Promise.resolve({ uid: "x" }) }),
+      listUsersRoute(request("/api/admin/users", "GET", token ?? undefined)),
     ];
     for (const response of await Promise.all(calls(null))) expect(response.status).toBe(401);
     for (const response of await Promise.all(calls("bogus"))) expect(response.status).toBe(401);
@@ -510,6 +521,86 @@ describe.skipIf(!emulator)("deleting a user", () => {
     // With a second admin it goes through.
     await db.doc("users/second").set({ role: "admin" });
     expect((await del("root", "admin:second")).status).toBe(200);
+  });
+});
+
+describe.skipIf(!emulator)("listing users and changing roles", () => {
+  const setRole = (uid: string, body: unknown, token = ADMIN) =>
+    patchUserRoute(request(`/api/admin/users/${uid}`, "PATCH", token, body), { params: Promise.resolve({ uid }) });
+
+  it("lists people newest first with plain times, and no activity logs", async () => {
+    const older = unique("older");
+    const newer = unique("newer");
+    await db.doc(`users/${older}`).set({
+      email: "o@example.com", displayName: "Old", role: "user", emailVerified: true,
+      createdAt: Timestamp.fromMillis(1_000), lastLoginAt: Timestamp.fromMillis(5_000), activityLogs: ["secret"],
+    });
+    await db.doc(`users/${newer}`).set({ email: "n@example.com", role: "admin", createdAt: Timestamp.fromMillis(2_000) });
+
+    const response = await listUsersRoute(request("/api/admin/users", "GET", ADMIN));
+    const text = await response.text();
+    const body = JSON.parse(text) as { users: { id: string }[]; total: number };
+
+    expect(response.status).toBe(200);
+    expect(text).not.toContain("secret");
+    expect(body.total).toBeGreaterThanOrEqual(2);
+    const ids = body.users.map((u) => u.id);
+    expect(ids.indexOf(newer)).toBeLessThan(ids.indexOf(older));
+    expect(body.users.find((u) => u.id === older)).toEqual({
+      id: older, email: "o@example.com", displayName: "Old", role: "user", emailVerified: true,
+      createdAt: 1_000, lastLoginAt: 5_000,
+    });
+    expect(body.users.find((u) => u.id === newer)).toMatchObject({
+      role: "admin", displayName: "", emailVerified: false, lastLoginAt: null,
+    });
+  });
+
+  it("promotes: sets the claim (keeping other claims) and the profile together", async () => {
+    const uid = unique("promote");
+    await db.doc(`users/${uid}`).set({ role: "user" });
+
+    const response = await setRole(uid, { role: "admin" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ id: uid, role: "admin" });
+    expect(authState.claims[uid]).toEqual({ keep: "me", role: "admin" });
+    expect((await db.doc(`users/${uid}`).get()).data()?.role).toBe("admin");
+    expect(authState.revoked).not.toContain(uid);
+    // They can now use the admin routes.
+    expect((await listRoute(request("/api/admin/quizzes", "GET", `uid:${uid}`))).status).toBe(200);
+  });
+
+  it("demotes: clears both and ends their current sessions", async () => {
+    const uid = unique("demote");
+    await db.doc(`users/${uid}`).set({ role: "admin" });
+
+    expect((await setRole(uid, { role: "user" })).status).toBe(200);
+    expect(authState.claims[uid]).toMatchObject({ role: "user" });
+    expect((await db.doc(`users/${uid}`).get()).data()?.role).toBe("user");
+    expect(authState.revoked).toContain(uid);
+    expect((await listRoute(request("/api/admin/quizzes", "GET", `uid:${uid}`))).status).toBe(403);
+  });
+
+  it("won't change your own role, take an unknown role, or touch someone who doesn't exist", async () => {
+    await db.doc("users/root").set({ role: "admin" });
+    const self = await setRole("root", { role: "user" }, ADMIN);
+    expect(self.status).toBe(400);
+    expect(await errorCode(self)).toBe("cannot_change_own_role");
+    expect((await db.doc("users/root").get()).data()?.role).toBe("admin");
+
+    const uid = unique("someone");
+    await db.doc(`users/${uid}`).set({ role: "user" });
+    for (const role of ["owner", "", undefined, 1]) {
+      const bad = await setRole(uid, { role });
+      expect(bad.status).toBe(400);
+      expect(await errorCode(bad)).toBe("invalid_role");
+    }
+    expect((await db.doc(`users/${uid}`).get()).data()?.role).toBe("user");
+
+    const missing = await setRole(unique("nobody"), { role: "admin" });
+    expect(missing.status).toBe(404);
+    await db.doc("users/ghost2").set({ role: "user" });
+    expect((await setRole("ghost2", { role: "admin" })).status).toBe(404);
+    expect((await db.doc("users/ghost2").get()).data()?.role).toBe("user");
   });
 });
 

@@ -1,4 +1,4 @@
-import type { DashboardData, ReportsPage } from "@/lib/admin-types";
+import type { AdminUserDTO, DashboardData, ReportsPage } from "@/lib/admin-types";
 import { apiRequest } from "@/lib/api-client";
 import type { AdminQuizDetail, AdminQuizSummary, QuizInput } from "@/lib/quiz-schema";
 
@@ -32,6 +32,15 @@ export const adminQuizzes = {
 };
 
 export const adminUsers = {
+  /** Up to 500 people, newest first, and how many exist in all. */
+  list: () => apiRequest<{ users: AdminUserDTO[]; total: number }>("/api/admin/users"),
+
+  setRole: (uid: string, role: "admin" | "user") =>
+    apiRequest<{ id: string; role: "admin" | "user" }>(`/api/admin/users/${uid}`, {
+      method: "PATCH",
+      body: { role },
+    }),
+
   remove: (uid: string) =>
     apiRequest<{ deleted: true }>(`/api/admin/users/${uid}`, { method: "DELETE" }),
 };

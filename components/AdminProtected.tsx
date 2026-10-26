@@ -1,7 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
+import { Skeleton } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
-import { ReactNode } from "react";
 
 interface AdminProtectedProps {
   children: ReactNode;
@@ -9,8 +10,8 @@ interface AdminProtectedProps {
 }
 
 /**
- * Component that only renders its children if the current user is an admin
- * Can provide optional fallback content to display for non-admin users
+ * Renders its children only for an admin, and the fallback for anyone else. This keeps the UI honest; the
+ * real checks are on the server (the admin layout and every admin route).
  */
 export default function AdminProtected({
   children,
@@ -18,15 +19,9 @@ export default function AdminProtected({
 }: AdminProtectedProps) {
   const { isAdmin, loading } = useAuth();
 
-  // Don't render anything while checking permissions
   if (loading) {
-    return (
-      <div className="p-8 flex justify-center">
-        <div className="animate-spin h-8 w-8 border-4 border-purple-500 border-t-transparent rounded-full"></div>
-      </div>
-    );
+    return <Skeleton aria-busy="true" className="mx-auto mt-8 h-24 w-full max-w-6xl" />;
   }
 
-  // Render children only if user is an admin, otherwise show fallback
   return isAdmin ? <>{children}</> : <>{fallback}</>;
 }

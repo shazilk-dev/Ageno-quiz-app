@@ -1,5 +1,3 @@
-import type { QuizResponse } from "@/types/quiz";
-
 // The shapes the admin dashboard and reports routes return (see lib/server/admin-reports.ts).
 
 export interface ReportRow {
@@ -34,11 +32,14 @@ export interface DashboardData {
   recent: ReportRow[];
 }
 
-/** A report row as the chart components expect a response. */
-export const toQuizResponse = (row: ReportRow): QuizResponse => ({
-  ...row,
-  score: row.score ?? undefined,
-  startedAt: row.startedAt ?? undefined,
-  submittedAt: row.submittedAt ?? undefined,
-  difficulty: row.difficulty as QuizResponse["difficulty"],
-});
+/** One row of the Users screen (`GET /api/admin/users`). */
+export interface AdminUserDTO {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "admin" | "user";
+  emailVerified: boolean;
+  /** Epoch ms; null when the profile has no such time. */
+  createdAt: number | null;
+  lastLoginAt: number | null;
+}
