@@ -98,7 +98,9 @@ For each page below, use **View page source** (Ctrl+U) or watch the first paint:
 
 ## Performance Phase S4 (merged into `main` and pushed on 2026-10-26)
 
-S4 made every page about 65 kB lighter. It removed the Firestore SDK and the Node polyfills from the browser and moved the profile and activity-log writes to the server. The new Firestore rules deny the browser everything. They are deployed right after the push (see the S4 session log in `docs/PERFORMANCE_PLAN.md`); if that log says the deploy didn't happen, run `firebase deploy --only firestore:rules --project ageno-quiz-af3ff` once Vercel shows the new version live.
+S4 made every page about 65 kB lighter. It removed the Firestore SDK and the Node polyfills from the browser and moved the profile and activity-log writes to the server. The new Firestore rules deny the browser everything. **They are not deployed yet** (the session wasn't allowed to deploy to production):
+
+- [ ] Once Vercel shows the S4 version live (green), run `firebase deploy --only firestore:rules --project ageno-quiz-af3ff` (or type `! firebase deploy --only firestore:rules --project ageno-quiz-af3ff` in Claude Code). Until then the old, looser rules stay live; nothing breaks either way.
 
 Check in a real browser on the deployed site, with the console open (F12 → **Console**). No red errors should appear on any of these (about 10 minutes):
 - [ ] Open `/`, `/join`, a lobby, `/sign-in`, signed out. Pages look and behave as before.
