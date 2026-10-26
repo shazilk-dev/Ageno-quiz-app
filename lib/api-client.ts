@@ -15,7 +15,7 @@ const NETWORK_MESSAGE =
   "We couldn't reach the server. Check your connection and try again.";
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   /** Send the sign-in token (default). Public, cacheable routes pass `false`, so a shared cache can serve them. */
   auth?: boolean;

@@ -2,19 +2,19 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import {
-  collection,
-  getDocs,
-  query,
-  orderBy,
-  getDoc,
-  doc,
-} from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { Alert, Button } from "@/components/ui";
+import { adminReports } from "@/lib/admin-api";
+import { toQuizResponse } from "@/lib/admin-types";
+import { ApiRequestError } from "@/lib/api-client";
 import QuizScoreDistribution from "@/components/analytics/QuizScoreDistribution";
 import QuizTimeDistribution from "@/components/analytics/QuizTimeDistribution";
 import { FiFilter, FiDownload } from "react-icons/fi";
 import { QuizResponse } from "@/types/quiz";
+
+const describeError = (error: unknown) =>
+  error instanceof ApiRequestError
+    ? error.message
+    : "We couldn't load the reports. Try again.";
 
 export default function QuizReportsPage() {
   const [responses, setResponses] = useState<QuizResponse[]>([]);
@@ -26,17 +26,15 @@ export default function QuizReportsPage() {
   const [selectedQuiz, setSelectedQuiz] = useState<string>("all");
   const [dateRange, setDateRange] = useState<"all" | "week" | "month">("all");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
+  // Results come a page at a time, newest first. `cursor` is where the next (older) page starts.
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState<number>(0);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   
   // Function to filter responses based on selected filters
   const filterResponses = useCallback(() => {
     let filtered = [...responses];
-
-    // Filter by quiz
-    if (selectedQuiz !== "all") {
-      filtered = filtered.filter(
-        (response) => response.quizId === selectedQuiz
-      );
-    }
 
     // Filter by date range
     if (dateRange !== "all") {
@@ -72,17 +70,13 @@ export default function QuizReportsPage() {
     });
     
     setFilteredResponses(filtered);
-  }, [responses, selectedQuiz, dateRange, sortOrder]);
+  }, [responses, dateRange, sortOrder]);
 
   // Apply filtering when dependencies change
   useEffect(() => {
     filterResponses();
   }, [filterResponses]);
   
-  // Fetch reports data on component mount
-  useEffect(() => {
-    fetchReportsData();
-  }, []);
 
   // Format date to readable string
   const formatDate = (timestamp: Date | { toDate(): Date } | number | undefined): string => {
@@ -132,83 +126,50 @@ export default function QuizReportsPage() {
     }
   };
 
-  const fetchReportsData = async () => {
+  // One request for a page of results: the server looks up quiz titles and names in a single batch.
+  const fetchReportsData = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
     try {
-      setIsLoading(true);
-
-      // Fetch all responses
-      const responsesRef = collection(db, "responses");
-      const q = query(responsesRef, orderBy("submittedAt", "desc"));
-      const querySnapshot = await getDocs(q);
-
-      const responsesList: QuizResponse[] = [];
-      const quizzesMap = new Map<string, { id: string; title: string }>();
-      const usersCache = new Map<string, string>(); // userId -> userName
-
-      // Process each response
-      for (const docSnapshot of querySnapshot.docs) {
-        const data = docSnapshot.data() as Omit<QuizResponse, "id">;
-        // Skip if no quizId or userId
-        if (!data.quizId || !data.userId) continue;
-
-        let quizTitle = "Unknown Quiz";
-        let userName = "Unknown User";
-
-        // Get quiz information (using cache if available)
-        const quizId = data.quizId as string;
-        const userId = data.userId as string;
-
-        // Get quiz information (using cache if available)
-        if (!quizzesMap.has(quizId)) {
-          try {
-            const quizDoc = await getDoc(doc(db, "quizzes", quizId));
-            if (quizDoc.exists()) {
-              quizTitle = quizDoc.data().title || quizTitle;
-              quizzesMap.set(quizId, {
-                id: quizId,
-                title: quizTitle,
-              });
-            }
-          } catch (error) {
-            console.error("Error fetching quiz:", error);
-          }
-        } else {
-          quizTitle = quizzesMap.get(quizId)!.title;
-        }
-
-        // Get user information (using cache if available)
-        if (!usersCache.has(userId)) {
-          try {
-            const userDoc = await getDoc(doc(db, "users", userId));
-            if (userDoc.exists()) {
-              userName =
-                userDoc.data().displayName || userDoc.data().email || userName;
-              usersCache.set(userId, userName);
-            }
-          } catch (error) {
-            console.error("Error fetching user:", error);
-          }
-        } else {
-          userName = usersCache.get(userId)!;
-        }
-
-        // Ensure the data has the required properties for QuizResponse
-        responsesList.push({
-          id: docSnapshot.id,
-          quizId: data.quizId,
-          userId: data.userId,
-          ...data,
-          quizTitle,
-          userName,
-        } as QuizResponse);
-      }
-
-      setResponses(responsesList);
-      setQuizOptions(Array.from(quizzesMap.values()));
+      const page = await adminReports.page({
+        quizId: selectedQuiz === "all" ? undefined : selectedQuiz,
+      });
+      setResponses(page.rows.map(toQuizResponse));
+      setQuizOptions(page.quizzes);
+      setCursor(page.nextCursor);
+      setTotal(page.total);
     } catch (error) {
-      console.error("Error fetching reports data:", error);
+      // If the quiz filter can't be served yet, fall back to every quiz and say so.
+      if (error instanceof ApiRequestError && error.code === "index_required") {
+        setSelectedQuiz("all");
+      }
+      setLoadError(describeError(error));
     } finally {
       setIsLoading(false);
+    }
+  }, [selectedQuiz]);
+
+  // Fetch reports data on component mount
+  useEffect(() => {
+    void fetchReportsData();
+  }, [fetchReportsData]);
+
+  const loadMore = async () => {
+    if (!cursor) return;
+    setIsLoadingMore(true);
+    setLoadError(null);
+    try {
+      const page = await adminReports.page({
+        cursor,
+        quizId: selectedQuiz === "all" ? undefined : selectedQuiz,
+      });
+      setResponses((current) => [...current, ...page.rows.map(toQuizResponse)]);
+      setCursor(page.nextCursor);
+      setTotal(page.total);
+    } catch (error) {
+      setLoadError(describeError(error));
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
@@ -387,6 +348,21 @@ export default function QuizReportsPage() {
         </div>
       </div>
 
+      {loadError && (
+        <Alert
+          variant="error"
+          title="Couldn't load the reports"
+          className="mb-6"
+          action={
+            <Button variant="secondary" size="sm" onClick={() => void (cursor && !isLoading ? loadMore() : fetchReportsData())}>
+              Try again
+            </Button>
+          }
+        >
+          {loadError}
+        </Alert>
+      )}
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4">
@@ -424,6 +400,13 @@ export default function QuizReportsPage() {
           </p>
         </div>
       </div>
+
+      {cursor && (
+        <p className="mb-6 text-sm text-gray-600">
+          The numbers and charts cover the {responses.length} most recent of {total} results. Load
+          older results below to include them.
+        </p>
+      )}
 
       {/* Visualizations */}
       {filteredResponses.length > 0 && (
@@ -554,6 +537,16 @@ export default function QuizReportsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {cursor && !isLoading && (
+          <div className="border-t border-gray-200 p-4 text-center">
+            <p className="mb-3 text-sm text-gray-600">
+              Showing {responses.length} of {total} results
+            </p>
+            <Button variant="secondary" onClick={() => void loadMore()} loading={isLoadingMore}>
+              Load older results
+            </Button>
           </div>
         )}
       </div>

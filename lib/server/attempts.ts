@@ -17,6 +17,12 @@ import type {
 } from "@/lib/exam/types";
 import { quizFromData } from "@/lib/quiz-data";
 import {
+  LIMITS,
+  isLevel,
+  planLegacyQuestions,
+  sortQuestionDocs,
+} from "@/lib/quiz-schema";
+import {
   getDifficultyDuration,
   getDifficultyMultiplier,
 } from "@/utils/difficulty-helpers";
@@ -26,7 +32,7 @@ import { ApiError, assertSafeId } from "./request";
 /** Answers and the final submit are still accepted this long after the deadline (network and clock slack). */
 export const SUBMIT_GRACE_MS = 30_000;
 /** One attempt document holds a copy of the questions and its submit writes one doc per answer. */
-export const MAX_QUESTIONS = 400;
+export const MAX_QUESTIONS = LIMITS.maxQuestionsPerLevel;
 
 const SAFE_LEVEL = /^[a-z]{1,20}$/;
 const DEFAULT_LEVELS = ["easy", "medium", "hard"];
@@ -93,11 +99,16 @@ async function loadQuestions(
   level: string
 ): Promise<StoredQuestion[]> {
   const perLevel = await db.collection(`quizzes/${quizId}/questions_${level}`).get();
-  // Older quizzes keep one `questions` collection for every level.
-  const docs = perLevel.empty
-    ? (await db.collection(`quizzes/${quizId}/questions`).get()).docs
-    : perLevel.docs;
-  return docs.map((doc) => normalizeQuestion(doc.id, doc.data()));
+  let docs = perLevel.docs.map((doc) => ({ id: doc.id, data: doc.data() }));
+  if (perLevel.empty && isLevel(level)) {
+    // Older quizzes keep one `questions` collection for every level (or name the level on each question).
+    const legacy = (await db.collection(`quizzes/${quizId}/questions`).get()).docs.map((doc) => ({
+      id: doc.id,
+      data: doc.data(),
+    }));
+    docs = planLegacyQuestions(legacy, [level], new Set())[level] ?? [];
+  }
+  return sortQuestionDocs(docs).map((doc) => normalizeQuestion(doc.id, doc.data));
 }
 
 const toExamQuestion = (question: StoredQuestion): ExamQuestion => ({

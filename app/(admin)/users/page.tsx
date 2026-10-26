@@ -8,12 +8,14 @@ import {
   getDocs,
   query,
   orderBy,
-  deleteDoc,
   doc,
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/firebase/client";
 import { FiSearch, FiUserPlus, FiFilter } from "react-icons/fi";
+import { Alert, Button, Dialog, useToast } from "@/components/ui";
+import { adminUsers } from "@/lib/admin-api";
+import { ApiRequestError } from "@/lib/api-client";
 
 interface User {
   id: string;
@@ -35,6 +37,10 @@ export default function UsersPage() {
   const [sortBy, setSortBy] = useState<string>("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const { toast } = useToast();
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [stats, setStats] = useState({
     total: 0,
     admins: 0,
@@ -186,44 +192,32 @@ export default function UsersPage() {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (
-      !confirm(
-        "Are you sure you want to delete this user? This action cannot be undone."
-      )
-    ) {
-      return;
-    }
-
+  // Deleting a person removes their sign-in account too (on the server), not just their profile.
+  const confirmDeleteUser = async () => {
+    if (!deletingUser) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
     try {
-      // Delete the user document in Firestore
-      await deleteDoc(doc(db, "users", userId));
-
-      // Remove from local state
-      const deletedUser = users.find((user) => user.id === userId);
-      setUsers((prevUsers) => prevUsers.filter((user) => user.id !== userId));
-
-      // Update stats
-      if (deletedUser) {
-        setStats((prevStats) => ({
-          ...prevStats,
-          total: prevStats.total - 1,
-          admins:
-            deletedUser.role === "admin"
-              ? prevStats.admins - 1
-              : prevStats.admins,
-          users:
-            deletedUser.role !== "admin"
-              ? prevStats.users - 1
-              : prevStats.users,
-          verified: deletedUser.emailVerified
-            ? prevStats.verified - 1
-            : prevStats.verified,
-        }));
-      }
+      await adminUsers.remove(deletingUser.id);
+      const deleted = deletingUser;
+      setUsers((prevUsers) => prevUsers.filter((user) => user.id !== deleted.id));
+      setStats((prevStats) => ({
+        ...prevStats,
+        total: prevStats.total - 1,
+        admins: deleted.role === "admin" ? prevStats.admins - 1 : prevStats.admins,
+        users: deleted.role !== "admin" ? prevStats.users - 1 : prevStats.users,
+        verified: deleted.emailVerified ? prevStats.verified - 1 : prevStats.verified,
+      }));
+      toast({ title: "User deleted", variant: "success" });
+      setDeletingUser(null);
     } catch (error) {
-      console.error("Error deleting user:", error);
-      alert("Failed to delete user. Please try again.");
+      setDeleteError(
+        error instanceof ApiRequestError
+          ? error.message
+          : "We couldn't delete this user. Try again."
+      );
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -521,7 +515,10 @@ export default function UsersPage() {
                             : "Make Admin"}
                         </button>
                         <button
-                          onClick={() => handleDeleteUser(user.id)}
+                          onClick={() => {
+                            setDeleteError(null);
+                            setDeletingUser(user);
+                          }}
                           className="text-red-600 hover:text-red-900"
                         >
                           Delete
@@ -535,6 +532,26 @@ export default function UsersPage() {
           </div>
         )}
       </div>
+
+      <Dialog
+        open={deletingUser !== null}
+        onClose={() => !deleteBusy && setDeletingUser(null)}
+        dismissible={!deleteBusy}
+        title={deletingUser ? `Delete ${deletingUser.displayName || deletingUser.email}?` : "Delete user"}
+        description="This deletes their account, so they can no longer sign in, along with their profile and any attempt in progress. Quiz results they already earned are kept."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeletingUser(null)} disabled={deleteBusy}>
+              Keep user
+            </Button>
+            <Button variant="danger" onClick={confirmDeleteUser} loading={deleteBusy}>
+              Delete user
+            </Button>
+          </>
+        }
+      >
+        {deleteError && <Alert variant="error">{deleteError}</Alert>}
+      </Dialog>
     </div>
   );
 }

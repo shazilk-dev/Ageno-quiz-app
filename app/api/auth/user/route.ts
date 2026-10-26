@@ -1,12 +1,16 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { auth, db } from "@/firebase/admin";
 import admin from "firebase-admin";
 
+/**
+ * Creates or refreshes the signed-in person's own profile. Who they are comes from the verified ID token,
+ * never from the request body, and a role is never taken from the caller: new profiles are `user`, and an
+ * existing profile keeps the role it has (admins change roles from the admin screens). Without this a body
+ * of `{ role: "admin" }` would make any signed-in person an admin.
+ */
 export async function POST(request: NextRequest) {
   try {
-    // First verify the authorization token
     const authHeader = request.headers.get("Authorization");
     const idToken = authHeader?.startsWith("Bearer ")
       ? authHeader.substring(7)
@@ -19,70 +23,63 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify the token before using it
     let decodedToken;
     try {
       decodedToken = await auth.verifyIdToken(idToken);
     } catch (tokenError: any) {
       console.error("Invalid ID token:", tokenError);
       return NextResponse.json(
-        { error: "Invalid authorization token", message: tokenError.message },
+        { error: "Invalid authorization token" },
         { status: 401 }
       );
     }
 
-    // Parse the request body
-    const {
-      uid,
-      displayName,
-      email,
-      role = "user",
-      photoURL = null,
-      emailVerified = false,
-    } = await request.json();
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+    const { uid: requestedUid, displayName, photoURL = null } = body as {
+      uid?: unknown;
+      displayName?: unknown;
+      photoURL?: unknown;
+    };
 
-    if (!uid) {
-      return NextResponse.json({ error: "Missing user ID" }, { status: 400 });
+    const uid = decodedToken.uid;
+    if (requestedUid !== undefined && requestedUid !== uid) {
+      return NextResponse.json(
+        { error: "You can only update your own profile" },
+        { status: 403 }
+      );
     }
 
-    // Create or update user data in Firestore with the enhanced structure
+    const profile = {
+      displayName: typeof displayName === "string" ? displayName.slice(0, 200) : "",
+      email: decodedToken.email ?? "",
+      photoURL: typeof photoURL === "string" ? photoURL.slice(0, 2000) : null,
+      emailVerified: decodedToken.email_verified ?? false,
+    };
+
     try {
       const userRef = db.collection("users").doc(uid);
       const userDoc = await userRef.get();
 
       if (userDoc.exists) {
-        // Update the existing document
         await userRef.update({
-          displayName,
-          email,
-          role,
-          photoURL,
-          emailVerified,
+          ...profile,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          customClaims: {
-            role,
-          },
         });
       } else {
-        // Create a new user document with all fields
         await userRef.set({
-          displayName,
-          email,
-          role,
-          photoURL,
-          emailVerified,
+          ...profile,
+          role: "user",
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
           activityLogs: [],
-          customClaims: {
-            role,
-          },
+          customClaims: { role: "user" },
         });
+        await auth.setCustomUserClaims(uid, { role: "user" });
       }
-
-      // Set custom user claims for role-based access
-      await auth.setCustomUserClaims(uid, { role });
 
       return NextResponse.json(
         {
@@ -96,22 +93,13 @@ export async function POST(request: NextRequest) {
     } catch (firestoreError: any) {
       console.error("Error managing user document:", firestoreError);
       return NextResponse.json(
-        {
-          error: "Failed to manage user document",
-          message: firestoreError.message,
-        },
+        { error: "Failed to manage user document" },
         { status: 500 }
       );
     }
   } catch (error: any) {
     console.error("User management error:", error);
-    return NextResponse.json(
-      {
-        error: "Failed to manage user",
-        message: error.message,
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to manage user" }, { status: 500 });
   }
 }
 

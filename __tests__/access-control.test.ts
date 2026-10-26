@@ -81,6 +81,8 @@ describe("middleware: everything else", () => {
     "/api/quizzes/resolve",
     "/api/leaderboard",
     "/api/my-attempts",
+    "/api/admin/quizzes",
+    "/api/admin/stats",
   ])("%s is reachable without a cookie (the route checks the token itself)", async (path) => {
     expect(passesThrough(await call(path))).toBe(true);
   });

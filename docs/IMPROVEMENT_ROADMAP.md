@@ -3,9 +3,9 @@
 **Purpose:** turn Ageno Quiz into a professional, industry-level quiz and exam platform that belongs to the **Agenoverse** brand. The plan spans multiple sessions and tracks its own progress.
 
 - **Created:** 2026-10-23
-- **Last updated:** 2026-10-26 (Session 8)
-- **Current phase:** 6 (Data layer cleanup), not started. Phase 5 is closed (Session 8).
-- **Next up:** P6.1 (one question schema). Items carried over from Phase 5 are listed in the Session 8 log: the raw-vs-weighted score decision, rate limiting, the speed plan.
+- **Last updated:** 2026-10-26 (Session 9)
+- **Current phase:** 6 (Data layer cleanup), built and tested; waiting for the user to try the new admin screens on a deployed build (see Session 9).
+- **Next up:** deploy (a security fix is in this change), then the user checks the admin quiz screens; after that Phase 7. Items carried over: the raw-vs-weighted score decision, rate limiting, the speed plan.
 
 ---
 
@@ -37,7 +37,7 @@ Decisions already made with the user:
 | 3 | Quiz lobby (intro) | Done |
 | 4 | Exam-taking experience | Done (awaiting the user's check with a real quiz) |
 | 5 | Integrity and security | Done |
-| 6 | Data layer cleanup | Not started |
+| 6 | Data layer cleanup | Built and tested (awaiting the user's check of the admin screens) |
 | 7 | App-wide polish and accessibility | Not started |
 | 8 | Agenoverse integration and pro exam features | Backlog |
 
@@ -379,20 +379,20 @@ Without this, Ageno Quiz isn't really an exam system. The live app works, so the
 
 ## Phase 6: Data layer cleanup
 
-- [ ] **P6.1 One question schema.**
+- [x] **P6.1 One question schema.** *(Session 9: `lib/quiz-schema.ts`; the migration script is tested on the emulator. The live data had nothing to migrate.)*
   - Today admin create writes `questions_{difficulty}` without `correctIndex` (`app/(admin)/quizzes/new/page.tsx:294`).
   - Meanwhile the detail and edit pages read and write the legacy `questions` (`[quizId]/page.tsx:62`, `edit/page.tsx:91,321-358`).
   - Pick one schema and write a one-off migration script for legacy quizzes.
-- [ ] **P6.2 One editor.** Rebuild both `quizzes/new` (779 lines) and `[quizId]/edit` (777 lines) on `components/quiz/QuizForm.tsx`. Delete `CreateQuizForm.tsx` if nothing uses it.
-- [ ] **P6.3 Delete dead code:**
+- [ ] **P6.2 One editor.** *(Built in Session 9 on a new `components/admin/quiz-editor/`, not on `QuizForm`; unticked until the user has used it on a deployed build.)* Rebuild both `quizzes/new` (779 lines) and `[quizId]/edit` (777 lines) on `components/quiz/QuizForm.tsx`. Delete `CreateQuizForm.tsx` if nothing uses it.
+- [x] **P6.3 Delete dead code:** *(Session 9)*
   - `services/quizService.ts` and `hooks/useQuiz.ts` (nothing imports them)
   - the duplicate `getQuestionsByDifficulty` (`firestore.ts:971` vs `quizDifficulty.ts:69`)
   - `components/examples/AuthStatus.tsx` and `components/debug/AuthDebugger.tsx`
-- [ ] **P6.4 Atomic writes.**
+- [x] **P6.4 Atomic writes.** *(Session 9)*
   - Use batches or transactions when saving an edit and when submitting. Today answers are written with an `addDoc` loop (`firestore.ts:772-797`).
   - Deleting a quiz also deletes its subcollections and responses.
   - Deleting a user also deletes their Auth account, through the Admin API.
-- [ ] **P6.5 Queries.**
+- [x] **P6.5 Queries.** *(Session 9)*
   - Remove the N+1 reads and add pagination in:
     - `quiz-reports` (`:141,164,182`)
     - `dashboard` (`:84,145,158`)
@@ -468,6 +468,21 @@ Add new entries at the top. Template:
 - Notes/blockers: …
 - Next up: P0.3
 ```
+
+### 2026-10-26 — Session 9 (Phase 6)
+- Done: P6.1, P6.3, P6.4, P6.5 ticked. P6.2 built, left unticked until the user has used it. **Also fixed a privilege-escalation hole found on the way (deploy this first).**
+  - **Security fix, `POST /api/auth/user`:** it took `uid` and `role` from the request body and only checked that *some* ID token was valid. Any signed-in person could post `{ uid: <own>, role: "admin" }`, which set the admin claim and the `users` role, and then passed every admin check. Now the uid comes from the verified token (a different uid is a 403), the role is never read from the caller (new profiles are `user`, existing ones keep theirs), and email/verified come from the token. Tested against the emulator; the old route fails those tests for the right reason (the role became `admin`). Nothing in the app used the `role` argument. **I did not check whether it was ever exploited:** worth a look at who has the admin role in `users` (14 users in the database today).
+  - **Where admin data goes now: server routes, like players.** New `/api/admin/*` routes (Node runtime, Admin SDK, guarded by `requireAdmin` in `lib/server/admin-access.ts`: a valid unrevoked ID token whose owner has the `admin` claim or `users/{uid}.role`; 401/403 otherwise). `middleware.ts` lists `/api/admin` as a path that checks tokens itself. Browser side: `lib/admin-api.ts`.
+    - `GET/POST /api/admin/quizzes`, `GET/PUT/DELETE /api/admin/quizzes/[quizId]`, `DELETE /api/admin/users/[uid]`, `GET /api/admin/reports`, `GET /api/admin/stats`. Logic: `lib/server/admin-quizzes.ts`, `admin-users.ts`, `admin-reports.ts`.
+  - **P6.1 schema.** Only shape written: `quizzes/{id}` + `questions_{easy|medium|hard}`, each question `{ text, options: [{ text, isCorrect }], points: 1, type: "single", order, imageUrl?, explanation? }`. This is what the live data and the player routes already used (read-only survey of production: 2 quizzes, both fully on it; no legacy `questions` collection, no `explanation` anywhere). `lib/quiz-schema.ts` is the one description (types, validation used by both editor and server, legacy handling, import/export); `lib/quiz-writes.ts` plans the writes. Questions now keep an `order`; `loadQuestions` sorts by it (unnumbered ones keep id order, as before). Legacy quizzes: a legacy question that names a `difficulty` belongs to that level, one that doesn't was shown at every level and is copied to each; the player route and the editor both follow this rule now. `npm run migrate:questions` (dry run; `-- --apply` to change) moves them for good (new dev dependency `tsx`); an admin save also moves a quiz's legacy questions. The edit page used to read and write only the legacy collection, so editing a quiz made on the create page showed it empty and saved questions players never see: gone with the page.
+  - **P6.2 editor.** `components/admin/quiz-editor/` (QuizEditor, DetailsSection, LevelsSection, QuestionCard, ImportDialog, editor-state; every file under 400 lines) serves both `quizzes/new` and `[quizId]/edit`. **Deviation:** not built on `QuizForm`: nothing imported it, it kept two copies of the questions in state, and it used the old palette; it was deleted. Decisions: (1) the per-question **Points** box is gone: scoring has always counted every question equally, so the box did nothing. (2) the **multiplier is at least 1** (the scorer ignores anything lower, while the lobby would have shown it). (3) **images are an https link**, not an upload: nothing ever exposed the old uploader, and Storage rules are unchecked; `ImageUploader.tsx` is kept, unused, for that follow-up. (4) JSON **import/export** per level (the export imports back). (5) New: the explanation field (the results review already showed it), "listed on /join" and "open for attempts" switches, an unsaved-changes warning, and "someone else saved first" detection. The quiz list, view page, dashboard and users page lost their `alert()`/`confirm()` for deletes (Dialog + toast); the rest of their restyle is still P7.3. The admin pages sit in `data-theme="light"` via `components/admin/AdminPage.tsx` for now.
+  - **P6.4 atomic writes.** A create is one batch; a save is one transaction that reads the quiz, checks the `updatedAt` the editor opened (409 `quiz_changed` if someone saved since; two saves from the same version: one wins, tested), keeps the access code unique (409 `access_code_taken`), writes only the questions that changed, removes deleted questions and dropped levels, and empties the legacy collection. **Size:** a Firestore transaction holds 500 writes. A **create** that needs more (a bulk import) is written in chunks, questions first and the quiz document last, so nobody sees a half-built quiz, and a failed chunk is taken back. A **save** of an existing quiz stays all-or-nothing, so one that needs more than 500 changed documents is refused up front (400 `too_many_changes`, nothing written); only changed questions count, so a typical edit is a handful. (Splitting an edit would leave players with a mix of old and new questions.) **Deleting a quiz** removes its questions (all collections), every result with its `answers`, and attempts, then the quiz document last (so a failed run can be repeated); the delete dialog says how many results go. **Deleting a user** removes the Auth account (before: only the profile doc, so they could sign straight back in), profile and sub-collections, attempts and activity log; refuses yourself and the last admin. **Decision: their finished results are kept.** Once the profile is gone a result holds only an opaque user id (no name, no email), so it is pseudonymous rather than personal data, and the quiz statistics and leaderboard stay correct; they show as an unknown user. Deleting results too would silently change other people's rankings.
+  - **P6.5 queries.** Dashboard: counts and the average score are aggregation queries (no documents read), plus 5 recent quizzes and the latest 50 results (the charts used to run on 5). Reports: one page of up to 500 results (default 200, newest first, `cursor`), only the fields the screen uses (not the integrity events), quiz titles and names resolved in one batch per page; "Load older results" appends and the page says when the numbers cover only the loaded results. `getUserQuizAttempts` and the full-collection "debug" read were already deleted in Session 7. Deleted the unused `ScoresByDifficultyChart` (it read every response from the browser). The quiz filter on reports is now server-side (`?quizId=`, with that quiz's own total and paging); it uses the composite index `quizId` + `submittedAt`, which **already exists in production**. `firestore.indexes.json` is now in the repo and holds all 4 live indexes (read from the project with `firebase firestore:indexes`), so a future `firebase deploy --only firestore:indexes` can't remove any; if an index were missing the page says so and falls back to all quizzes. The date range still filters the loaded results. Results with no `submittedAt` are not listed (Firestore leaves them out of an ordered query); none exist today.
+  - **P6.3 deleted:** `QuizForm`, `CreateQuizForm`, `DifficultySettings`, `firebase/quizDifficulty.ts`, `services/quizService.ts`, `hooks/useQuiz.ts`, `components/examples/AuthStatus` and `components/debug/AuthDebugger` (and its use in the dev test page), plus what only they used: `hooks/useFirestore`, `useCollection`, `useDocument`, `components/UserManagement` and `components/user-management/*`. Still unused and left alone: `components/analytics/{AttemptDetails,QuizMetrics,QuizVisualizations,QuizReportsWithVisualizations}` and `ImageUploader` (P7.3 will use or remove them).
+- Verified: `tsc` ✓ `lint` ✓ `npm run build` ✓ (real `.env.local`; the new routes are dynamic). Tests: 182 unit/component (new: 22 schema, 19 editor; the rest unchanged and passing), **32 admin integration tests on the emulator** (guard on every route, create/open/save/delete, stale and racing saves, legacy move, the 500-write limit, user deletion, the registration fix, reports and dashboard, migration), 41 attempts and 20 rules tests still passing. The registration tests were run against the old route to confirm they catch it. Editor looked at in real Chrome through a throwaway harness page with a fake API (deleted): 1366×768 and 390×844, no horizontal overflow, problem list and the broken question highlighted. New command: `firebase emulators:exec --only firestore --project demo-ageno-admin "npx vitest run __tests__/admin-api.test.ts"` (the Firebase CLI here is the global one, not `npx`).
+- **Not verified (needs you, after deploying):** a real admin session creating (including a quiz with a few hundred questions), editing (change a question, add a level, save twice in two tabs) and deleting a quiz, then taking it as a player; the list and view pages with real data; deleting a test user; the dashboard and reports with the 78 real results (and their speed); the migration script against production (it would report nothing to do: run it without `--apply` to see). The admin screens' look is old-style in places until P7.3.
+- Notes: `.env.local`'s key value starts with a space before the quote; Next and Node's env loader cope, a hand-rolled parser doesn't. `/auth-test` and `/useauth-test` still exist (404 in production by design). Role changes on the Users page still only edit the profile doc (the claim catches up at next sign-in); a server route for it would fit P7.3.
+- Next up: deploy and check (above), tick P6.2 and close Phase 6, then Phase 7 (P7.1 My quizzes first).
 
 ### 2026-10-26 — Session 8 (Phase 5 closed)
 - Done: Phase 5 is closed. P5.4, P5.5, P5.6, P5.7 and P5.9 are ticked, so P5.1–P5.9 are all done.

@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import AuthStatus from "@/components/examples/AuthStatus";
 
 /**
  * Test component for validating the useAuth hook implementation
@@ -171,19 +170,6 @@ export default function UseAuthTest() {
               These tests validate that the useAuth hook is properly initialized
               and has access to all the required functionality from the auth
               context.
-            </p>
-          </div>
-        </div>
-
-        {/* Auth status component */}
-        <div>
-          <h2 className="text-lg font-semibold mb-4">Auth Status Component</h2>
-          <AuthStatus />
-
-          <div className="mt-4 text-sm text-gray-500">
-            <p>
-              This component uses the useAuth hook to display authentication
-              status and provide login/logout functionality.
             </p>
           </div>
         </div>

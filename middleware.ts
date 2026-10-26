@@ -26,6 +26,7 @@ const PUBLIC_PREFIXES = [
   "/api/attempts",
   "/api/quizzes",
   "/api/leaderboard",
+  "/api/admin",
   "/api/my-attempts",
 ];
 

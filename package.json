@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "migrate:questions": "tsx --env-file=.env.local scripts/migrate-legacy-questions.ts"
   },
   "dependencies": {
     "chart.js": "^4.4.9",
@@ -49,6 +50,7 @@
     "process": "^0.11.10",
     "stream-browserify": "^3.0.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5",
     "util": "^0.12.5",
     "webpac": "^0.0.1-security",

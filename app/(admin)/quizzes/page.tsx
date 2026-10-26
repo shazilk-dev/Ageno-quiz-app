@@ -1,338 +1,246 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useState, useEffect } from "react";
-import {
-  collection,
-  getDocs,
-  doc,
-  deleteDoc,
-  query,
-  orderBy,
-} from "firebase/firestore";
-import { db } from "@/firebase/client";
+import { FileQuestion, Plus } from "lucide-react";
 import Link from "next/link";
-import { FiPlusCircle, FiSearch } from "react-icons/fi";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminPage } from "@/components/admin/AdminPage";
+import {
+  Alert,
+  Badge,
+  Button,
+  CopyButton,
+  Dialog,
+  EmptyState,
+  SearchInput,
+  Skeleton,
+  useToast,
+} from "@/components/ui";
+import { adminQuizzes } from "@/lib/admin-api";
+import { ApiRequestError } from "@/lib/api-client";
+import { LEVELS, LEVEL_LABELS, type AdminQuizSummary } from "@/lib/quiz-schema";
 
-interface Quiz {
-  id: string;
-  title: string;
-  description: string;
-  duration: number;
-  accessCode?: string;
-  createdAt: any;
-  createdBy: string;
-  isAutoCheck: boolean;
-}
+const formatDate = (ms: number) =>
+  ms
+    ? new Date(ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+    : "Unknown";
+
+const totalQuestions = (quiz: AdminQuizSummary) =>
+  LEVELS.reduce((sum, level) => sum + (quiz.counts[level] ?? 0), 0);
 
 export default function QuizzesPage() {
-  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [searchTerm, setSearchTerm] = useState<string>("");
-  const [sortBy, setSortBy] = useState<string>("createdAt");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const { toast } = useToast();
+  const [quizzes, setQuizzes] = useState<AdminQuizSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [deleting, setDeleting] = useState<AdminQuizSummary | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchQuizzes();
+  const load = useCallback(async () => {
+    setError(null);
+    setQuizzes(null);
+    try {
+      setQuizzes(await adminQuizzes.list());
+    } catch (failure) {
+      setError(
+        failure instanceof ApiRequestError ? failure.message : "We couldn't load the quizzes. Try again."
+      );
+    }
   }, []);
 
-  const fetchQuizzes = async () => {
-    try {
-      setIsLoading(true);
-      const quizzesRef = collection(db, "quizzes");
-      const q = query(quizzesRef, orderBy("createdAt", "desc"));
-      const querySnapshot = await getDocs(q);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-      const quizzesList: Quiz[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data() as Quiz;
-        quizzesList.push({
-          id: doc.id,
-          title: data.title || "Untitled Quiz",
-          description: data.description || "",
-          duration: data.duration || 0,
-          accessCode: data.accessCode,
-          createdAt: data.createdAt,
-          createdBy: data.createdBy || "Unknown",
-          isAutoCheck: data.isAutoCheck || false,
-        });
-      });
-
-      setQuizzes(quizzesList);
-    } catch (error) {
-      console.error("Error fetching quizzes:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDeleteQuiz = async (quizId: string) => {
-    if (
-      !confirm(
-        "Are you sure you want to delete this quiz? This action cannot be undone."
-      )
-    ) {
-      return;
-    }
-
-    try {
-      // Delete the quiz document
-      await deleteDoc(doc(db, "quizzes", quizId));
-
-      // Remove from state
-      setQuizzes((prevQuizzes) =>
-        prevQuizzes.filter((quiz) => quiz.id !== quizId)
-      );
-    } catch (error) {
-      console.error("Error deleting quiz:", error);
-      alert("Failed to delete quiz. Please try again.");
-    }
-  };
-
-  // Filter quizzes by search term
-  const filteredQuizzes = quizzes.filter((quiz) => {
-    if (!searchTerm) return true;
-
-    const term = searchTerm.toLowerCase();
-    return (
-      quiz.title.toLowerCase().includes(term) ||
-      quiz.description.toLowerCase().includes(term) ||
-      quiz.accessCode?.toLowerCase().includes(term)
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term || !quizzes) return quizzes;
+    return quizzes.filter((quiz) =>
+      [quiz.title, quiz.description, quiz.accessCode].some((text) => text.toLowerCase().includes(term))
     );
-  });
+  }, [quizzes, search]);
 
-  // Sort quizzes
-  const sortedQuizzes = [...filteredQuizzes].sort((a, b) => {
-    if (sortBy === "title") {
-      const comparison = a.title.localeCompare(b.title);
-      return sortOrder === "asc" ? comparison : -comparison;
-    } else if (sortBy === "duration") {
-      const comparison = a.duration - b.duration;
-      return sortOrder === "asc" ? comparison : -comparison;
-    } else {
-      // Default to created date
-      const dateA = a.createdAt?.toDate
-        ? a.createdAt.toDate()
-        : new Date(a.createdAt || 0);
-      const dateB = b.createdAt?.toDate
-        ? b.createdAt.toDate()
-        : new Date(b.createdAt || 0);
-      const comparison = dateA.getTime() - dateB.getTime();
-      return sortOrder === "asc" ? comparison : -comparison;
-    }
-  });
-
-  // Toggle sort order
-  const handleSort = (field: string) => {
-    if (sortBy === field) {
-      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
-    } else {
-      setSortBy(field);
-      setSortOrder("asc");
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const { deletedResults } = await adminQuizzes.remove(deleting.id);
+      setQuizzes((current) => current?.filter((quiz) => quiz.id !== deleting.id) ?? null);
+      toast({
+        title: "Quiz deleted",
+        description:
+          deletedResults > 0
+            ? `${deletedResults} ${deletedResults === 1 ? "result was" : "results were"} deleted with it.`
+            : undefined,
+        variant: "success",
+      });
+      setDeleting(null);
+    } catch (failure) {
+      setDeleteError(
+        failure instanceof ApiRequestError ? failure.message : "We couldn't delete the quiz. Try again."
+      );
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
-  // Format date to readable string
-  const formatDate = (timestamp: any): string => {
-    if (!timestamp) return "Unknown";
-
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  // Format duration in minutes
-  const formatDuration = (durationInMinutes: number): string => {
-    if (durationInMinutes < 60) {
-      return `${durationInMinutes} min`;
-    } else {
-      const hours = Math.floor(durationInMinutes / 60);
-      const minutes = durationInMinutes % 60;
-      return `${hours}h ${minutes > 0 ? `${minutes}m` : ""}`;
-    }
-  };
+  const newQuiz = (
+    <Button asChild>
+      <Link href="/quizzes/new">
+        <Plus className="size-4" aria-hidden="true" />
+        New quiz
+      </Link>
+    </Button>
+  );
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quiz Management</h1>
-          <p className="text-gray-600">Create, edit and manage your quizzes</p>
-        </div>
-        <Link
-          href="/quizzes/new"
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+    <AdminPage
+      title="Quizzes"
+      description="Create, edit and delete the quizzes players can take."
+      actions={newQuiz}
+    >
+      {error && (
+        <Alert
+          variant="error"
+          title="Couldn't load the quizzes"
+          action={
+            <Button variant="secondary" size="sm" onClick={() => void load()}>
+              Try again
+            </Button>
+          }
         >
-          <FiPlusCircle className="mr-2" />
-          New Quiz
-        </Link>
-      </div>
+          {error}
+        </Alert>
+      )}
 
-      {/* Search and filters */}
-      <div className="bg-white rounded-lg shadow mb-6">
-        <div className="p-4">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FiSearch className="h-5 w-5 text-gray-400" />
-            </div>
-            <input
-              type="text"
-              placeholder="Search quizzes..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-            />
-          </div>
+      {!error && quizzes === null && (
+        <div className="space-y-3" aria-busy="true" aria-label="Loading quizzes">
+          {[0, 1, 2].map((row) => (
+            <Skeleton key={row} className="h-24 w-full" />
+          ))}
         </div>
-      </div>
+      )}
 
-      {/* Quizzes Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        {isLoading ? (
-          <div className="p-6 text-center">
-            <div className="inline-block animate-spin h-8 w-8 border-4 border-purple-500 border-t-transparent rounded-full"></div>
-            <p className="mt-2 text-gray-600">Loading quizzes...</p>
-          </div>
-        ) : sortedQuizzes.length === 0 ? (
-          <div className="p-6 text-center">
-            {searchTerm ? (
-              <>                <p className="text-gray-600">
-                  No quizzes found matching &quot;{searchTerm}&quot;
-                </p>
-                <button
-                  onClick={() => setSearchTerm("")}
-                  className="mt-2 text-purple-600 hover:text-purple-800 underline"
-                >
+      {quizzes && quizzes.length === 0 && (
+        <EmptyState
+          icon={FileQuestion}
+          title="No quizzes yet"
+          description="Create your first quiz and it will show up here, ready to share."
+          action={newQuiz}
+        />
+      )}
+
+      {quizzes && quizzes.length > 0 && (
+        <>
+          <SearchInput
+            label="Search quizzes"
+            placeholder="Search by title, description or code"
+            value={search}
+            onChange={setSearch}
+            className="mb-6 max-w-md"
+          />
+
+          {visible && visible.length === 0 ? (
+            <EmptyState
+              title="No quizzes match"
+              description={`Nothing matches "${search.trim()}".`}
+              action={
+                <Button variant="secondary" onClick={() => setSearch("")}>
                   Clear search
-                </button>
-              </>
-            ) : (
-              <>
-                <p className="text-gray-600">No quizzes available.</p>{" "}
-                <Link
-                  href="/quizzes/new"
-                  className="mt-2 text-purple-600 hover:text-purple-800 underline inline-block"
-                >
-                  Create your first quiz
-                </Link>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("title")}
-                  >
-                    Quiz Title
-                    {sortBy === "title" && (
-                      <span className="ml-1">
-                        {sortOrder === "asc" ? "↑" : "↓"}
-                      </span>
-                    )}
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Access Code
-                  </th>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("duration")}
-                  >
-                    Duration
-                    {sortBy === "duration" && (
-                      <span className="ml-1">
-                        {sortOrder === "asc" ? "↑" : "↓"}
-                      </span>
-                    )}
-                  </th>
-                  <th
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort("createdAt")}
-                  >
-                    Created
-                    {sortBy === "createdAt" && (
-                      <span className="ml-1">
-                        {sortOrder === "asc" ? "↑" : "↓"}
-                      </span>
-                    )}
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Auto Check
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {sortedQuizzes.map((quiz) => (
-                  <tr key={quiz.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
+                </Button>
+              }
+            />
+          ) : (
+            <ul className="divide-y divide-border rounded-lg border border-border bg-surface">
+              {visible?.map((quiz) => (
+                <li key={quiz.id} className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href={`/quizzes/${quiz.id}`}
+                        className="text-lg font-medium text-text transition-fast hover:text-link"
+                      >
                         {quiz.title}
-                      </div>
-                      <div className="text-sm text-gray-500 line-clamp-1">
-                        {quiz.description || "No description"}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {quiz.accessCode ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          {quiz.accessCode}
+                      </Link>
+                      {!quiz.active && <Badge>Closed</Badge>}
+                      {!quiz.isPublic && <Badge variant="outline">Not listed</Badge>}
+                      {quiz.examMode === "strict" && <Badge variant="outline">Strict</Badge>}
+                    </div>
+                    {quiz.description && (
+                      <p className="mt-1 line-clamp-1 text-sm text-text-muted">{quiz.description}</p>
+                    )}
+                    <p className="mt-2 font-mono text-sm text-text-muted">
+                      {totalQuestions(quiz)} questions
+                      {LEVELS.filter((level) => quiz.counts[level]).map((level) => (
+                        <span key={level}>
+                          {" · "}
+                          {LEVEL_LABELS[level]} {quiz.counts[level]}
                         </span>
-                      ) : (
-                        <span className="text-gray-400">None</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDuration(quiz.duration)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      ))}
+                      {" · "}
+                      {quiz.responseCount} {quiz.responseCount === 1 ? "result" : "results"}
+                      {" · "}
                       {formatDate(quiz.createdAt)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {quiz.isAutoCheck ? (
-                        <span className="text-green-600">Yes</span>
-                      ) : (
-                        <span className="text-red-600">No</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-3">
-                        {" "}
-                        <Link
-                          href={`/quizzes/${quiz.id}`}
-                          className="text-purple-600 hover:text-purple-900"
-                        >
-                          View
-                        </Link>
-                        <Link
-                          href={`/quizzes/${quiz.id}/edit`}
-                          className="text-blue-600 hover:text-blue-900"
-                        >
-                          Edit
-                        </Link>
-                        <button
-                          onClick={() => handleDeleteQuiz(quiz.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
+                    </p>
+                    {quiz.accessCode && (
+                      <p className="mt-2 flex items-center gap-2 text-sm">
+                        <span className="font-mono tracking-[0.1em]">{quiz.accessCode}</span>
+                        <CopyButton text={quiz.accessCode} label="Copy code" />
+                        <span className="text-text-muted">
+                          {quiz.requiresAccessCode ? "required to start" : "optional"}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild variant="secondary" size="sm">
+                      <Link href={`/quizzes/${quiz.id}`}>View</Link>
+                    </Button>
+                    <Button asChild variant="secondary" size="sm">
+                      <Link href={`/quizzes/${quiz.id}/edit`}>Edit</Link>
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => {
+                        setDeleteError(null);
+                        setDeleting(quiz);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+
+      <Dialog
+        open={deleting !== null}
+        onClose={() => !deleteBusy && setDeleting(null)}
+        dismissible={!deleteBusy}
+        title={deleting ? `Delete "${deleting.title}"?` : "Delete quiz"}
+        description={
+          deleting
+            ? `This permanently deletes the quiz, its ${totalQuestions(deleting)} questions and the ${deleting.responseCount} ${deleting.responseCount === 1 ? "result" : "results"} people earned on it. It can't be undone.`
+            : undefined
+        }
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeleting(null)} disabled={deleteBusy}>
+              Keep quiz
+            </Button>
+            <Button variant="danger" onClick={confirmDelete} loading={deleteBusy}>
+              Delete quiz
+            </Button>
+          </>
+        }
+      >
+        {deleteError && <Alert variant="error">{deleteError}</Alert>}
+      </Dialog>
+    </AdminPage>
   );
 }

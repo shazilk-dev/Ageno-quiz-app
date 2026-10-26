@@ -1,240 +1,100 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import {
-  collection,
-  getDocs,
-  doc,
-  deleteDoc,
-  getDoc,
-  Timestamp,
-} from "firebase/firestore";
-import { db } from "@/firebase/client";
+import React, { useCallback, useEffect, useState } from "react";
 import { FiUsers, FiFileText, FiCheckCircle, FiClock } from "react-icons/fi";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import QuizScoreDistribution from "@/components/analytics/QuizScoreDistribution";
 import QuizTimeDistribution from "@/components/analytics/QuizTimeDistribution";
-import { QuizResponse } from "@/types/quiz";
+import { Alert, Button, Dialog, useToast } from "@/components/ui";
+import { adminQuizzes, adminReports } from "@/lib/admin-api";
+import { toQuizResponse, type DashboardData } from "@/lib/admin-types";
+import { ApiRequestError } from "@/lib/api-client";
 
-interface Quiz {
-  id: string;
-  title: string;
-  description?: string;
-  duration: number;
-  accessCode?: string;
-  createdAt: Timestamp | Date | number;
-  createdBy: string;
-  isAutoCheck: boolean;
-}
+const formatDate = (timestamp: number | null | undefined): string =>
+  timestamp
+    ? new Date(timestamp).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    : "Unknown";
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({
-    totalUsers: 0,
-    totalQuizzes: 0,
-    totalAttempts: 0,
-    avgScore: 0,
-  });
-  const [recentQuizzes, setRecentQuizzes] = useState<Quiz[]>([]);
-  const [recentAttempts, setRecentAttempts] = useState<QuizResponse[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const { toast } = useToast();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // The numbers come from counts and small queries on the server, not from reading whole collections.
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setData(await adminReports.dashboard());
+    } catch (failure) {
+      setError(
+        failure instanceof ApiRequestError
+          ? failure.message
+          : "We couldn't load the dashboard. Try again."
+      );
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setIsLoading(true);
+    void load();
+  }, [load]);
 
-        // Fetch users
-        const usersSnapshot = await getDocs(collection(db, "users"));
-        const totalUsers = usersSnapshot.size; // Fetch quizzes
-        const quizzesSnapshot = await getDocs(collection(db, "quizzes"));
-        const quizzes = quizzesSnapshot.docs.map((doc) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            title: data.title || "Untitled Quiz",
-            description: data.description || "",
-            duration: data.duration || 0,
-            accessCode: data.accessCode,
-            createdAt: data.createdAt,
-            createdBy: data.createdBy || "Unknown",
-            isAutoCheck: data.isAutoCheck || false,
-          } as Quiz;
-        });
-        const totalQuizzes = quizzesSnapshot.size;
-
-        // Fetch recent quizzes
-        const sortedQuizzes = [...quizzes].sort((a, b) => {
-          const dateA =
-            typeof a.createdAt === "object" &&
-            "toDate" in a.createdAt &&
-            typeof a.createdAt.toDate === "function"
-              ? a.createdAt.toDate()
-              : new Date(Number(a.createdAt) || 0);
-          const dateB =
-            typeof b.createdAt === "object" &&
-            "toDate" in b.createdAt &&
-            typeof b.createdAt.toDate === "function"
-              ? b.createdAt.toDate()
-              : new Date(Number(b.createdAt) || 0);
-          return dateB.getTime() - dateA.getTime();
-        });
-        setRecentQuizzes(sortedQuizzes.slice(0, 5)); // Fetch responses/attempts
-        const responsesSnapshot = await getDocs(collection(db, "responses"));
-        const responses = responsesSnapshot.docs.map((doc) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            quizId: data.quizId || "",
-            userId: data.userId || "",
-            score: data.score,
-            submittedAt: data.submittedAt,
-            startedAt: data.startedAt,
-            tabSwitchCount: data.tabSwitchCount,
-          } as QuizResponse;
-        });
-
-        // Calculate stats
-        const totalAttempts = responsesSnapshot.size;
-
-        // Calculate average score
-        let totalScore = 0;
-        let validScores = 0;
-
-        responses.forEach((response) => {
-          if (response.score !== null && response.score !== undefined) {
-            totalScore += response.score;
-            validScores++;
-          }
-        });
-
-        const avgScore =
-          validScores > 0 ? Math.round(totalScore / validScores) : 0;
-
-        // Get recent attempts
-        const recentResponses = [...responses]
-          .sort((a, b) => {
-            const dateA =
-              typeof a.submittedAt === "object" &&
-              "toDate" in a.submittedAt &&
-              typeof a.submittedAt.toDate === "function"
-                ? a.submittedAt.toDate()
-                : new Date(Number(a.submittedAt) || 0);
-            const dateB =
-              typeof b.submittedAt === "object" &&
-              "toDate" in b.submittedAt &&
-              typeof b.submittedAt.toDate === "function"
-                ? b.submittedAt.toDate()
-                : new Date(Number(b.submittedAt) || 0);
-            return dateB.getTime() - dateA.getTime();
-          })
-          .slice(0, 5);
-
-        // Enrich recent attempts with user and quiz info
-        const enrichedResponses = await Promise.all(
-          recentResponses.map(async (response) => {
-            let quizTitle = "Unknown Quiz";
-            let userName = "Unknown User";
-
-            // Fetch quiz info
-            if (response.quizId) {
-              try {
-                const quizDoc = await getDoc(
-                  doc(db, "quizzes", response.quizId)
-                );
-                if (quizDoc.exists()) {
-                  quizTitle = quizDoc.data().title || quizTitle;
-                }
-              } catch (error) {
-                console.error("Error fetching quiz:", error);
-              }
-            }
-
-            // Fetch user info
-            if (response.userId) {
-              try {
-                const userDoc = await getDoc(doc(db, "users", response.userId));
-                if (userDoc.exists()) {
-                  userName =
-                    userDoc.data().displayName ||
-                    userDoc.data().email ||
-                    userName;
-                }
-              } catch (error) {
-                console.error("Error fetching user:", error);
-              }
-            }
-
-            // Return a complete QuizResponse object
-            return {
-              ...response,
-              quizTitle,
-              userName,
-            } as QuizResponse;
-          })
-        );
-
-        setRecentAttempts(enrichedResponses);
-
-        // Update stats
-        setStats({
-          totalUsers,
-          totalQuizzes,
-          totalAttempts,
-          avgScore,
-        });
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchDashboardData();
-  }, []); // Function to format date
-  const formatDate = (
-    timestamp: Timestamp | Date | number | { toDate(): Date } | undefined
-  ): string => {
-    if (!timestamp) return "Unknown";
-
-    let date: Date;
-    if (typeof timestamp === "object") {
-      if ("toDate" in timestamp && typeof timestamp.toDate === "function") {
-        // It's a Firestore Timestamp or any object with toDate method
-        date = timestamp.toDate();
-      } else {
-        // It's a JavaScript Date object
-        date = timestamp as Date;
-      }
-    } else {
-      // It's a number (timestamp)
-      date = new Date(Number(timestamp));
-    }
-
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  // Function to handle quiz deletion
-  const handleDeleteQuiz = async (quizId: string) => {
-    if (!confirm("Are you sure you want to delete this quiz?")) return;
-
+  const confirmDeleteQuiz = async () => {
+    if (!deleting) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
     try {
-      // Delete the quiz document
-      await deleteDoc(doc(db, "quizzes", quizId));
-
-      // Update the UI
-      setRecentQuizzes((prev) => prev.filter((quiz) => quiz.id !== quizId));
-      setStats((prev) => ({ ...prev, totalQuizzes: prev.totalQuizzes - 1 }));
-    } catch (error) {
-      console.error("Error deleting quiz:", error);
-      alert("Failed to delete quiz.");
+      await adminQuizzes.remove(deleting.id);
+      toast({ title: "Quiz deleted", variant: "success" });
+      setDeleting(null);
+      await load();
+    } catch (failure) {
+      setDeleteError(
+        failure instanceof ApiRequestError
+          ? failure.message
+          : "We couldn't delete the quiz. Try again."
+      );
+    } finally {
+      setDeleteBusy(false);
     }
   };
+
+  const isLoading = data === null && error === null;
+  const stats = {
+    totalUsers: data?.totals.users ?? 0,
+    totalQuizzes: data?.totals.quizzes ?? 0,
+    totalAttempts: data?.totals.attempts ?? 0,
+    avgScore: data?.totals.averageScore ?? 0,
+  };
+  const recentQuizzes = data?.recentQuizzes ?? [];
+  const chartResponses = (data?.recent ?? []).map(toQuizResponse);
+  const recentAttempts = chartResponses.slice(0, 5);
+
+  if (error && !data) {
+    return (
+      <div className="p-6">
+        <Alert
+          variant="error"
+          title="Couldn't load the dashboard"
+          action={
+            <Button variant="secondary" size="sm" onClick={() => void load()}>
+              Try again
+            </Button>
+          }
+        >
+          {error}
+        </Alert>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -348,7 +208,10 @@ export default function Dashboard() {
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDeleteQuiz(quiz.id)}
+                      onClick={() => {
+                        setDeleteError(null);
+                        setDeleting({ id: quiz.id, title: quiz.title });
+                      }}
                       className="text-red-600 hover:text-red-800"
                     >
                       Delete
@@ -407,7 +270,7 @@ export default function Dashboard() {
                     </span>
                   </div>
                   <p className="text-sm text-gray-600">
-                    By {attempt.userName} • {formatDate(attempt.submittedAt)}
+                    By {attempt.userName} • {formatDate(attempt.submittedAt as number | undefined)}
                   </p>
                 </div>
               ))
@@ -420,7 +283,7 @@ export default function Dashboard() {
         </div>
       </div>
       {/* Performance Analytics */}
-      {recentAttempts.length > 0 && (
+      {chartResponses.length > 0 && (
         <div className="mt-8">
           <h2 className="text-xl font-bold text-gray-900 mb-4">
             Performance Analytics
@@ -428,16 +291,36 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg shadow p-4">
               <QuizScoreDistribution
-                responses={recentAttempts}
+                responses={chartResponses}
                 title="Score Distribution Overview"
               />
             </div>
             <div className="bg-white rounded-lg shadow p-4">
-              <QuizTimeDistribution responses={recentAttempts} />
+              <QuizTimeDistribution responses={chartResponses} />
             </div>
           </div>
         </div>
       )}
+
+      <Dialog
+        open={deleting !== null}
+        onClose={() => !deleteBusy && setDeleting(null)}
+        dismissible={!deleteBusy}
+        title={deleting ? `Delete "${deleting.title}"?` : "Delete quiz"}
+        description="This permanently deletes the quiz, its questions and the results people earned on it. It can't be undone."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeleting(null)} disabled={deleteBusy}>
+              Keep quiz
+            </Button>
+            <Button variant="danger" onClick={confirmDeleteQuiz} loading={deleteBusy}>
+              Delete quiz
+            </Button>
+          </>
+        }
+      >
+        {deleteError && <Alert variant="error">{deleteError}</Alert>}
+      </Dialog>
     </div>
   );
 }
