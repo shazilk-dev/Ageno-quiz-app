@@ -2,18 +2,17 @@
 
 import { Trophy } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Container } from "@/components/layout/Container";
 import { Alert, Button, Card, EmptyState, Skeleton } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
 import {
-  buildOverallBoard,
-  buildQuizBoard,
+  leaderboardFromDTO,
   LEADERBOARD_SHOWN,
+  type Leaderboard,
+  type LeaderboardDTO,
 } from "@/lib/leaderboard";
-import { leaderboardFromDTO, type Leaderboard } from "@/lib/player-data";
 import { fetchLeaderboard } from "@/lib/quizzes-api";
-import type { LeaderboardDTO } from "@/lib/server/leaderboard";
 import { cn } from "@/lib/utils";
 import LeaderboardFilters, { type TimeFrame } from "./LeaderboardFilters";
 import LeaderboardTable from "./LeaderboardTable";
@@ -42,9 +41,9 @@ const quizOptions = (board: Leaderboard) =>
     .sort((a, b) => a.title.localeCompare(b.title));
 
 /**
- * The leaderboard. `initialBoard` is the unfiltered board, rendered with the page when the server knew who
- * was signed in. A filter change asks the server again; the board on screen stays (dimmed) until the new
- * one arrives, instead of blanking to a skeleton.
+ * The leaderboard, ranked on the server. `initialBoard` is the unfiltered board, rendered with the page
+ * when the server knew who was signed in. A filter change asks the server again; the board on screen
+ * stays (dimmed) until the new one arrives, instead of blanking to a skeleton.
  */
 export default function LeaderboardClient({
   initialBoard = null,
@@ -53,15 +52,14 @@ export default function LeaderboardClient({
 }) {
   const { user } = useAuth();
   const [initialData] = useState(() => (initialBoard ? leaderboardFromDTO(initialBoard) : null));
-  // The data on screen, and the quiz filter it was loaded for (the board's layout depends on it).
-  const [shown, setShown] = useState<{ data: Leaderboard; quizId: string } | null>(() =>
-    initialData ? { data: initialData, quizId: "" } : null
-  );
-  const shownData = useRef(shown?.data ?? null);
-  shownData.current = shown?.data ?? null;
+  // The board on screen. It says itself whether it ranks one quiz or every quiz, so its layout always
+  // matches its data, even while the filters already ask for something else.
+  const [board, setBoard] = useState<Leaderboard | null>(initialData);
+  const shownData = useRef(board);
+  shownData.current = board;
   const [pending, setPending] = useState(false);
   const [quizzes, setQuizzes] = useState<Array<{ id: string; title: string }>>(() =>
-    shown ? quizOptions(shown.data) : []
+    board ? quizOptions(board) : []
   );
   const [failed, setFailed] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -80,7 +78,7 @@ export default function LeaderboardClient({
     fetchLeaderboard({ timeFrame, quizId, difficulty })
       .then((result) => {
         if (cancelled) return;
-        setShown({ data: result, quizId });
+        setBoard(result);
         // The filter list comes with the data; it stays while a new request is running.
         setQuizzes(quizOptions(result));
       })
@@ -102,16 +100,6 @@ export default function LeaderboardClient({
     };
   }, [timeFrame, quizId, difficulty, reloadKey, initialData]);
 
-  const board = useMemo(() => {
-    if (!shown) return null;
-    const { data } = shown;
-    return shown.quizId
-      ? { mode: "quiz" as const, entries: buildQuizBoard(data.rows, data.users) }
-      : { mode: "overall" as const, entries: buildOverallBoard(data.rows, data.users) };
-  }, [shown]);
-
-  // Ranks run over everyone, so a person outside the rows shown still sees their own place.
-  const mine = board?.entries.find((entry) => entry.userId === user?.uid) ?? null;
   const filtered = timeFrame !== "all" || quizId !== "" || difficulty !== "";
 
   const clearFilters = () => {
@@ -127,7 +115,7 @@ export default function LeaderboardClient({
         <h1 className="mt-2 text-3xl">Leaderboard</h1>
         <p className="mt-2 max-w-[65ch] text-text-muted">
           {quizId
-            ? "Every attempt at this quiz, best score first. The faster time wins a tie."
+            ? "Each person's best attempt at this quiz, highest score first. The faster time wins a tie."
             : "Points add up your best score on each quiz. Retaking a quiz can raise its score, but it only counts once."}
         </p>
 
@@ -189,23 +177,16 @@ export default function LeaderboardClient({
             />
           ) : (
             <div className="fade-in space-y-6">
-              {user && <UserRank entry={mine} total={board.entries.length} />}
+              {/* Ranks run over everyone, so a person outside the rows shown still sees their own place. */}
+              {user && <UserRank entry={board.me} total={board.total} />}
               {board.mode === "overall" ? (
-                <LeaderboardTable
-                  mode="overall"
-                  entries={board.entries.slice(0, LEADERBOARD_SHOWN)}
-                  userId={user?.uid}
-                />
+                <LeaderboardTable mode="overall" entries={board.entries} userId={user?.uid} />
               ) : (
-                <LeaderboardTable
-                  mode="quiz"
-                  entries={board.entries.slice(0, LEADERBOARD_SHOWN)}
-                  userId={user?.uid}
-                />
+                <LeaderboardTable mode="quiz" entries={board.entries} userId={user?.uid} />
               )}
-              {board.entries.length > LEADERBOARD_SHOWN && (
+              {board.total > board.entries.length && (
                 <p className="text-sm text-text-muted">
-                  Showing the top {LEADERBOARD_SHOWN} of {board.entries.length}.
+                  Showing the top {LEADERBOARD_SHOWN} of {board.total}.
                 </p>
               )}
             </div>

@@ -5,6 +5,12 @@
 // Without FIRESTORE_EMULATOR_HOST they are skipped.
 import { describe, expect, it, vi } from "vitest";
 
+// `after()` needs a real Next.js request around it; here its work just runs once the route has answered.
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => void Promise.resolve().then(task),
+}));
+
 vi.mock("@/firebase/admin", async () => {
   const { getApps, initializeApp } = await import("firebase-admin/app");
   const { getFirestore } = await import("firebase-admin/firestore");
@@ -40,6 +46,8 @@ import {
   submitAttempt,
 } from "@/lib/server/attempts";
 import type { AttemptState, SubmitResult } from "@/lib/exam/types";
+import { LEADERBOARD_SHOWN, buildQuizBoard, type LeaderboardDTO } from "@/lib/leaderboard";
+import { aggregate, entryId, type EntryDoc, type TotalsDoc } from "@/lib/leaderboard-stats";
 
 const emulator = !!process.env.FIRESTORE_EMULATOR_HOST;
 // The first call pays for connecting to the emulator, which can take longer than the 5s default.
@@ -681,6 +689,100 @@ describe.skipIf(!emulator)("submitting", () => {
   });
 });
 
+describe.skipIf(!emulator)("the precomputed leaderboard, kept by submits", () => {
+  const entryOf = async (quizId: string, userId: string) =>
+    (await db.collection("leaderboard").doc(entryId(quizId, userId)).get()).data() as EntryDoc | undefined;
+  const totalsOf = async (userId: string) =>
+    (await db.collection("userTotals").doc(userId).get()).data() as TotalsDoc | undefined;
+  /** Starts and submits one attempt. q1 is 1, q2 is 0, q3 is 2 (all three right is 100). */
+  const take = async (quizId: string, user: string, answers: Record<string, number>, difficulty = "medium") => {
+    const { attemptId } = await startOk(quizId, difficulty, user);
+    const response = await submit(attemptId, { answers }, user);
+    expect(response.status).toBe(200);
+    return { attemptId, result: (await response.json()) as SubmitResult };
+  };
+
+  it("puts a scored submit on the person's entry and totals, with their name, in the same write", async () => {
+    const quizId = await seedQuiz();
+    const me = unique("lb");
+    await db.collection("users").doc(me).set({ displayName: "  Nadia ", email: "nadia@example.com" });
+    const { result } = await take(quizId, me, { q1: 1, q2: 0 });
+
+    expect(await entryOf(quizId, me)).toMatchObject({
+      quizId,
+      userId: me,
+      displayName: "Nadia",
+      score: result.score,
+      difficulty: "medium",
+      attempts: 1,
+      levels: { medium: { score: result.score, attempts: 1 } },
+    });
+    expect(await totalsOf(me)).toMatchObject({
+      userId: me,
+      displayName: "Nadia",
+      points: result.score,
+      quizCount: 1,
+      attempts: 1,
+      levels: { medium: { points: result.score, quizCount: 1 } },
+    });
+  });
+
+  it("keeps the best attempt and counts every one; a repeated submit counts nothing", async () => {
+    const quizId = await seedQuiz({}, { level: "hard" });
+    const me = unique("lb");
+    const best = await take(quizId, me, { q1: 1, q2: 0, q3: 2 }, "hard"); // 100
+    const worse = await take(quizId, me, { q1: 1 }, "hard"); // 33 x 1.5 = 50
+    expect(worse.result.score).toBe(50);
+    // A retry of an attempt that already went through.
+    expect((await submit(worse.attemptId, { answers: { q1: 1, q2: 0, q3: 2 } }, me)).status).toBe(200);
+
+    const entry = await entryOf(quizId, me);
+    expect(entry).toMatchObject({ score: 100, attempts: 2, difficulty: "hard" });
+    expect(entry!.bestAt).toBe(
+      (await db.collection("responses").doc(best.attemptId).get()).data()!.submittedAt.toMillis()
+    );
+    expect(await totalsOf(me)).toMatchObject({ points: 100, quizCount: 1, attempts: 2 });
+
+    const other = await seedQuiz();
+    await take(other, me, { q1: 1, q2: 0 }); // 67
+    expect(await totalsOf(me)).toMatchObject({ points: 167, quizCount: 2, attempts: 3 });
+  });
+
+  it("counts two racing submits of one attempt once", async () => {
+    const quizId = await seedQuiz();
+    const me = unique("lb");
+    const { attemptId } = await startOk(quizId, "medium", me);
+    await Promise.all([
+      submit(attemptId, { answers: { q1: 1 } }, me),
+      submit(attemptId, { answers: { q1: 1 } }, me),
+    ]);
+    expect(await entryOf(quizId, me)).toMatchObject({ attempts: 1 });
+    expect(await totalsOf(me)).toMatchObject({ attempts: 1 });
+  });
+
+  it("leaves a quiz checked by hand off the board", async () => {
+    const quizId = await seedQuiz({ isAutoCheck: false });
+    const me = unique("lb");
+    await take(quizId, me, { q1: 1 });
+    expect(await entryOf(quizId, me)).toBeUndefined();
+    expect(await totalsOf(me)).toBeUndefined();
+  });
+
+  it("counts the quiz's results after the submit, once per result", async () => {
+    const quizId = await seedQuiz({ responseCount: 0, responseCountTracked: true });
+    const me = unique("lb");
+    const { attemptId } = await take(quizId, me, { q1: 1 });
+    await vi.waitFor(async () =>
+      expect((await db.doc(`quizzes/${quizId}`).get()).data()!.responseCount).toBe(1)
+    );
+    await submit(attemptId, { answers: {} }, me); // a repeat
+    await take(quizId, me, { q1: 0 });
+    await vi.waitFor(async () =>
+      expect((await db.doc(`quizzes/${quizId}`).get()).data()!.responseCount).toBe(2)
+    );
+  });
+});
+
 describe.skipIf(!emulator)("leaderboard", () => {
   const response = async (quizId: string, userId: string, score: number, extra: Record<string, unknown> = {}) => {
     await db.collection("responses").doc(unique("r")).set({
@@ -693,63 +795,157 @@ describe.skipIf(!emulator)("leaderboard", () => {
       ...extra,
     });
   };
-  const leaderboard = (query: string, user?: string) =>
-    leaderboardRoute(request(`/api/leaderboard${query}`, "GET", user));
+  const leaderboard = async (query: string, user = "alice") => {
+    const res = await leaderboardRoute(request(`/api/leaderboard${query}`, "GET", user));
+    expect(res.status).toBe(200);
+    return (await res.json()) as LeaderboardDTO;
+  };
+  /** Board rows written the way submits write them, without running each attempt. */
+  const seedBoard = async (quizId: string, people: Array<[string, number, string?]>) => {
+    const now = Date.now();
+    const { entries } = aggregate(
+      people.map(([userId, score, difficulty = "medium"], i) => ({
+        quizId,
+        userId,
+        score,
+        difficulty,
+        startedAt: now - 120_000,
+        submittedAt: now - i,
+      }))
+    );
+    await Promise.all(entries.map((e) => db.collection("leaderboard").doc(entryId(quizId, e.userId)).set(e)));
+  };
+  const scores = (body: LeaderboardDTO) =>
+    body.entries.map((e) => [e.userId, "score" in e ? e.score : null]);
 
-  it("returns the top results for a quiz with names and titles already looked up", async () => {
+  it("ranks one quiz from the stored rows: each person's best, names from the profile, never an email", async () => {
     const quizId = await seedQuiz({ title: "Board quiz" });
     const named = unique("named");
     const unnamed = unique("unnamed");
     await db.collection("users").doc(named).set({ displayName: "Nadia", email: "nadia@example.com", role: "user" });
     await db.collection("users").doc(unnamed).set({ email: "private@example.com", role: "user" });
-    await response(quizId, named, 90);
-    await response(quizId, unnamed, 95);
-    await response(quizId, "ghost-user-id", 50);
+    const first = await startOk(quizId, "medium", named);
+    await submit(first.attemptId, { answers: { q1: 1, q2: 0 } }, named); // 67
+    const again = await startOk(quizId, "medium", named);
+    await submit(again.attemptId, { answers: {} }, named); // 0: not their best
+    const top = await startOk(quizId, "medium", unnamed);
+    await submit(top.attemptId, { answers: { q1: 1, q2: 0, q3: 2 } }, unnamed); // 100
 
-    const res = await leaderboard(`?quizId=${quizId}`, "alice");
+    const res = await leaderboardRoute(request(`/api/leaderboard?quizId=${quizId}`, "GET", named));
     const text = await res.text();
-    const body = JSON.parse(text);
+    const body = JSON.parse(text) as LeaderboardDTO;
 
-    expect(res.status).toBe(200);
-    expect(body.rows.map((r: { score: number }) => r.score)).toEqual([95, 90, 50]);
-    expect(body.users[named]).toBe("Nadia");
-    expect(body.users[unnamed]).toBe(`User ${unnamed.slice(0, 6)}`);
-    expect(body.users["ghost-user-id"]).toBe("User ghost-");
+    expect(body.mode).toBe("quiz");
+    expect(body.entries.map((e) => [e.rank, e.username, "score" in e && e.score])).toEqual([
+      [1, `User ${unnamed.slice(0, 6)}`, 100],
+      [2, "Nadia", 67],
+    ]);
+    expect(body.total).toBe(2);
+    expect(body.me).toMatchObject({ userId: named, rank: 2 });
     expect(body.quizzes[quizId]).toBe("Board quiz");
     // Display names only: no email ever leaves the server.
     expect(text).not.toMatch(/example\.com|@/);
     expect(res.headers.get("cache-control")).toContain("private");
   });
 
-  it("filters by difficulty and by time frame", async () => {
+  it("filters one quiz to a level, from the per-level rows", async () => {
     const quizId = await seedQuiz();
+    await seedBoard(quizId, [
+      ["lv-a", 90, "easy"],
+      ["lv-b", 60, "hard"],
+      ["lv-a", 40, "hard"],
+    ]);
+    expect(scores(await leaderboard(`?quizId=${quizId}&difficulty=hard`))).toEqual([
+      ["lv-b", 60],
+      ["lv-a", 40],
+    ]);
+    expect(scores(await leaderboard(`?quizId=${quizId}`))).toEqual([
+      ["lv-a", 90],
+      ["lv-b", 60],
+    ]);
+  });
+
+  it("gives the viewer their place and the full count when they're below the rows shown", async () => {
+    const quizId = await seedQuiz();
+    await seedBoard(
+      quizId,
+      Array.from({ length: LEADERBOARD_SHOWN + 5 }, (_, i): [string, number] => [`many${i}`, 100 - i])
+    );
+
+    const body = await leaderboard(`?quizId=${quizId}`, "many53");
+    expect(body.entries).toHaveLength(LEADERBOARD_SHOWN);
+    expect(body.total).toBe(LEADERBOARD_SHOWN + 5);
+    expect(body.me).toMatchObject({ userId: "many53", rank: 54, score: 47 });
+    expect((await leaderboard(`?quizId=${quizId}`, "many2")).me).toMatchObject({ rank: 3 });
+    expect((await leaderboard(`?quizId=${quizId}`, "not-on-it")).me).toBeNull();
+  });
+
+  it("ranks everyone overall from their totals, in the totals' own order", async () => {
+    const quizId = await seedQuiz();
+    const me = unique("overall");
+    const { attemptId } = await startOk(quizId, "medium", me);
+    await submit(attemptId, { answers: { q1: 1 } }, me);
+
+    for (const difficulty of ["", "medium"]) {
+      const body = await leaderboard(difficulty ? `?difficulty=${difficulty}` : "", me);
+      const field = difficulty ? `levels.${difficulty}.rankKey` : "rankKey";
+      const expected = (await db.collection("userTotals").orderBy(field, "desc").get()).docs.map((d) => d.id);
+      expect(body.mode).toBe("overall");
+      expect(body.total).toBe(expected.length);
+      expect(body.entries.map((e) => e.userId)).toEqual(expected.slice(0, LEADERBOARD_SHOWN));
+      expect(body.me).toMatchObject({ userId: me, rank: expected.indexOf(me) + 1, quizCount: 1 });
+    }
+  });
+
+  it("works week and month boards out from that period's results, best per person", async () => {
+    const quizId = await seedQuiz();
+    const days = (n: number) => Timestamp.fromMillis(Date.now() - n * 24 * 3600_000);
     await response(quizId, "u-easy", 70, { selectedDifficulty: "easy" });
+    await response(quizId, "u-easy", 75, { selectedDifficulty: "easy" });
     await response(quizId, "u-hard", 60, { selectedDifficulty: "hard" });
-    await response(quizId, "u-old", 99, {
-      submittedAt: Timestamp.fromMillis(Date.now() - 60 * 24 * 3600_000),
-    });
+    await response(quizId, "u-old", 99, { submittedAt: days(60) });
+    await response(quizId, "u-month", 80, { submittedAt: days(10) });
 
-    const hard = await (await leaderboard(`?quizId=${quizId}&difficulty=hard`, "alice")).json();
-    expect(hard.rows.map((r: { userId: string }) => r.userId)).toEqual(["u-hard"]);
+    const week = await leaderboard(`?quizId=${quizId}&timeFrame=week`, "u-hard");
+    expect(scores(week)).toEqual([
+      ["u-easy", 75],
+      ["u-hard", 60],
+    ]);
+    expect(week.me).toMatchObject({ userId: "u-hard", rank: 2 });
+    expect(week.total).toBe(2);
 
-    const week = await (await leaderboard(`?quizId=${quizId}&timeFrame=week`, "alice")).json();
-    expect(week.rows.map((r: { userId: string }) => r.userId).sort()).toEqual(["u-easy", "u-hard"]);
+    expect(scores(await leaderboard(`?quizId=${quizId}&timeFrame=month&difficulty=easy`))).toEqual([["u-easy", 75]]);
+    expect(scores(await leaderboard(`?quizId=${quizId}&timeFrame=month`)).map(([id]) => id)).toEqual([
+      "u-month",
+      "u-easy",
+      "u-hard",
+    ]);
 
-    const all = await (await leaderboard(`?quizId=${quizId}&timeFrame=all`, "alice")).json();
-    expect(all.rows).toHaveLength(3);
+    // The board is the shared builder over the same rows.
+    const rows = (await db.collection("responses").where("quizId", "==", quizId).get()).docs
+      .map((d) => d.data())
+      .filter((d) => d.submittedAt.toMillis() >= days(7).toMillis())
+      .map((d) => ({
+        userId: d.userId,
+        quizId,
+        score: d.score,
+        selectedDifficulty: d.selectedDifficulty,
+        startedAt: d.startedAt.toMillis(),
+        submittedAt: d.submittedAt.toMillis(),
+      }));
+    expect(scores(week)).toEqual(buildQuizBoard(rows, {}).map((e) => [e.userId, e.score]));
   });
 
   it("lists the quizzes people can pick, for the filter", async () => {
     const quizId = await seedQuiz({ title: "Pickable" });
-    const body = await (await leaderboard("", "alice")).json();
-    expect(body.quizzes[quizId]).toBe("Pickable");
+    expect((await leaderboard("")).quizzes[quizId]).toBe("Pickable");
   });
 
   it("needs a sign-in and rejects filters it doesn't understand", async () => {
-    expect((await leaderboard("")).status).toBe(401);
-    expect((await leaderboard("?timeFrame=century", "alice")).status).toBe(400);
-    expect((await leaderboard("?quizId=a/b", "alice")).status).toBe(400);
-    expect((await leaderboard("?difficulty=../x", "alice")).status).toBe(400);
+    expect((await leaderboardRoute(request("/api/leaderboard", "GET"))).status).toBe(401);
+    for (const query of ["?timeFrame=century", "?quizId=a/b", "?difficulty=../x", "?difficulty=extreme"]) {
+      expect((await leaderboardRoute(request(`/api/leaderboard${query}`, "GET", "alice"))).status).toBe(400);
+    }
   });
 });
 

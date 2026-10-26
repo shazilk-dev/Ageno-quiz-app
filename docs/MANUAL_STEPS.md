@@ -113,3 +113,20 @@ Check in a real browser on the deployed site, with the console open (F12 → **C
 - [ ] **Take a quiz:** start, answer, submit, see the result. Start should be as quick as before (the exam's code now loads in the background while you're on the lobby).
 - [ ] A quiz in progress: reload the page. The "resume" screen appears and resuming works.
 - [ ] As admin, open the Dashboard, Quizzes, Users, Reports and the quiz editor. All work as before. (The admin screens never used Firestore from the browser, so the stricter rules don't affect them.)
+
+## Performance Phase S5 (precomputed leaderboard; on branch `phase-7-polish`, not merged or pushed yet)
+
+S5 stores each person's best score per quiz (`leaderboard`) and their totals (`userTotals`) when they submit, so the leaderboard is one small query and counts every result (the old page only looked at the top 100). The admin quiz list reads a stored result count. Two things must happen around the deploy, **in this order**:
+
+- [ ] **1. Deploy the new indexes** (before the code goes live; the "one quiz" boards need them): `firebase deploy --only firestore:indexes --project ageno-quiz-af3ff` (or `! firebase deploy --only firestore:indexes --project ageno-quiz-af3ff` in Claude Code). If it asks whether to delete indexes that aren't in `firestore.indexes.json`, answer **No**. Then wait until Firebase console → Firestore → **Indexes** shows the four new `leaderboard` indexes as **Enabled** (a few minutes; the collection is empty, so it's quick).
+- [ ] **2. Merge and push**, and wait for Vercel to show the new version live (green). Until step 3 runs, the all-time leaderboard only shows results submitted after the deploy.
+- [ ] **3. Fill the leaderboard from the existing results**, at a quiet time (nobody taking a quiz):
+  - `npm run backfill:leaderboard` first: a dry run that writes nothing. On 2026-10-26 it read 79 results → 19 rows for 11 people; the numbers should be about that plus whatever came in since.
+  - Then `npm run backfill:leaderboard -- --apply`. It's safe to run again any time (it rebuilds from scratch), for example if someone submitted while it ran.
+
+Checks on the deployed site (about 5 minutes):
+- [ ] **Leaderboard**, every quiz: the same people and points as before the deploy (the old board could be wrong once there were more than 100 results; there aren't yet).
+- [ ] Pick one quiz: each person appears **once** now, with their best attempt (before, every attempt had its own row). Pick a difficulty: the board narrows to it. Week and Month still work.
+- [ ] Take a quiz, then open the leaderboard: your new result counts straight away on **All time** (Week and Month can take up to 30 seconds).
+- [ ] Change your display name on Profile: the leaderboard shows the new name (within a few seconds).
+- [ ] As admin, **Quizzes**: the result counts match the **Reports** screen for each quiz.

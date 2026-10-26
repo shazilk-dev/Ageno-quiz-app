@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   docId: "",
   update: vi.fn(),
   logActivity: vi.fn(),
+  rename: vi.fn(),
 }));
 
 vi.mock("next/server", async (importOriginal) => ({
@@ -26,6 +27,7 @@ vi.mock("@/firebase/admin", () => ({
   },
 }));
 vi.mock("@/lib/server/activity", () => ({ logActivity: state.logActivity }));
+vi.mock("@/lib/server/leaderboard-store", () => ({ renameOnLeaderboard: state.rename }));
 
 import { POST as recordActivity } from "@/app/api/account/activity/route";
 import { PATCH as updateProfile } from "@/app/api/account/profile/route";
@@ -51,6 +53,7 @@ beforeEach(() => {
   });
   state.update.mockReset().mockResolvedValue(undefined);
   state.logActivity.mockReset().mockResolvedValue(undefined);
+  state.rename.mockReset().mockResolvedValue(undefined);
 });
 
 describe("PATCH /api/account/profile", () => {
@@ -72,6 +75,8 @@ describe("PATCH /api/account/profile", () => {
     expect(state.logActivity).not.toHaveBeenCalled();
     await runAfter();
     expect(state.logActivity).toHaveBeenCalledWith("u1", "profile_updated", { fields: ["displayName"] }, "test");
+    // The new name goes onto the person's leaderboard rows too (trimmed there).
+    expect(state.rename).toHaveBeenCalledWith("u1", "  Ada  ");
   });
 
   it("with an empty body only syncs the email and logs nothing", async () => {
@@ -79,6 +84,7 @@ describe("PATCH /api/account/profile", () => {
     expect(state.update.mock.calls[0][0]).toMatchObject({ email: "new@example.com" });
     await runAfter();
     expect(state.logActivity).not.toHaveBeenCalled();
+    expect(state.rename).not.toHaveBeenCalled();
   });
 
   it.each([{ displayName: "" }, { displayName: "x".repeat(201) }, { photoURL: "javascript:alert(1)" }])(

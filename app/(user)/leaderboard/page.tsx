@@ -11,7 +11,7 @@ export default async function LeaderboardPage() {
   let board: LeaderboardDTO | null = null;
   if (session) {
     try {
-      board = await getLeaderboard({});
+      board = await getLeaderboard({}, session.uid);
     } catch (error) {
       console.error("Could not load the leaderboard:", error);
     }

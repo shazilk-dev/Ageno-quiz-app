@@ -1,13 +1,14 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { auth, db } from "@/firebase/admin";
 import type { AdminUserDTO } from "@/lib/admin-types";
+import { renameOnLeaderboard } from "./leaderboard-store";
 import { ApiError, assertSafeId } from "./request";
 
 /**
  * Deletes a person for real: their sign-in account (so they can't just sign back in and get a fresh
  * profile), their profile with its sub-collections, their activity log and any attempts still on file.
  * Their finished results stay: they feed the quiz reports and the leaderboard, and show as an unknown
- * user from then on.
+ * user from then on (the name copied onto their leaderboard rows is cleared).
  *
  * Refuses to delete yourself, and the last admin (an app nobody can administer is not recoverable).
  */
@@ -46,6 +47,7 @@ export async function deleteUserAccount(
       await Promise.all(page.docs.map((doc) => db.recursiveDelete(doc.ref)));
     }
   }
+  await renameOnLeaderboard(targetUid, null);
   await db.recursiveDelete(profileRef);
   return { deleted: true };
 }

@@ -16,11 +16,16 @@ export const QUIZZES_TAG = "quizzes";
 export const quizTag = (quizId: string) => `quiz:${quizId}`;
 
 /**
- * Runs `load` through the data cache under `key`, tagged with `tags`. Outside a Next.js server (scripts,
- * tests that call the code directly) there is no cache, so it just loads.
+ * Runs `load` through the data cache under `key`, tagged with `tags`, for `seconds` at most. Outside a
+ * Next.js server (scripts, tests that call the code directly) there is no cache, so it just loads.
  */
-export function cached<T>(key: string[], tags: string[], load: () => Promise<T>): Promise<T> {
-  return unstable_cache(load, key, { tags, revalidate: SAFETY_SECONDS })().catch((error: unknown) => {
+export function cached<T>(
+  key: string[],
+  tags: string[],
+  load: () => Promise<T>,
+  seconds = SAFETY_SECONDS
+): Promise<T> {
+  return unstable_cache(load, key, { tags, revalidate: seconds })().catch((error: unknown) => {
     if (error instanceof Error && error.message.startsWith("Invariant: incrementalCache missing")) {
       return load();
     }

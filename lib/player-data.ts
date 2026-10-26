@@ -1,7 +1,6 @@
 import type { QuestionCounts } from "@/lib/exam/types";
 import { publicQuizFromDTO, type PublicQuiz, type PublicQuizDTO } from "@/lib/quiz-data";
 import type { MyAttemptDTO } from "@/lib/server/history";
-import type { LeaderboardDTO } from "@/lib/server/leaderboard";
 
 // What a player's screens show, and how the server's plain-JSON versions (DTOs: dates as epoch ms) turn
 // into it. The same helpers serve data fetched by the browser (`lib/quizzes-api.ts`) and data a page was
@@ -24,31 +23,6 @@ export interface QuizInfo {
 export const quizInfoFromDTO = (info: QuizInfoDTO): QuizInfo => ({
   ...info,
   quiz: publicQuizFromDTO(info.quiz),
-});
-
-export interface LeaderboardRow {
-  id: string;
-  userId: string;
-  quizId: string;
-  score: number | null;
-  selectedDifficulty: string;
-  startedAt: Date | null;
-  submittedAt: Date | null;
-}
-
-export interface Leaderboard {
-  rows: LeaderboardRow[];
-  users: Record<string, string>;
-  quizzes: Record<string, string>;
-}
-
-export const leaderboardFromDTO = (data: LeaderboardDTO): Leaderboard => ({
-  ...data,
-  rows: data.rows.map((row) => ({
-    ...row,
-    startedAt: row.startedAt === null ? null : new Date(row.startedAt),
-    submittedAt: row.submittedAt === null ? null : new Date(row.submittedAt),
-  })),
 });
 
 export interface MyAttempt {

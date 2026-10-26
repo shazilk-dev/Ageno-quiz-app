@@ -28,6 +28,7 @@ import {
   getDifficultyMultiplier,
 } from "@/utils/difficulty-helpers";
 import { cached, quizTag } from "./cache";
+import { readBoard, writeBoard } from "./leaderboard-store";
 import { accessCodeMatches } from "./quizzes";
 import { ApiError, assertSafeId } from "./request";
 
@@ -378,20 +379,25 @@ export async function saveProgress(
  * Scores on the server and writes the response. Exactly once: a second submit (a double click, a retry
  * after a dropped connection) returns the stored result. A submit that arrives after the deadline plus
  * grace is not read at all; the attempt is finished from its last autosave and the result says `late`.
+ * A scored result also updates the person's leaderboard entry and totals in the same transaction, so the
+ * board can never count an attempt twice or miss one. `onSubmitted` runs once, after the submit that
+ * actually wrote the result (not after a repeat).
  */
 export async function submitAttempt(
   attemptId: unknown,
   userId: string,
   payload: RawPatch,
-  { now = Date.now() }: Options = {}
+  { now = Date.now(), onSubmitted }: Options & { onSubmitted?: (quizId: string) => void } = {}
 ): Promise<SubmitResult> {
   assertSafeId(attemptId, "attempt");
   const attemptRef = attempts().doc(attemptId);
   const responseRef = db.collection("responses").doc(attemptId);
 
-  return db.runTransaction(async (tx) => {
+  const { result, fresh, quizId } = await db.runTransaction(async (tx) => {
     const data = owned(await tx.get(attemptRef), userId);
-    if (data.status === "submitted" && data.result) return data.result;
+    if (data.status === "submitted" && data.result) {
+      return { result: data.result, fresh: false, quizId: data.quizId };
+    }
     assertOpen(data);
 
     const startedMs = data.startedAt.toMillis();
@@ -412,6 +418,8 @@ export async function submitAttempt(
       autoCheck: data.autoCheck,
       multiplier: data.multiplier,
     });
+    // Read before any write (a transaction's rule). A result checked by hand has no score to rank.
+    const board = typeof score.score === "number" ? await readBoard(tx, data.quizId, userId) : null;
 
     const review: Record<string, ReviewItem> | null =
       score.graded && data.showAnswerReview
@@ -486,6 +494,20 @@ export async function submitAttempt(
       updatedAt: submittedAt,
       result,
     });
-    return result;
+
+    if (board && typeof score.score === "number") {
+      writeBoard(tx, board, {
+        quizId: data.quizId,
+        userId,
+        score: score.score,
+        difficulty: data.difficulty,
+        startedAt: startedMs,
+        submittedAt: now,
+      });
+    }
+    return { result, fresh: true, quizId: data.quizId };
   });
+
+  if (fresh) onSubmitted?.(quizId);
+  return result;
 }

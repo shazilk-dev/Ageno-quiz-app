@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Leaderboard, LeaderboardRow } from "@/lib/quizzes-api";
+import {
+  buildOverallBoard,
+  buildQuizBoard,
+  leaderboardFromDTO,
+  type Leaderboard,
+  type LeaderboardDTO,
+  type LeaderboardRow,
+} from "@/lib/leaderboard";
 
 const fetchLeaderboard = vi.fn();
 vi.mock("@/lib/quizzes-api", () => ({ fetchLeaderboard: (f: unknown) => fetchLeaderboard(f) }));
@@ -11,22 +18,35 @@ vi.mock("@/contexts/auth-context", () => ({ useAuth: () => auth }));
 
 import LeaderboardPage from "@/app/(user)/leaderboard/LeaderboardClient";
 
-let n = 0;
 const row = (userId: string, quizId: string, score: number): LeaderboardRow => ({
-  id: `r${++n}`,
   userId,
   quizId,
   score,
   selectedDifficulty: "medium",
-  startedAt: new Date(2026, 9, 1, 10, 0),
-  submittedAt: new Date(2026, 9, 1, 10, 5),
+  startedAt: new Date(2026, 9, 1, 10, 0).getTime(),
+  submittedAt: new Date(2026, 9, 1, 10, 5).getTime(),
 });
 
-const board = (rows: LeaderboardRow[]): Leaderboard => ({
-  rows,
-  users: { me: "Me Myself", u2: "Grace", u3: "Linus" },
-  quizzes: { q1: "Networking", q2: "Security" },
-});
+const names = { me: "Me Myself", u2: "Grace", u3: "Linus" };
+const quizzes = { q1: "Networking", q2: "Security" };
+
+/** A board as the server ranks it (the server uses the same builders for its week and month boards). */
+function overallDTO(rows: LeaderboardRow[], shown = 50): LeaderboardDTO {
+  const ranked = buildOverallBoard(rows, names);
+  return {
+    mode: "overall",
+    entries: ranked.slice(0, shown),
+    me: ranked.find((e) => e.userId === "me") ?? null,
+    total: ranked.length,
+    quizzes,
+  };
+}
+function quizDTO(rows: LeaderboardRow[]): LeaderboardDTO {
+  const ranked = buildQuizBoard(rows, names);
+  return { mode: "quiz", entries: ranked, me: ranked.find((e) => e.userId === "me") ?? null, total: ranked.length, quizzes };
+}
+const overall = (rows: LeaderboardRow[], shown?: number): Leaderboard => leaderboardFromDTO(overallDTO(rows, shown));
+const quiz = (rows: LeaderboardRow[]): Leaderboard => leaderboardFromDTO(quizDTO(rows));
 
 beforeEach(() => {
   fetchLeaderboard.mockReset();
@@ -37,7 +57,7 @@ afterEach(cleanup);
 describe("Leaderboard page", () => {
   it("ranks people by the sum of their best scores and marks the signed-in person", async () => {
     fetchLeaderboard.mockResolvedValue(
-      board([row("u2", "q1", 90), row("u2", "q2", 80), row("me", "q1", 60), row("u3", "q1", 95)])
+      overall([row("u2", "q1", 90), row("u2", "q2", 80), row("me", "q1", 60), row("u3", "q1", 95)])
     );
     render(<LeaderboardPage />);
 
@@ -53,7 +73,8 @@ describe("Leaderboard page", () => {
   });
 
   it("switches to a single quiz's ranking when a quiz is picked, and asks the server for it", async () => {
-    fetchLeaderboard.mockResolvedValue(board([row("u2", "q1", 90), row("me", "q1", 70)]));
+    fetchLeaderboard.mockResolvedValueOnce(overall([row("u2", "q1", 90), row("me", "q1", 70)]));
+    fetchLeaderboard.mockResolvedValueOnce(quiz([row("u2", "q1", 90), row("me", "q1", 70)]));
     render(<LeaderboardPage />);
     await screen.findByRole("table");
 
@@ -65,7 +86,7 @@ describe("Leaderboard page", () => {
   });
 
   it("offers real difficulty levels (the old 'Basic' matched nothing)", async () => {
-    fetchLeaderboard.mockResolvedValue(board([row("u2", "q1", 90)]));
+    fetchLeaderboard.mockResolvedValue(overall([row("u2", "q1", 90)]));
     render(<LeaderboardPage />);
     await screen.findByRole("table");
 
@@ -74,19 +95,19 @@ describe("Leaderboard page", () => {
   });
 
   it("tells the person how to get on the board, and handles an empty one", async () => {
-    fetchLeaderboard.mockResolvedValueOnce(board([row("u2", "q1", 90)]));
+    fetchLeaderboard.mockResolvedValueOnce(overall([row("u2", "q1", 90)]));
     const view = render(<LeaderboardPage />);
     expect(await screen.findByText(/not on this board yet/)).toBeTruthy();
     view.unmount();
 
-    fetchLeaderboard.mockResolvedValueOnce(board([]));
+    fetchLeaderboard.mockResolvedValueOnce(overall([]));
     render(<LeaderboardPage />);
     expect(await screen.findByText("No one is on the board yet")).toBeTruthy();
   });
 
   it("shows a plain error with Retry", async () => {
     fetchLeaderboard.mockRejectedValueOnce(new Error("We couldn't reach the server."));
-    fetchLeaderboard.mockResolvedValueOnce(board([row("u2", "q1", 90)]));
+    fetchLeaderboard.mockResolvedValueOnce(overall([row("u2", "q1", 90)]));
     render(<LeaderboardPage />);
 
     expect(await screen.findByText("We couldn't load the leaderboard")).toBeTruthy();
@@ -95,14 +116,7 @@ describe("Leaderboard page", () => {
   });
 
   it("shows the board the page came with, without asking again, and keeps it up while a filter loads", async () => {
-    const initial = {
-      rows: [
-        { id: "r1", userId: "u2", quizId: "q1", score: 90, selectedDifficulty: "medium", startedAt: 0, submittedAt: 60_000 },
-        { id: "r2", userId: "me", quizId: "q1", score: 70, selectedDifficulty: "medium", startedAt: 0, submittedAt: 60_000 },
-      ],
-      users: { me: "Me Myself", u2: "Grace" },
-      quizzes: { q1: "Networking" },
-    };
+    const initial = overallDTO([row("u2", "q1", 90), row("me", "q1", 70)]);
     let finish: (value: Leaderboard) => void = () => {};
     fetchLeaderboard.mockImplementation(() => new Promise<Leaderboard>((resolve) => (finish = resolve)));
     render(<LeaderboardPage initialBoard={initial} />);
@@ -117,13 +131,28 @@ describe("Leaderboard page", () => {
     expect(screen.getByRole("table")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Rankings" }).getAttribute("aria-busy")).toBe("true");
 
-    finish(board([row("u3", "q1", 99)]));
+    finish(quiz([row("u3", "q1", 99)]));
     expect(await screen.findByText("Linus")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Rankings" }).getAttribute("aria-busy")).toBe("false");
 
     // Back to every quiz: the page's own board is no longer on screen, so it is asked for again.
-    fetchLeaderboard.mockResolvedValue(board([row("u2", "q1", 90)]));
+    fetchLeaderboard.mockResolvedValue(overall([row("u2", "q1", 90)]));
     fireEvent.change(screen.getByLabelText("Quiz"), { target: { value: "" } });
     await waitFor(() => expect(fetchLeaderboard).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows the viewer's own place from the server even when it's below the rows shown", async () => {
+    const rows = [
+      ...Array.from({ length: 60 }, (_, i) => row(`p${i}`, "q1", 100 - i)),
+      row("me", "q1", 5),
+    ];
+    fetchLeaderboard.mockResolvedValue(overall(rows));
+    render(<LeaderboardPage />);
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getAllByRole("row")).toHaveLength(51); // header + 50
+    expect(screen.getByText("#61")).toBeTruthy();
+    expect(screen.getByText("of 61")).toBeTruthy();
+    expect(screen.getByText("Showing the top 50 of 61.")).toBeTruthy();
   });
 });

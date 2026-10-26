@@ -55,7 +55,7 @@ vi.mock("@/firebase/admin", async () => {
   };
 });
 
-import { Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "@/firebase/admin";
 import { POST as registerRoute } from "@/app/api/auth/user/route";
 import { DELETE as deleteQuizRoute, GET as getQuizRoute, PUT as putQuizRoute } from "@/app/api/admin/quizzes/[quizId]/route";
@@ -68,7 +68,10 @@ import { POST as startRoute } from "@/app/api/attempts/start/route";
 import { POST as submitRoute } from "@/app/api/attempts/[id]/submit/route";
 import { GET as publicQuizRoute } from "@/app/api/quizzes/[quizId]/route";
 import { GET as publicListRoute } from "@/app/api/quizzes/route";
+import { backfillLeaderboard } from "@/lib/server/leaderboard-store";
 import { migrateLegacyQuestions } from "@/lib/server/legacy-questions";
+import { buildOverallBoard, buildQuizBoard, type LeaderboardRow } from "@/lib/leaderboard";
+import { entryId, totalsFromEntries, type EntryDoc, type TotalsDoc } from "@/lib/leaderboard-stats";
 import type { DashboardData, ReportsPage } from "@/lib/admin-types";
 import type { AdminQuizDetail, AdminQuizSummary, QuizInput } from "@/lib/quiz-schema";
 import type { AttemptState, SubmitResult } from "@/lib/exam/types";
@@ -458,6 +461,8 @@ describe.skipIf(!emulator)("deleting a quiz", () => {
     await db.doc(`responses/keep${id}`).set({ quizId: other.id, userId: "u", score: 80 });
     await db.doc(`attempts/keep${id}`).set({ quizId: other.id, userId: "u" });
 
+    // Results written behind the app's back aren't in the stored count; one without it is counted.
+    await db.doc(`quizzes/${id}`).update({ responseCountTracked: FieldValue.delete() });
     const list = (await (await listRoute(request("/api/admin/quizzes", "GET", ADMIN))).json()) as { quizzes: AdminQuizSummary[] };
     expect(list.quizzes.find((row) => row.id === id)?.responseCount).toBe(3);
 
@@ -483,6 +488,182 @@ describe.skipIf(!emulator)("deleting a quiz", () => {
   it("says 404 for a quiz that isn't there", async () => {
     expect((await remove("never-existed")).status).toBe(404);
     expect((await remove("../up")).status).toBe(400);
+  });
+});
+
+describe.skipIf(!emulator)("the leaderboard and result counts", () => {
+  const entryOf = async (quizId: string, userId: string) =>
+    (await db.collection("leaderboard").doc(entryId(quizId, userId)).get()).data() as EntryDoc | undefined;
+  const totalsOf = async (userId: string) =>
+    (await db.collection("userTotals").doc(userId).get()).data() as TotalsDoc | undefined;
+  const listed = async (id: string) =>
+    ((await (await listRoute(request("/api/admin/quizzes", "GET", ADMIN))).json()) as { quizzes: AdminQuizSummary[] }).quizzes.find(
+      (row) => row.id === id
+    );
+
+  /** One attempt at a quiz made by `createOk()` (two easy questions): every answer right, or none. */
+  async function play(quizId: string, player: string, right = true): Promise<number> {
+    const key = new Map((await open(quizId)).levels.easy!.questions.map((x) => [x.text, x.options.findIndex((o) => o.isCorrect)]));
+    const started = await startRoute(request("/api/attempts/start", "POST", `uid:${player}`, { quizId, difficulty: "easy" }));
+    expect(started.status).toBe(201);
+    const attempt = (await started.json()) as AttemptState;
+    const answers = Object.fromEntries(attempt.questions.map((x) => [x.id, right ? key.get(x.text) : 2]));
+    const submitted = await submitRoute(
+      request(`/api/attempts/${attempt.attemptId}/submit`, "POST", `uid:${player}`, { answers }),
+      { params: Promise.resolve({ id: attempt.attemptId }) }
+    );
+    expect(submitted.status).toBe(200);
+    return ((await submitted.json()) as SubmitResult).score as number;
+  }
+
+  it("lists a new quiz's stored count, kept by each submit, and counts an older quiz without one", async () => {
+    const { id } = await createOk();
+    expect(await listed(id)).toMatchObject({ responseCount: 0 });
+    await play(id, unique("p"));
+    await play(id, unique("p"), false);
+    await vi.waitFor(async () => expect((await listed(id))?.responseCount).toBe(2));
+
+    // From before stored counts (or before the backfill): counted, never the partial stored number.
+    await db.doc(`quizzes/${id}`).update({ responseCount: 1, responseCountTracked: FieldValue.delete() });
+    expect((await listed(id))?.responseCount).toBe(2);
+  });
+
+  it("deleting a quiz takes it off the board and works each person's totals out again", async () => {
+    const gone = await createOk();
+    const kept = await createOk();
+    const both = unique("both");
+    const onlyGone = unique("only");
+    await play(gone.id, both);
+    await play(kept.id, both, false);
+    await play(kept.id, both);
+    await play(gone.id, onlyGone);
+    expect(await totalsOf(both)).toMatchObject({ points: 200, quizCount: 2, attempts: 3 });
+
+    expect((await remove(gone.id)).status).toBe(200);
+
+    expect(await entryOf(gone.id, both)).toBeUndefined();
+    expect(await entryOf(gone.id, onlyGone)).toBeUndefined();
+    expect(await entryOf(kept.id, both)).toMatchObject({ score: 100, attempts: 2 });
+    const totals = await totalsOf(both);
+    expect(totals).toMatchObject({ points: 100, quizCount: 1, attempts: 2 });
+    expect(totals).toEqual(totalsFromEntries(both, null, [(await entryOf(kept.id, both))!]));
+    expect(await totalsOf(onlyGone)).toBeUndefined();
+  });
+
+  it("clears the copied name when a person is deleted, and keeps their place", async () => {
+    const { id } = await createOk();
+    const uid = unique("named");
+    await db.doc(`users/${uid}`).set({ role: "user", displayName: "Leaving" });
+    await play(id, uid);
+    expect(await entryOf(id, uid)).toMatchObject({ displayName: "Leaving" });
+
+    const response = await deleteUserRoute(request(`/api/admin/users/${uid}`, "DELETE", ADMIN), {
+      params: Promise.resolve({ uid }),
+    });
+    expect(response.status).toBe(200);
+    expect(await entryOf(id, uid)).toMatchObject({ displayName: null, score: 100 });
+    expect(await totalsOf(uid)).toMatchObject({ displayName: null, points: 100 });
+  });
+});
+
+describe.skipIf(!emulator)("backfilling the leaderboard", () => {
+  const days = (n: number) => Timestamp.fromMillis(Date.now() - n * 24 * 3600_000);
+
+  async function seed() {
+    const quizA = unique("bfA");
+    const quizB = unique("bfB");
+    for (const id of [quizA, quizB]) await db.doc(`quizzes/${id}`).set({ title: id, createdAt: Timestamp.now() });
+    const ada = unique("ada");
+    const bob = unique("bob");
+    await db.doc(`users/${ada}`).set({ displayName: "Ada", email: "ada@example.com" });
+    const results: Array<[string, string, number | null, string, number]> = [
+      [quizA, ada, 60, "easy", 9],
+      [quizA, ada, 90, "hard", 8],
+      [quizA, ada, 70, "easy", 7],
+      [quizB, ada, 40, "medium", 6],
+      [quizA, bob, 95, "medium", 5],
+      [quizB, bob, null, "medium", 4], // checked by hand: counted as a result, not ranked
+      [quizB, bob, 30, "basic", 3], // a level that no longer exists: counts overall only
+    ];
+    for (const [quizId, userId, score, level, ago] of results) {
+      await db.collection("responses").doc(unique("bfr")).set({
+        quizId,
+        userId,
+        score,
+        selectedDifficulty: level,
+        startedAt: Timestamp.fromMillis(days(ago).toMillis() - 90_000),
+        submittedAt: days(ago),
+      });
+    }
+    return { quizA, quizB, ada, bob };
+  }
+
+  /** The old computation: the boards built straight from these people's results. */
+  async function fromResponses(userIds: string[]): Promise<LeaderboardRow[]> {
+    const snap = await db.collection("responses").where("userId", "in", userIds).get();
+    return snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        userId: data.userId,
+        quizId: data.quizId,
+        score: data.score,
+        selectedDifficulty: data.selectedDifficulty,
+        startedAt: data.startedAt.toMillis(),
+        submittedAt: data.submittedAt.toMillis(),
+      };
+    });
+  }
+
+  it("reports and writes nothing on a dry run", async () => {
+    const { quizA, ada } = await seed();
+    const report = await backfillLeaderboard(db, { apply: false });
+    expect(report.applied).toBe(false);
+    expect(report.responseCounts[quizA]).toBe(4);
+    expect(report.scored).toBeLessThan(report.responses);
+    expect((await db.collection("leaderboard").doc(entryId(quizA, ada)).get()).exists).toBe(false);
+    expect((await db.doc(`quizzes/${quizA}`).get()).data()!.responseCount).toBeUndefined();
+  });
+
+  it("builds entries, totals and counts that match the boards computed from the results, and is safe to rerun", async () => {
+    const { quizA, quizB, ada, bob } = await seed();
+    await db.collection("leaderboard").doc("nothing_supports-this").set({ quizId: "nothing", userId: "x", rankKey: "1" });
+    await db.collection("userTotals").doc(`ghost${bob}`).set({ userId: `ghost${bob}`, rankKey: "1" });
+
+    await backfillLeaderboard(db, { apply: true });
+
+    const entry = (await db.collection("leaderboard").doc(entryId(quizA, ada)).get()).data() as EntryDoc;
+    expect(entry).toMatchObject({ displayName: "Ada", score: 90, difficulty: "hard", attempts: 3 });
+    expect(entry.levels).toMatchObject({ easy: { score: 70, attempts: 2 }, hard: { score: 90, attempts: 1 } });
+    expect((await db.collection("leaderboard").doc("nothing_supports-this").get()).exists).toBe(false);
+    expect((await db.collection("userTotals").doc(`ghost${bob}`).get()).exists).toBe(false);
+    expect((await db.doc(`quizzes/${quizA}`).get()).data()).toMatchObject({ responseCount: 4, responseCountTracked: true });
+    expect((await db.doc(`quizzes/${quizB}`).get()).data()).toMatchObject({ responseCount: 3, responseCountTracked: true });
+
+    // The same numbers as the old way: every board built straight from the results.
+    const rows = await fromResponses([ada, bob]);
+    const overall = buildOverallBoard(rows, {});
+    const totals = await Promise.all(
+      overall.map(async (e) => (await db.collection("userTotals").doc(e.userId).get()).data() as TotalsDoc)
+    );
+    expect(totals.map((t) => [t.userId, t.points, t.quizCount, t.attempts])).toEqual(
+      overall.map((e) => [e.userId, e.points, e.quizCount, e.attempts])
+    );
+    expect(totals.find((t) => t.userId === bob)).toMatchObject({ points: 125, quizCount: 2, attempts: 2 });
+    expect(totals.find((t) => t.userId === bob)!.levels).toEqual({
+      medium: expect.objectContaining({ points: 95, quizCount: 1 }),
+    });
+    for (const quizId of [quizA, quizB]) {
+      const board = buildQuizBoard(rows.filter((r) => r.quizId === quizId), {});
+      const stored = await Promise.all(
+        board.map(async (e) => (await db.collection("leaderboard").doc(entryId(quizId, e.userId)).get()).data() as EntryDoc)
+      );
+      expect(stored.map((s) => [s.userId, s.score, s.timeTakenSec])).toEqual(board.map((e) => [e.userId, e.score, e.timeTaken]));
+    }
+
+    // Built from scratch each time: a second run changes nothing.
+    const again = await backfillLeaderboard(db, { apply: true });
+    expect(again.stale).toBe(0);
+    expect((await db.collection("leaderboard").doc(entryId(quizA, ada)).get()).data()).toEqual(entry);
   });
 });
 

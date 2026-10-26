@@ -1,28 +1,22 @@
 import { apiRequest } from "@/lib/api-client";
+import { leaderboardFromDTO, type Leaderboard, type LeaderboardDTO } from "@/lib/leaderboard";
 import {
-  leaderboardFromDTO,
   myAttemptFromDTO,
   quizInfoFromDTO,
-  type Leaderboard,
   type MyAttempt,
   type QuizInfo,
   type QuizInfoDTO,
 } from "@/lib/player-data";
 import { publicQuizFromDTO, type PublicQuiz, type PublicQuizDTO } from "@/lib/quiz-data";
 import type { MyAttemptDTO } from "@/lib/server/history";
-import type { LeaderboardDTO } from "@/lib/server/leaderboard";
 
 /**
  * Everything a player's browser may ask the server about quizzes, attempts history and rankings. The shapes
- * (and their DTO converters) are in `lib/player-data.ts`, shared with server-rendered pages.
+ * (and their DTO converters) are in `lib/player-data.ts` and, for rankings, `lib/leaderboard.ts`, shared
+ * with server-rendered pages.
  */
-export type {
-  Leaderboard,
-  LeaderboardRow,
-  MyAttempt,
-  QuizInfo,
-  QuizInfoDTO,
-} from "@/lib/player-data";
+export type { MyAttempt, QuizInfo, QuizInfoDTO } from "@/lib/player-data";
+export type { Leaderboard } from "@/lib/leaderboard";
 
 export async function fetchQuizzes(): Promise<PublicQuiz[]> {
   const { quizzes } = await apiRequest<{ quizzes: PublicQuizDTO[] }>("/api/quizzes", {

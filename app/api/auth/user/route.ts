@@ -3,6 +3,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { auth, db } from "@/firebase/admin";
 import admin from "firebase-admin";
 import { logActivity } from "@/lib/server/activity";
+import { renameOnLeaderboard } from "@/lib/server/leaderboard-store";
 
 /**
  * Creates or refreshes the signed-in person's own profile. Who they are comes from the verified ID token,
@@ -69,6 +70,9 @@ export async function POST(request: NextRequest) {
           ...profile,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        if (userDoc.data()?.displayName !== profile.displayName) {
+          after(() => renameOnLeaderboard(uid, profile.displayName));
+        }
       } else {
         await userRef.set({
           ...profile,

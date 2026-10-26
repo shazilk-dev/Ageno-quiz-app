@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "migrate:questions": "tsx --env-file=.env.local scripts/migrate-legacy-questions.ts"
+    "migrate:questions": "tsx --env-file=.env.local scripts/migrate-legacy-questions.ts",
+    "backfill:leaderboard": "tsx --env-file=.env.local scripts/backfill-leaderboard.ts"
   },
   "dependencies": {
     "@vercel/speed-insights": "^2.0.0",

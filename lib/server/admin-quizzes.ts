@@ -29,6 +29,7 @@ import {
   type ExistingQuestions,
   type QuestionWrites,
 } from "@/lib/quiz-writes";
+import { removeQuizFromLeaderboard } from "./leaderboard-store";
 import { ApiError, assertSafeId } from "./request";
 
 // Everything an admin does to a quiz goes through here: list, open, create, save, delete. The browser
@@ -75,6 +76,16 @@ async function loadExisting(
 const responseCountOf = async (quizId: string): Promise<number> =>
   (await db.collection("responses").where("quizId", "==", quizId).count().get()).data().count;
 
+/**
+ * The stored `responseCount` (kept by every submit, see `countResponse`), once it's known to be complete:
+ * a quiz created since it existed, or one the leaderboard backfill counted. Otherwise counted.
+ */
+const listedResponseCount = (quizId: string, data: FirebaseFirestore.DocumentData): Promise<number> | number =>
+  data.responseCountTracked === true && typeof data.responseCount === "number"
+    ? data.responseCount
+    : responseCountOf(quizId);
+
+/** Every quiz for the admin list: one query, plus a count only for quizzes from before stored counts. */
 export async function listAdminQuizzes(): Promise<AdminQuizSummary[]> {
   const snapshot = await quizzes().get();
   const rows = await Promise.all(
@@ -107,7 +118,7 @@ export async function listAdminQuizzes(): Promise<AdminQuizSummary[]> {
         examMode: quiz.examMode ?? "practice",
         duration: quiz.duration,
         counts,
-        responseCount: await responseCountOf(doc.id),
+        responseCount: await listedResponseCount(doc.id, data),
         createdAt: millis(data.createdAt),
       };
     })
@@ -269,6 +280,8 @@ export async function createQuiz(
     ...quizFields(input, accessCode, writes.counts, now),
     createdAt: now,
     createdBy: uid,
+    responseCount: 0,
+    responseCountTracked: true,
   };
 
   if (writeCount(writes) <= MAX_WRITES_PER_SAVE) {
@@ -351,8 +364,9 @@ async function deleteMatching(firestore: Firestore, query: FirebaseFirestore.Que
 
 /**
  * Deletes a quiz together with everything that belongs to it: its questions, people's results (and the
- * answers under each), and attempts still on file. The quiz document goes last, so a run that fails halfway
- * leaves a quiz that is still listed and can be deleted again.
+ * answers under each), its leaderboard rows (each person's totals are worked out again without it), and
+ * attempts still on file. The quiz document goes last, so a run that fails halfway leaves a quiz that is
+ * still listed and can be deleted again.
  */
 export async function deleteQuiz(quizId: unknown): Promise<{ deletedResults: number }> {
   assertSafeId(quizId, "quiz");
@@ -361,6 +375,7 @@ export async function deleteQuiz(quizId: unknown): Promise<{ deletedResults: num
     throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
   }
   const deletedResults = await deleteMatching(db, db.collection("responses").where("quizId", "==", quizId));
+  await removeQuizFromLeaderboard(quizId);
   await deleteMatching(db, db.collection("attempts").where("quizId", "==", quizId));
   await db.recursiveDelete(ref);
   return { deletedResults };

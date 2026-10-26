@@ -1,6 +1,14 @@
-import type { LeaderboardRow } from "@/lib/quizzes-api";
+import {
+  aggregate,
+  averageOf,
+  byRankKey,
+  entryId,
+  type QuizStat,
+  type Submission,
+  type TotalStat,
+} from "@/lib/leaderboard-stats";
 
-/** How many rows the table shows. Everyone is still ranked, so a person below this can see their own place. */
+/** How many rows a board holds. Everyone is still ranked, so a person below this sees their own place. */
 export const LEADERBOARD_SHOWN = 50;
 
 interface EntryBase {
@@ -11,7 +19,7 @@ interface EntryBase {
   completedAt: Date;
 }
 
-/** One attempt on one quiz. */
+/** One person's best attempt at one quiz. */
 export interface QuizEntry extends EntryBase {
   /** The score the player saw: the server's weighted score, already capped at 100. */
   score: number;
@@ -33,7 +41,43 @@ export interface OverallEntry extends EntryBase {
 
 export type LeaderboardEntry = QuizEntry | OverallEntry;
 
-const FALLBACK_NAME = "Player";
+/** The same, as the server sends it: dates as epoch ms. */
+type Sent<T extends EntryBase> = Omit<T, "completedAt"> & { completedAt: number };
+export type QuizEntryDTO = Sent<QuizEntry>;
+export type OverallEntryDTO = Sent<OverallEntry>;
+
+/**
+ * A ranked board: the first {@link LEADERBOARD_SHOWN} entries, the signed-in person's own entry wherever
+ * they are (null when they're not on it), and how many people are ranked. Every quiz: people by points;
+ * one quiz: people by their best attempt.
+ */
+export type BoardDTO =
+  | { mode: "overall"; entries: OverallEntryDTO[]; me: OverallEntryDTO | null; total: number }
+  | { mode: "quiz"; entries: QuizEntryDTO[]; me: QuizEntryDTO | null; total: number };
+
+/** A board plus quizId -> title for every quiz people can pick (the filter list). */
+export type LeaderboardDTO = BoardDTO & { quizzes: Record<string, string> };
+
+export type Leaderboard = { total: number; quizzes: Record<string, string> } & (
+  | { mode: "overall"; entries: OverallEntry[]; me: OverallEntry | null }
+  | { mode: "quiz"; entries: QuizEntry[]; me: QuizEntry | null }
+);
+
+const dated = <T extends { completedAt: number }>(entry: T) => ({
+  ...entry,
+  completedAt: new Date(entry.completedAt),
+});
+
+export function leaderboardFromDTO(data: LeaderboardDTO): Leaderboard {
+  const info = { total: data.total, quizzes: data.quizzes };
+  return data.mode === "overall"
+    ? { ...info, mode: "overall", entries: data.entries.map(dated), me: data.me && dated(data.me) }
+    : { ...info, mode: "quiz", entries: data.entries.map(dated), me: data.me && dated(data.me) };
+}
+
+/** What other people see of a person: the name they chose, or a short neutral label. Never an email. */
+export const publicName = (userId: string, name: unknown): string =>
+  typeof name === "string" && name.trim() ? name.trim() : `User ${userId.slice(0, 6)}`;
 
 /** A title for how broadly someone has taken quizzes; it only reads the counts, never the scores. */
 export function levelFor(quizCount: number, attempts: number): string {
@@ -45,40 +89,85 @@ export function levelFor(quizCount: number, attempts: number): string {
   return "Beginner";
 }
 
-const seconds = (row: LeaderboardRow): number =>
-  row.startedAt && row.submittedAt
-    ? Math.max(0, Math.floor((row.submittedAt.getTime() - row.startedAt.getTime()) / 1000))
-    : 0;
+export const quizEntryFrom = (
+  id: string,
+  userId: string,
+  username: string,
+  stat: QuizStat,
+  rank: number
+): QuizEntryDTO => ({
+  id,
+  rank,
+  userId,
+  username,
+  completedAt: stat.bestAt,
+  score: stat.score,
+  difficulty: stat.difficulty,
+  timeTaken: stat.timeTakenSec,
+});
 
-/** Rows with no score (a quiz the owner marks by hand) or no person can't be ranked. */
-const rankable = (row: LeaderboardRow) => typeof row.score === "number" && row.userId !== "";
+export const overallEntryFrom = (
+  userId: string,
+  username: string,
+  stat: TotalStat,
+  rank: number
+): OverallEntryDTO => ({
+  id: `overall-${userId}`,
+  rank,
+  userId,
+  username,
+  completedAt: stat.lastAt,
+  points: stat.points,
+  average: averageOf(stat),
+  quizCount: stat.quizCount,
+  attempts: stat.attempts,
+  level: levelFor(stat.quizCount, stat.attempts),
+});
 
-function ranked<T extends EntryBase>(sorted: T[]): T[] {
-  sorted.forEach((entry, index) => {
-    entry.rank = index + 1;
-  });
-  return sorted;
+/** A stored result, as the boards computed from `responses` read it. */
+export interface LeaderboardRow {
+  userId: string;
+  quizId: string;
+  /** Null for a quiz the owner marks by hand: it isn't ranked. */
+  score: number | null;
+  selectedDifficulty: string;
+  startedAt: number | null;
+  submittedAt: number | null;
 }
 
+const submissions = (rows: LeaderboardRow[]): Submission[] =>
+  rows.flatMap((row) =>
+    typeof row.score === "number" && row.userId
+      ? [
+          {
+            quizId: row.quizId,
+            userId: row.userId,
+            score: row.score,
+            difficulty: row.selectedDifficulty,
+            startedAt: row.startedAt,
+            submittedAt: row.submittedAt ?? 0,
+          },
+        ]
+      : []
+  );
+
 /**
- * Every attempt at one quiz, best score first and the faster one ahead on a tie. Ranks run over all of
- * them; show the first {@link LEADERBOARD_SHOWN}.
+ * One quiz's results ranked: each person's best attempt, higher score first, then the faster one, then the
+ * earlier one. Built from the rows given (the week and month boards); the all-time board reads the same
+ * thing precomputed.
  */
-export function buildQuizBoard(
-  rows: LeaderboardRow[],
-  users: Record<string, string>
-): QuizEntry[] {
-  const entries: QuizEntry[] = rows.filter(rankable).map((row) => ({
-    id: row.id,
-    rank: 0,
-    userId: row.userId,
-    username: users[row.userId] ?? FALLBACK_NAME,
-    completedAt: row.submittedAt ?? new Date(0),
-    score: row.score as number,
-    difficulty: row.selectedDifficulty,
-    timeTaken: seconds(row),
-  }));
-  return ranked(entries.sort((a, b) => b.score - a.score || a.timeTaken - b.timeTaken));
+export function buildQuizBoard(rows: LeaderboardRow[], names: Record<string, string>): QuizEntryDTO[] {
+  return aggregate(submissions(rows))
+    .entries.sort(byRankKey)
+    .map((entry, index) =>
+      quizEntryFrom(
+        entryId(entry.quizId, entry.userId),
+        entry.userId,
+        names[entry.userId] ?? publicName(entry.userId, null),
+        entry,
+        index + 1
+      )
+    );
 }
 
 /**
@@ -86,59 +175,10 @@ export function buildQuizBoard(
  * quizzes and doing better, not retaking the same one. Ties go to the higher average, then the one who
  * got there first.
  */
-export function buildOverallBoard(
-  rows: LeaderboardRow[],
-  users: Record<string, string>
-): OverallEntry[] {
-  const people = new Map<
-    string,
-    { best: Map<string, number>; attempts: number; latest: Date; firstAt: Date }
-  >();
-
-  for (const row of rows.filter(rankable)) {
-    const person = people.get(row.userId) ?? {
-      best: new Map<string, number>(),
-      attempts: 0,
-      latest: new Date(0),
-      firstAt: new Date(8.64e15),
-    };
-    const score = row.score as number;
-    person.best.set(row.quizId, Math.max(person.best.get(row.quizId) ?? 0, score));
-    person.attempts += 1;
-    const at = row.submittedAt ?? new Date(0);
-    if (at > person.latest) person.latest = at;
-    if (at < person.firstAt) person.firstAt = at;
-    people.set(row.userId, person);
-  }
-
-  const entries = [...people.entries()].map(([userId, person]) => {
-    const bests = [...person.best.values()];
-    const points = bests.reduce((sum, score) => sum + score, 0);
-    return {
-      entry: {
-        id: `overall-${userId}`,
-        rank: 0,
-        userId,
-        username: users[userId] ?? FALLBACK_NAME,
-        completedAt: person.latest,
-        points,
-        average: Math.round(points / bests.length),
-        quizCount: bests.length,
-        attempts: person.attempts,
-        level: levelFor(bests.length, person.attempts),
-      } satisfies OverallEntry,
-      firstAt: person.firstAt,
-    };
-  });
-
-  return ranked(
-    entries
-      .sort(
-        (a, b) =>
-          b.entry.points - a.entry.points ||
-          b.entry.average - a.entry.average ||
-          a.firstAt.getTime() - b.firstAt.getTime()
-      )
-      .map(({ entry }) => entry)
-  );
+export function buildOverallBoard(rows: LeaderboardRow[], names: Record<string, string>): OverallEntryDTO[] {
+  return aggregate(submissions(rows))
+    .totals.sort(byRankKey)
+    .map((total, index) =>
+      overallEntryFrom(total.userId, names[total.userId] ?? publicName(total.userId, null), total, index + 1)
+    );
 }

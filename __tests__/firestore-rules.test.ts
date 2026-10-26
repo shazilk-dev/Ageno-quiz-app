@@ -52,6 +52,8 @@ describe.skipIf(!emulatorHost)("firestore.rules", () => {
       await setDoc(doc(db, "attempts/someAttempt"), { userId: "alice", questions: [{ correctIndex: 1 }] });
       await setDoc(doc(db, "settings/appSettings"), { x: 1 });
       await setDoc(doc(db, "userActivities/a0"), { userId: "alice", type: "login" });
+      await setDoc(doc(db, "leaderboard/q1_alice"), { quizId: "q1", userId: "alice", score: 80, rankKey: "1" });
+      await setDoc(doc(db, "userTotals/alice"), { userId: "alice", points: 80, rankKey: "1" });
     });
   });
 
@@ -84,6 +86,8 @@ describe.skipIf(!emulatorHost)("firestore.rules", () => {
       await assertFails(getDoc(doc(ctx(), "attempts/someAttempt")));
       await assertFails(getDoc(doc(ctx(), "settings/appSettings")));
       await assertFails(getDoc(doc(ctx(), "userActivities/a0")));
+      await assertFails(getDocs(collection(ctx(), "leaderboard")));
+      await assertFails(getDoc(doc(ctx(), "userTotals/alice")));
     });
 
     it("can write nothing: no scores, quizzes, roles, profiles or log entries", async () => {
@@ -91,6 +95,8 @@ describe.skipIf(!emulatorHost)("firestore.rules", () => {
         setDoc(doc(ctx(), "responses/forged"), { quizId: "q1", userId: "alice", score: 100, submittedAt: Timestamp.now() })
       );
       await assertFails(updateDoc(doc(ctx(), "responses/aliceAttempt"), { score: 100 }));
+      await assertFails(updateDoc(doc(ctx(), "leaderboard/q1_alice"), { score: 100 }));
+      await assertFails(setDoc(doc(ctx(), "userTotals/alice"), { userId: "alice", points: 9999 }));
       await assertFails(deleteDoc(doc(ctx(), "responses/aliceAttempt")));
       await assertFails(updateDoc(doc(ctx(), "attempts/someAttempt"), { deadline: 0 }));
       await assertFails(setDoc(doc(ctx(), "quizzes/evil"), { title: "x" }));
