@@ -24,6 +24,7 @@ vi.mock("@/firebase/admin", async () => {
 import { Timestamp } from "firebase-admin/firestore";
 import { db } from "@/firebase/admin";
 import { GET as getAttemptRoute, PATCH as patchRoute } from "@/app/api/attempts/[id]/route";
+import { GET as resultRoute } from "@/app/api/attempts/[id]/result/route";
 import { POST as submitRoute } from "@/app/api/attempts/[id]/submit/route";
 import { POST as startRoute } from "@/app/api/attempts/start/route";
 import { GET as leaderboardRoute } from "@/app/api/leaderboard/route";
@@ -799,5 +800,85 @@ describe.skipIf(!emulator)("my attempts", () => {
   it("returns an empty list for someone with no attempts, and needs a sign-in", async () => {
     expect((await (await myAttempts(unique("nobody"))).json()).attempts).toEqual([]);
     expect((await myAttempts()).status).toBe(401);
+  });
+
+  it("says which results can be opened again: those saved by a submit, not older ones", async () => {
+    const quizId = await seedQuiz();
+    const me = unique("me");
+    const attempt = await startOk(quizId, "medium", me);
+    expect((await submit(attempt.attemptId, { answers: {} }, me)).status).toBe(200);
+    // Written before attempts existed: no `attemptId`.
+    await db.collection("responses").doc(unique("old")).set({
+      quizId,
+      userId: me,
+      score: 0,
+      startedAt: Timestamp.fromMillis(Date.now() - 600_000),
+      submittedAt: Timestamp.fromMillis(Date.now() - 500_000),
+    });
+
+    const { attempts } = await (await myAttempts(me)).json();
+    expect(attempts).toHaveLength(2);
+    expect(attempts.find((a: { id: string }) => a.id === attempt.attemptId).hasResult).toBe(true);
+    expect(attempts.filter((a: { hasResult: boolean }) => !a.hasResult)).toHaveLength(1);
+  });
+});
+
+describe.skipIf(!emulator)("a finished attempt's result", () => {
+  const result = (id: string, user?: string) =>
+    resultRoute(request(`/api/attempts/${id}/result`, "GET", user), ctx(id));
+
+  it("returns the stored result, the questions as they were and the title, to its owner", async () => {
+    const quizId = await seedQuiz({ title: "Reviewable" });
+    const me = unique("me");
+    const attempt = await startOk(quizId, "medium", me);
+    const q = attempt.questions[0].id;
+    const submitted = (await (await submit(attempt.attemptId, { answers: { [q]: 0 } }, me)).json()) as SubmitResult;
+
+    // Editing the quiz afterwards must not change what the person sees.
+    await db.doc(`quizzes/${quizId}`).update({ title: "Renamed" });
+    await db.doc(`quizzes/${quizId}/questions_medium/${q}`).update({ text: "Edited later" });
+
+    const response = await result(attempt.attemptId, me);
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      attemptId: attempt.attemptId,
+      quizId,
+      quizTitle: "Renamed",
+      difficulty: "medium",
+      result: submitted,
+    });
+    expect(body.questions.map((x: { text: string }) => x.text)).toEqual(attempt.questions.map((x) => x.text));
+    expect(typeof body.submittedAt).toBe("number");
+    expect(response.headers.get("cache-control")).toContain("private");
+  });
+
+  it("keeps the review off when it was off at submit time, and never adds an answer key", async () => {
+    const quizId = await seedQuiz({ showAnswerReview: false });
+    const me = unique("me");
+    const attempt = await startOk(quizId, "medium", me);
+    await submit(attempt.attemptId, { answers: {} }, me);
+
+    const text = await (await result(attempt.attemptId, me)).text();
+    expect(JSON.parse(text).result.review).toBeNull();
+    for (const secret of ["isCorrect", "correctIndex", "B is right."]) {
+      expect(text).not.toContain(secret);
+    }
+  });
+
+  it("refuses an attempt that is still running, someone else's, an unknown id, and no sign-in", async () => {
+    const quizId = await seedQuiz();
+    const me = unique("me");
+    const attempt = await startOk(quizId, "medium", me);
+
+    const running = await result(attempt.attemptId, me);
+    expect(running.status).toBe(409);
+    expect(await errorCode(running)).toBe("attempt_not_finished");
+
+    await submit(attempt.attemptId, { answers: {} }, me);
+    expect((await result(attempt.attemptId, unique("other"))).status).toBe(404);
+    expect((await result("does-not-exist", me)).status).toBe(404);
+    expect((await result("a%2Fb", me)).status).toBe(400);
+    expect((await result(attempt.attemptId)).status).toBe(401);
   });
 });

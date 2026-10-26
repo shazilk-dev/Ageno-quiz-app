@@ -1,5 +1,6 @@
 import { apiRequest } from "@/lib/api-client";
 import type {
+  AttemptResult,
   AttemptState,
   ProgressPatch,
   SubmitResult,
@@ -22,6 +23,10 @@ export const startAttempt = (
 
 export const resumeAttempt = (attemptId: string) =>
   apiRequest<AttemptState>(`/api/attempts/${enc(attemptId)}`);
+
+/** A finished attempt's stored result, for the review page under My quizzes. */
+export const fetchAttemptResult = (attemptId: string) =>
+  apiRequest<AttemptResult>(`/api/attempts/${enc(attemptId)}/result`);
 
 export const saveProgress = (attemptId: string, patch: ProgressPatch) =>
   apiRequest<{ ok: true }>(`/api/attempts/${enc(attemptId)}`, {

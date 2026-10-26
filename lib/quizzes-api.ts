@@ -96,6 +96,7 @@ export interface MyAttempt {
   tabSwitchCount: number;
   fullscreenExits: number;
   selectedDifficulty: string;
+  hasResult: boolean;
 }
 
 export async function fetchMyAttempts(): Promise<MyAttempt[]> {

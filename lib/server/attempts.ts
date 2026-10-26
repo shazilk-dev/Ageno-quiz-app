@@ -9,6 +9,7 @@ import {
 import { normalizeQuestion, type StoredQuestion } from "@/lib/exam/normalize";
 import { scoreAttempt } from "@/lib/exam/scoring";
 import type {
+  AttemptResult,
   AttemptState,
   ExamQuestion,
   ProgressPatch,
@@ -296,6 +297,32 @@ export async function getAttempt(
   const data = owned(await attempts().doc(attemptId).get(), userId);
   assertOpen(data);
   return toAttemptState(attemptId, data, now);
+}
+
+/**
+ * The stored result of a finished attempt, for its owner only. Everything comes from what the submit
+ * wrote, so the review shows what the person saw then and never reveals more than the submit did.
+ */
+export async function getAttemptResult(
+  attemptId: unknown,
+  userId: string
+): Promise<AttemptResult> {
+  assertSafeId(attemptId, "attempt");
+  const data = owned(await attempts().doc(attemptId).get(), userId);
+  if (data.status !== "submitted" || !data.result) {
+    throw new ApiError(409, "attempt_not_finished", "This attempt hasn't been submitted yet.");
+  }
+  const quizSnap = await db.collection("quizzes").doc(data.quizId).get();
+  const title = quizSnap.data()?.title;
+  return {
+    attemptId,
+    quizId: data.quizId,
+    quizTitle: typeof title === "string" && title ? title : "Unknown quiz",
+    difficulty: data.difficulty,
+    submittedAt: (data.submittedAt ?? data.updatedAt).toMillis(),
+    questions: data.questions.map(toExamQuestion),
+    result: data.result,
+  };
 }
 
 /**

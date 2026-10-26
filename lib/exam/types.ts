@@ -79,6 +79,20 @@ export interface SubmitResult {
   review: Record<string, ReviewItem> | null;
 }
 
+/** A finished attempt as the person who took it sees it again later (My quizzes -> one attempt). */
+export interface AttemptResult {
+  attemptId: string;
+  quizId: string;
+  quizTitle: string;
+  difficulty: string;
+  /** Epoch ms. */
+  submittedAt: number;
+  /** The questions as they were during the attempt (a later edit of the quiz doesn't change them). */
+  questions: ExamQuestion[];
+  /** What the submit stored: score, answers and (unless the owner turned it off) the review. */
+  result: SubmitResult;
+}
+
 export interface ProgressPatch {
   answers?: Record<string, number | null>;
   flagged?: Record<string, true>;

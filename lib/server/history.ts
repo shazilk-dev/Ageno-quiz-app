@@ -13,6 +13,8 @@ export interface MyAttemptDTO {
   tabSwitchCount: number;
   fullscreenExits: number;
   selectedDifficulty: string;
+  /** True when the attempt's stored result can be opened again (results saved before attempts existed can't). */
+  hasResult: boolean;
 }
 
 const ms = (value: unknown): number =>
@@ -60,6 +62,7 @@ export async function getMyAttempts(userId: string): Promise<MyAttemptDTO[]> {
       fullscreenExits: typeof data.fullscreenExits === "number" ? data.fullscreenExits : 0,
       selectedDifficulty:
         typeof data.selectedDifficulty === "string" ? data.selectedDifficulty : "medium",
+      hasResult: data.attemptId === doc.id,
     };
   });
 }

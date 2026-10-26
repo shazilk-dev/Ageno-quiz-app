@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { Container } from "@/components/layout/Container";
 import SiteFrame from "@/components/layout/SiteFrame";
 import { Skeleton } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
@@ -29,17 +30,17 @@ export default function UserLayout({
 
   return (
     <SiteFrame>
-      <div className="container mx-auto flex-grow px-4 py-8">
-        {user ? (
-          children
-        ) : (
-          <div aria-busy="true" className="space-y-4">
+      {user ? (
+        children
+      ) : (
+        <div data-theme="dark" className="flex-1 bg-bg text-text">
+          <Container aria-busy="true" className="space-y-4 py-8 sm:py-10">
             <Skeleton className="h-9 w-56" />
             <Skeleton className="h-24 w-full" />
             <Skeleton className="h-64 w-full" />
-          </div>
-        )}
-      </div>
+          </Container>
+        </div>
+      )}
     </SiteFrame>
   );
 }
