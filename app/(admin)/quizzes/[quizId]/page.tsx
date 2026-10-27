@@ -1,11 +1,12 @@
 "use client";
 
-import { Download, Pencil } from "lucide-react";
+import { Copy, Download, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AdminPage } from "@/components/admin/AdminPage";
 import { Alert, Badge, Button, CopyButton, Skeleton } from "@/components/ui";
+import { useDuplicateQuiz } from "@/hooks/useDuplicateQuiz";
 import { adminQuizzes } from "@/lib/admin-api";
 import { ApiRequestError } from "@/lib/api-client";
 import { downloadText, fileSlug } from "@/lib/download";
@@ -28,6 +29,7 @@ export default function ViewQuizPage() {
   const { quizId } = useParams() as { quizId: string };
   const [quiz, setQuiz] = useState<AdminQuizDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { duplicate, busyId } = useDuplicateQuiz();
 
   const load = useCallback(async () => {
     setError(null);
@@ -97,6 +99,10 @@ export default function ViewQuizPage() {
           </Button>
           <Button variant="ghost" onClick={() => downloadText(`${fileSlug(quiz.title)}.txt`, exportText(quiz))}>
             Export text
+          </Button>
+          <Button variant="secondary" onClick={() => void duplicate(quiz.id)} loading={busyId === quiz.id}>
+            <Copy className="size-4" aria-hidden="true" />
+            Duplicate
           </Button>
           <Button asChild>
             <Link href={`/quizzes/${quiz.id}/edit`}>

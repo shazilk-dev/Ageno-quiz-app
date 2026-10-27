@@ -6,13 +6,15 @@ import type { AdminUserDTO, ReportRow } from "@/lib/admin-types";
 const api = vi.hoisted(() => ({
   users: { list: vi.fn(), setRole: vi.fn(), remove: vi.fn() },
   reports: { page: vi.fn(), dashboard: vi.fn() },
-  quizzes: { list: vi.fn(), trash: vi.fn(), restore: vi.fn(), deleteForever: vi.fn() },
+  quizzes: { list: vi.fn(), get: vi.fn(), create: vi.fn(), trash: vi.fn(), restore: vi.fn(), deleteForever: vi.fn() },
 }));
 vi.mock("@/lib/admin-api", () => ({
   adminUsers: api.users,
   adminReports: api.reports,
   adminQuizzes: api.quizzes,
 }));
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 const toast = vi.fn();
 vi.mock("@/components/ui/Toast", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/components/ui/Toast")>()),
@@ -56,6 +58,7 @@ const result = (over: Partial<ReportRow>): ReportRow => ({
 beforeEach(() => {
   for (const group of [api.users, api.reports, api.quizzes]) Object.values(group).forEach((fn) => fn.mockReset());
   toast.mockReset();
+  push.mockReset();
   // jsdom has no modal <dialog>; mimic what showModal and close do to `open`.
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute("open", "");
@@ -268,6 +271,53 @@ describe("Quizzes page and the trash", () => {
     expect(screen.queryByText("Networking")).toBeNull();
     expect(screen.getByRole("button", { name: "Restore" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Edit" })).toBeNull();
+  });
+
+  it("duplicates a quiz as a closed copy with no question ids, and opens it for editing", async () => {
+    api.quizzes.get.mockResolvedValue({
+      id: "a",
+      version: 5,
+      createdAt: 1,
+      createdBy: "root",
+      responseCount: 7,
+      title: "Networking",
+      description: "About it",
+      duration: 20,
+      accessCode: "ABC123",
+      requiresAccessCode: true,
+      isPublic: true,
+      active: true,
+      isAutoCheck: true,
+      showAnswerReview: true,
+      examMode: "strict",
+      levels: {
+        easy: {
+          duration: 10,
+          pointsMultiplier: 1,
+          questions: [{ id: "q1", type: "single", text: "Q?", options: [{ text: "a", isCorrect: true }, { text: "b", isCorrect: false }] }],
+        },
+      },
+    });
+    api.quizzes.create.mockResolvedValue({ id: "copy1", version: 1, accessCode: "ZZZ999" });
+    render(<QuizzesPage initial={list} />);
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate Networking" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/quizzes/copy1/edit"));
+    const [sent] = api.quizzes.create.mock.calls[0];
+    expect(sent).toMatchObject({ title: "Copy of Networking", accessCode: "", active: false, examMode: "strict", requiresAccessCode: true });
+    expect(sent.levels.easy.questions[0].id).toBeUndefined();
+    expect(sent).not.toHaveProperty("id");
+    expect(sent).not.toHaveProperty("version");
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Quiz duplicated" }));
+  });
+
+  it("says when a duplicate can't be made and stays on the list", async () => {
+    api.quizzes.get.mockRejectedValue(new Error("offline"));
+    render(<QuizzesPage initial={list} />);
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate Networking" }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: "Couldn't duplicate the quiz", variant: "error" })));
+    expect(push).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Duplicate Networking" }) as HTMLButtonElement).getAttribute("aria-disabled")).not.toBe("true");
   });
 
   it("moves a quiz to the trash without deleting anything, and says what is kept", async () => {

@@ -148,7 +148,7 @@ A1 lets a question have several correct answers, adds a reason per option, and s
 - [ ] After the deploy is live, run `npm run backfill:sheets` (a dry run: it prints how many older results would get a sheet), then `npm run backfill:sheets -- --apply`. Nothing reads the sheets yet (they are for the per-question reports in A5), so this can wait, but do it before A5. Safe to run again.
 
 Check in a real browser after the deploy (about 10 minutes):
-- [ ] As admin, edit a quiz: add a **Select all that apply** question with two correct options and a reason on a few options. Use **Preview the review** (eye icon) on it. Save, then open the quiz view: the type and reasons show.
+- [ ] As admin, edit a quiz: add a **Select all that apply** question with two correct options and a reason on a few options. Use **Preview question as a player** (eye icon) on it, then **After submitting**. Save, then open the quiz view: the type and reasons show.
 - [ ] As a player, take that quiz: the question shows checkboxes and "Select all that apply · Choose 2". Submit with one of the two ticked: it counts as wrong. The review shows the correct options with their reasons, your wrong pick with its reason, and a **Why the others are wrong** fold.
 - [ ] On a phone-sized window (390 wide) look at the question and the review with long option text: nothing runs off the screen, tap targets are comfortable.
 - [ ] Start a quiz **before** the deploy and finish it **after** it: it still submits and shows its result. (Only possible if you have an attempt open when it goes live; otherwise skip.)
@@ -169,3 +169,24 @@ Check in a real browser as admin (about 15 minutes):
 - [ ] 390-wide window: the Import page and the AI & formats page have no sideways scroll; the buttons are easy to tap; keyboard-only works through the steps (Tab, Enter, arrow keys on the option groups).
 - [ ] The skill itself, in your own AI tool: install the zip (claude.ai: Settings → Features; Claude Code: unzip into `~/.claude/skills/`). Give it a short list of questions, one with several right answers and one with no answer given. It should write `quiz.ageno.json`, mark the guessed one with a note, run `validate.mjs`, and the file should import. Also try the **Copy AI instructions** text in a plain chat. Note what it got wrong and tell me.
 - [ ] A big replace (optional, only on a throwaway quiz): import a file with 300+ questions in a level into a quiz with **Replace**. The page warns it is a large update; players can't start the quiz for a moment; afterwards it is whole.
+
+## Admin Phase A3 (faster editing; after it is deployed)
+
+Nothing here changes stored data: the draft copy lives in your browser only, and Duplicate saves an ordinary new (closed) quiz.
+
+**Turn on image storage (only if you want question pictures; everything else works without it):**
+- [ ] Firebase console → project `ageno-quiz-af3ff` → **Build → Storage → Get started** (production mode). New buckets may need the Blaze plan; check what the console says before agreeing to anything that costs money.
+- [ ] Look at the bucket name at the top of the Files tab. If it is `ageno-quiz-af3ff.appspot.com` nothing more is needed. If it is `...firebasestorage.app`, add `FIREBASE_STORAGE_BUCKET` with that name to Vercel (Production and Preview) and redeploy.
+- [ ] Optional, to keep the rules file in step with the console: `firebase deploy --only storage --project ageno-quiz-af3ff` (deny-all; the server's uploads don't use rules).
+- [ ] In the editor open a question's **Explanation and image**, press **Upload**, pick a PNG: a preview shows, save, and the picture appears in the quiz as a player. A PDF or a file over 2 MB is refused with a message. Uploaded pictures are never deleted by the app (deleting a question or quiz leaves them in the bucket; remove them in the console if it matters).
+
+Check in a real browser as admin (about 15 minutes):
+- [ ] **Draft kept.** Open a quiz's editor, change the title and a question, wait a second (the bar says "copy kept on this device"), then close the tab without saving. Open the editor again: "You have unsaved changes from earlier" with **Restore them** / **Discard**. Restore brings the edits back; save, and reopen: no prompt. Also try a new quiz (`/quizzes/new`) the same way.
+- [ ] Make a draft in one browser tab, save the quiz from a second tab, then reopen the first: the prompt warns the quiz was saved again after the copy was made.
+- [ ] **Grid.** In the editor choose **Grid** (beside "Questions"): the page widens, one row per question. Fix a typo in a question and in an option, type `B` or `A, C` in Correct (the right options are tinted), use Up/Down/Enter to move, Enter on the last row adds a row. Pressing Enter anywhere never saves the quiz. Reload: it opens in the view you last used.
+- [ ] **Paste rows.** In a spreadsheet make rows `Question, A, B, C, D, Correct`, copy them (with or without the header row), click a Question cell in the grid and paste. Rows appear (the text says how many cells and rows), a select-all answer such as `A, C` flips that row to "Select all", **Undo** puts it back.
+- [ ] **Select and move.** Tick two questions (grid or cards): **Copy to** another level, **Go to** it, then **Move to** and **Delete**, each with **Undo**. Save and check the quiz view: the moved questions are in their new level.
+- [ ] **Preview as a player** (eye icon on a question, or the button above the list): the real question screen, pick answers, **After submitting** shows the review with your reasons; Previous/Next steps through the level.
+- [ ] **Checks** panel (above the level tabs): put the same question twice, leave explanations empty, give a level 40 questions and 5 minutes: each shows up, and clicking one jumps to the question.
+- [ ] **Duplicate** (Quizzes list and the quiz page): the copy is "Copy of ...", closed, has its own access code and opens in the editor; the original is untouched.
+- [ ] 390-wide window: the editor in card view has no sideways scroll; the grid scrolls sideways inside its own box only. Keyboard-only: Tab to the Grid toggle, edit cells with the arrow keys.

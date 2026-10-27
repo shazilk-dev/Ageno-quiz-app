@@ -1,0 +1,10 @@
+// Nothing in a browser reads or writes Storage. Question pictures are stored by the server (the Admin SDK,
+// which ignores these rules) and shown through addresses that carry a download token. Keep this closed.
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

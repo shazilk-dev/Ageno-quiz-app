@@ -17,6 +17,7 @@ import {
   Skeleton,
   useToast,
 } from "@/components/ui";
+import { useDuplicateQuiz } from "@/hooks/useDuplicateQuiz";
 import { adminQuizzes } from "@/lib/admin-api";
 import { ApiRequestError } from "@/lib/api-client";
 import { LEVELS, LEVEL_LABELS, type AdminQuizSummary } from "@/lib/quiz-schema";
@@ -36,6 +37,7 @@ const totalQuestions = (quiz: AdminQuizSummary) =>
 /** `initial` comes with the page (rendered on the server); later loads go through the API. */
 export default function QuizzesClient({ initial = null }: { initial?: AdminQuizSummary[] | null }) {
   const { toast } = useToast();
+  const { duplicate, busyId: duplicatingId } = useDuplicateQuiz();
   const [quizzes, setQuizzes] = useState<AdminQuizSummary[] | null>(initial);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -299,6 +301,16 @@ export default function QuizzesClient({ initial = null }: { initial?: AdminQuizS
                       <>
                         <Button asChild variant="secondary" size="sm">
                           <Link href={`/quizzes/${quiz.id}/edit`}>Edit</Link>
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => void duplicate(quiz.id)}
+                          loading={duplicatingId === quiz.id}
+                          disabled={duplicatingId !== null}
+                          aria-label={`Duplicate ${quiz.title}`}
+                        >
+                          Duplicate
                         </Button>
                         <Button
                           variant="danger"

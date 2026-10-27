@@ -24,7 +24,7 @@ export interface CheckOptions {
 /** Options longer than this get a warning; the hard limit is `LIMITS.optionText`. */
 export const LONG_OPTION = 300;
 
-const NONE_OR_ALL = /^(all|none)\s+of\s+the\s+above\.?$/i;
+export const NONE_OR_ALL = /^(all|none)\s+of\s+the\s+above\.?$/i;
 
 /** The question text with case, spacing and punctuation taken out, so "What is 2+2?" matches "what is 2 + 2". */
 export const textKey = (text: string): string =>

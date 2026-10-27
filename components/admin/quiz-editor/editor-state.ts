@@ -10,6 +10,7 @@ import {
   type QuizInput,
   type ValidationResult,
 } from "@/lib/quiz-schema";
+import { setCell, setCorrectFromText } from "./grid";
 
 // The editor's form state. Numbers are held as text while typing (an empty box is not 0) and turned into
 // numbers by `toInput`, which is also what gets validated and sent.
@@ -129,8 +130,14 @@ export function toInput(form: FormState): unknown {
 export const validateForm = (form: FormState): ValidationResult<QuizInput> =>
   validateQuizInput(toInput(form));
 
+/** Object keys in a fixed order, so two forms with the same content give the same text however they were built. */
+const sortKeys = (_key: string, value: unknown): unknown =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : value;
+
 /** A comparable snapshot, to tell whether anything changed since the quiz was loaded or last saved. */
-export const snapshotOf = (form: FormState): string => JSON.stringify(toInput(form));
+export const snapshotOf = (form: FormState): string => JSON.stringify(toInput(form), sortKeys);
 
 type ScalarField =
   | "title"
@@ -161,7 +168,13 @@ export type EditorAction =
   | { type: "setType"; level: Level; key: string; questionType: QuestionType; keep?: number }
   | { type: "addOption"; level: Level; key: string }
   | { type: "removeOption"; level: Level; key: string; index: number }
-  | { type: "importQuestions"; level: Level; questions: DraftQuestion[]; mode: "append" | "replace" };
+  | { type: "importQuestions"; level: Level; questions: DraftQuestion[]; mode: "append" | "replace" }
+  /** Replaces whole levels' question lists: a paste into the grid, copy, move, delete several, and undoing those. */
+  | { type: "setQuestions"; levels: Partial<Record<Level, DraftQuestion[]>> }
+  /** Typing in a grid cell: column 0 is the question, 1 and up the options. */
+  | { type: "gridCell"; level: Level; key: string; column: number; value: string }
+  /** The grid's correct column: "B", "A, C" or the text of an option. Text that can't be read changes nothing. */
+  | { type: "gridCorrect"; level: Level; key: string; value: string };
 
 const withQuestion = (
   state: FormState,
@@ -288,6 +301,22 @@ export function editorReducer(state: FormState, action: EditorAction): FormState
         question.options.length <= MIN_OPTIONS
           ? question
           : { ...question, options: question.options.filter((_, i) => i !== action.index) }
+      );
+    case "setQuestions": {
+      let next = state;
+      for (const level of LEVELS) {
+        const questions = action.levels[level];
+        if (questions) next = withQuestions(next, level, questions);
+      }
+      return next;
+    }
+    case "gridCell":
+      return withQuestion(state, action.level, action.key, (question) =>
+        setCell(question, action.column, action.value)
+      );
+    case "gridCorrect":
+      return withQuestion(state, action.level, action.key, (question) =>
+        setCorrectFromText(question, action.value).question
       );
     case "importQuestions":
       return withQuestions(

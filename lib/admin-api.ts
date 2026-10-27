@@ -42,6 +42,11 @@ export const adminQuizzes = {
     }),
 };
 
+export const adminImages = {
+  /** Uploads a question's picture (checked again on the server) and returns its address. */
+  upload: (file: Blob) => apiRequest<{ url: string }>("/api/admin/images", { method: "POST", body: file }),
+};
+
 export const adminUsers = {
   /** Up to 500 people, newest first, and how many exist in all. */
   list: () => apiRequest<{ users: AdminUserDTO[]; total: number }>("/api/admin/users"),

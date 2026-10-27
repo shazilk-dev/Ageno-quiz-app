@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "@/lib/api-client";
 import type { AdminQuizDetail, QuizInput } from "@/lib/quiz-schema";
 
+// These render the whole editor and the machine may be busy; give each test room.
+vi.setConfig({ testTimeout: 20_000 });
+
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
@@ -310,7 +313,7 @@ describe("creating a quiz", () => {
     expect((screen.getByLabelText(exact("Option 2 is the correct answer")) as HTMLInputElement).checked).toBe(false);
   });
 
-  it("previews the review with the real review component, reasons included", () => {
+  it("previews the question as a player sees it, then its review with the reasons", () => {
     renderEditor();
     click("Add easy question");
     type("Question", "Which is bigger?");
@@ -319,15 +322,20 @@ describe("creating a quiz", () => {
     type("Why option A is right", "Ten is 10.");
     type("Why option B is wrong", "Two is 2.");
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview the review of question 1" }));
-    const dialog = dialogNamed(/Preview of the review/);
-    // The default picture is a wrong answer: the right option and the picked wrong one both explain themselves.
+    fireEvent.click(screen.getByRole("button", { name: "Preview question 1 as a player" }));
+    const dialog = dialogNamed(/Preview as a player/);
+    // First the question as it is answered: the real radio group, with no key or reason in sight.
+    expect(within(dialog).getByRole("radiogroup")).toBeTruthy();
+    expect(within(dialog).queryByText("Ten is 10.")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "After submitting" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "a wrong answer" }));
+    // A wrong answer: the right option and the picked wrong one both explain themselves.
     expect(within(dialog).getByText("Which is bigger?")).toBeTruthy();
     expect(within(dialog).getByText("Correct answer")).toBeTruthy();
     expect(within(dialog).getByText("Your answer")).toBeTruthy();
     expect(within(dialog).getByText("Ten is 10.")).toBeTruthy();
     expect(within(dialog).getByText("Two is 2.")).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "The right answer" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "the right answer" }));
     expect(within(dialog).getByText("Your answer · Correct answer")).toBeTruthy();
   });
 

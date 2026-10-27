@@ -42,14 +42,16 @@ export async function apiRequest<T>(
       );
     }
   }
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // A file (an uploaded picture) goes as it is, with its own type; anything else as JSON.
+  const isFile = typeof Blob !== "undefined" && body instanceof Blob;
+  if (body !== undefined) headers["Content-Type"] = isFile ? body.type || "application/octet-stream" : "application/json";
 
   let response: Response;
   try {
     response = await fetch(path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isFile ? body : JSON.stringify(body),
     });
   } catch {
     throw new ApiRequestError(0, "network", NETWORK_MESSAGE);

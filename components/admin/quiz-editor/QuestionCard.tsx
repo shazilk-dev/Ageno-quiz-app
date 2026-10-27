@@ -12,7 +12,7 @@ import {
   type DraftQuestion,
   type EditorAction,
 } from "./editor-state";
-import { PreviewReview } from "./PreviewReview";
+import { ImageField } from "./ImageField";
 
 interface QuestionCardProps {
   level: Level;
@@ -21,6 +21,11 @@ interface QuestionCardProps {
   total: number;
   /** The first thing wrong with this question, from the last failed save. */
   problem?: string;
+  /** Present when the question can be ticked for copying, moving or deleting with others. */
+  selected?: boolean;
+  onSelect?: (on: boolean) => void;
+  /** Open the player preview on this question. */
+  onPreview?: () => void;
   dispatch: Dispatch<EditorAction>;
 }
 
@@ -68,7 +73,17 @@ const TYPE_CHOICES: { value: QuestionType; label: string }[] = [
  * One question: its type, text, options (mark the right ones), a reason for each option if wanted, and
  * the optional overall explanation and image.
  */
-export function QuestionCard({ level, question, index, total, problem, dispatch }: QuestionCardProps) {
+export function QuestionCard({
+  level,
+  question,
+  index,
+  total,
+  problem,
+  selected,
+  onSelect,
+  onPreview,
+  dispatch,
+}: QuestionCardProps) {
   const { key } = question;
   const baseId = `question-${key}`;
   const hasExtras = Boolean(question.explanation || question.imageUrl);
@@ -77,7 +92,6 @@ export function QuestionCard({ level, question, index, total, problem, dispatch 
   const reasons = question.options.filter((option) => option.rationale?.trim()).length;
   // Going from select-all to one answer with several marked right: ask which one stays.
   const [choosingKeep, setChoosingKeep] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
 
   const chooseType = (next: QuestionType) => {
     if (next === question.type) return;
@@ -93,13 +107,24 @@ export function QuestionCard({ level, question, index, total, problem, dispatch 
       id={baseId}
       className={cn(
         "rounded-lg border bg-surface",
-        problem ? "border-error" : "border-border"
+        problem ? "border-error" : selected ? "border-accent" : "border-border"
       )}
     >
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-1">
-        <h3 className="font-mono text-sm uppercase tracking-[0.05em] text-text-muted">
-          Question {index + 1}
-        </h3>
+        <div className="flex items-center gap-1">
+          {onSelect && (
+            <input
+              type="checkbox"
+              checked={selected === true}
+              onChange={(event) => onSelect(event.target.checked)}
+              aria-label={`Select question ${index + 1}`}
+              className="mr-2 size-5 accent-[var(--color-teal)]"
+            />
+          )}
+          <h3 className="font-mono text-sm uppercase tracking-[0.05em] text-text-muted">
+            Question {index + 1}
+          </h3>
+        </div>
         <div className="-mr-2 flex">
           <IconButton
             label={`Move question ${index + 1} up`}
@@ -115,9 +140,11 @@ export function QuestionCard({ level, question, index, total, problem, dispatch 
           >
             <ChevronDown className="size-4" aria-hidden="true" />
           </IconButton>
-          <IconButton label={`Preview the review of question ${index + 1}`} onClick={() => setPreviewing(true)}>
-            <Eye className="size-4" aria-hidden="true" />
-          </IconButton>
+          {onPreview && (
+            <IconButton label={`Preview question ${index + 1} as a player`} onClick={onPreview}>
+              <Eye className="size-4" aria-hidden="true" />
+            </IconButton>
+          )}
           <IconButton
             label={`Duplicate question ${index + 1}`}
             onClick={() => dispatch({ type: "duplicateQuestion", level, key, newKey: newKey() })}
@@ -334,26 +361,14 @@ export function QuestionCard({ level, question, index, total, problem, dispatch 
                 className={cn(fieldClasses, "min-h-16 resize-y py-2 leading-relaxed")}
               />
             </div>
-            <div>
-              <label htmlFor={`${baseId}-image`} className="mb-2 block text-sm font-medium">
-                Image link
-                <span className="ml-2 font-normal text-text-muted">A full https:// address.</span>
-              </label>
-              <input
-                id={`${baseId}-image`}
-                type="url"
-                inputMode="url"
-                value={question.imageUrl ?? ""}
-                onChange={(event) =>
-                  dispatch({ type: "editQuestion", level, key, patch: { imageUrl: event.target.value } })
-                }
-                className={cn(fieldClasses, "h-11")}
-              />
-            </div>
+            <ImageField
+              id={`${baseId}-image`}
+              value={question.imageUrl ?? ""}
+              onChange={(url) => dispatch({ type: "editQuestion", level, key, patch: { imageUrl: url } })}
+            />
           </div>
         </details>
       </div>
-      <PreviewReview question={question} open={previewing} onClose={() => setPreviewing(false)} />
     </li>
   );
 }
