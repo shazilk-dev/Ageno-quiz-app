@@ -211,3 +211,9 @@ Results and review (U2, U4), in light and dark:
 - [ ] About **two** four-option questions with one reason each fit on a 1366×768 screen; on a phone about one and a half. If a card is still too tall, say which part (U4 can be tightened).
 - [ ] Light mode text is comfortable to read: nothing pale grey you have to squint at, input boxes and answer options have a clear edge, the amber leaderboard numbers are readable.
 
+Final checks (U5.2, U6.2, U6.3):
+- [ ] **Phone and laptop, both themes.** Look at the lobby, an exam question, the result and the review in Light and Dark on a real phone and a laptop. Note anything pale, cramped or oddly dark/light.
+- [ ] **Keyboard.** With Tab only: reach the header theme button (Enter/Space steps Light, Dark, System), the Profile → Appearance group (arrow keys move between Light / Dark / System), and the "Why the others are wrong" rows in the review (Enter opens them). A teal ring is visible on each, in both themes.
+- [ ] **Screen reader** (NVDA on Windows or VoiceOver): the theme button reads its current setting and the next one; in the review each option says "Your answer" / "Correct answer" in words, and each reason says "Why it's correct" or "Why it's wrong".
+- [ ] **Print.** Print (or "Save as PDF") a result page in Chrome: dark text on white, no coloured page background. Open `/opengraph-image` in a tab: the image is unchanged (dark, it is a fixed picture).
+

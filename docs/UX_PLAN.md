@@ -3,8 +3,8 @@
 **Purpose:** (1) add a light theme, default for new visitors, with a Light / Dark / System switch; (2) make the quiz-taking screen compact enough that a normal question and its options fit one screen without scrolling; (3) make the result and the answer review denser (two questions per screen), easier to scan and more professional.
 
 - **Created:** 2026-10-27
-- **Last updated:** 2026-10-27 (Session 3: U5 walk-through in a headless browser)
-- **Current phase:** U6 (final QA). Open: U4.5 (two cards per screen is true only for cards with at most one reason block), U5.2 (print and OG image not rendered), U6.2 (keyboard and screen reader) and the real phone/laptop check in MANUAL_STEPS
+- **Last updated:** 2026-10-27 (Session 4: U6 final QA)
+- **Current phase:** U6 done in code. Still open, all needing a real device or a signed-in browser: U4.5 (two cards per screen holds only for cards with at most one reason block), U5.2 (print and OG image not rendered), U0.1 (baseline screenshots) and the checks in MANUAL_STEPS ("UX plan")
 - **Same rules as the other plans:** read `docs/IMPROVEMENT_ROADMAP.md` ("How to use this file") first; tick a box only after verifying; run `npx tsc --noEmit` and `npm run lint` after each task and `npm run build` at the end of a phase; update this file's Status table and Session Log every session; reference task IDs in commits (`feat(theme): U1.2 ...`). Things only the user can check (a real browser, a phone) go in `docs/MANUAL_STEPS.md`.
 
 ## Decisions (made with the user, 2026-10-27)
@@ -165,10 +165,10 @@ Done when: a person can tell right from wrong from their pick at a glance, the r
 
 ### U6: Final QA and docs
 
-- [ ] U6.1 `npx tsc --noEmit`, `npm run lint`, `npm run build`, the unit/component tests; bundle budget (public pages < 170 kB First Load JS, check the toggle did not push `/join` over).
-- [ ] U6.2 Keyboard and screen-reader pass on the toggle and the new review (focus ring visible in both themes; the toggle has an accessible name and state).
-- [ ] U6.3 Add to `docs/MANUAL_STEPS.md`: look at both themes on a real phone and a laptop; check the system theme switch live.
-- [ ] U6.4 Update `CLAUDE.md` ("Site shell and design system": theme now comes from `<html data-theme>`, default light, the toggle, no per-page lock) and the roadmap's Design principles line; tick this file.
+- [x] U6.1 `npx tsc --noEmit`, `npm run lint`, `npm run build`, the unit/component tests; bundle budget (public pages < 170 kB First Load JS, check the toggle did not push `/join` over).
+- [x] U6.2 Keyboard and screen-reader pass on the toggle and the new review (focus ring visible in both themes; the toggle has an accessible name and state).
+- [x] U6.3 Add to `docs/MANUAL_STEPS.md`: look at both themes on a real phone and a laptop; check the system theme switch live.
+- [x] U6.4 Update `CLAUDE.md` ("Site shell and design system": theme now comes from `<html data-theme>`, default light, the toggle, no per-page lock) and the roadmap's Design principles line; tick this file.
 
 ## Effort and risk
 
@@ -207,3 +207,8 @@ U0 → **U3** (quick visible win) → U1 → U2 → U4 → U5 → U6. U3 and U4 
   - **Fixed (found by looking):** inputs, selects, search fields, the join/lobby code fields, the Google button, the difficulty options and the navigator's unanswered cells still used the 1.4:1 `border-border`; they now use `border-control-border`, and placeholders use `text-text-faint`. The picked option, picked segment, answered question and picked difficulty use the new `bg-accent-soft` (in light `bg-accent/10` gave a muddy grey-green). The practice fullscreen notice wrapped to three lines on a phone: it is now one line there ("You've left fullscreen." + "Return" + "Dismiss"; the screen-reader name is still "Return to fullscreen"; the inner span keeps the space that a flex button would swallow). In a quiz card the divider touched the description text; the footer now has its own padding.
   - **Not done:** U4.5: with a reason on the right option, a "Why the others" row and an explanation, one review card is about 495 px, so about one and a half cards fit at 768 px; with at most one reason block it is about 300-400 px and two fit. I did not tighten it further because the reasons are the point of the review. U5.2 (print, OG image): `app/opengraph-image.tsx` is untouched and the print block got the new tokens, but I did not render either.
   - **Checks:** `tsc`, `lint` clean; 12 UI test files (157 tests) plus `quiz-editor-speed` (22) and `import-wizard` (15) pass; `npm run build` ok, `/join` 166, `/q/[id]` 169, `/my-quizzes` 169, `/my-quizzes/[attemptId]` 171 kB. Next: U6.
+- **2026-10-27 (Session 4, U6):** Final QA.
+  - **U6.1.** `npx tsc --noEmit` and `npm run lint` clean; `npm run build` ok. First Load JS: `/` 163, `/join` 166 (the toggle did not push it over), `/q/[id]` 169, `/sign-in` 163, `/sign-up` 163, `/reset-password` 159, `/verify-email` 161, `/leaderboard` 165, `/my-quizzes` 169 kB, all under 170; `/my-quizzes/[attemptId]` is 171 (signed-in page, same as the last session). Tests: 13 files, 254 tests pass (`exam-logic`, `quiz-attempt`, `theme`, `theme-contrast`, `question-review`, `auth-pages`, `home-page`, `leaderboard-page`, `my-quizzes-page`, `profile-page`, `server-rendered-pages`, `admin-pages`, `access-control`). The editor and import test files were not rerun (nothing they cover changed this session; they passed in Session 3).
+  - **U6.2.** Done by reading the code and the existing tests, not with a screen reader. The icon toggle is a real `<button>` named "Theme: Light. Switch to Dark." (the name carries the current state; `theme.test.tsx` asserts it); the segmented toggle is a `fieldset` named "Theme" over native radio inputs (arrow keys, checked state, `Tab` into the group come from the browser) and its focus ring is drawn on the visible segment (`peer-focus-visible`). Every other control, the "Why the others are wrong" `summary` included, gets the global `:focus-visible` 2px accent ring, which the contrast script checks at 3:1 against both backgrounds. In the review, the status pill, the "Your answer" / "Correct answer" pills and the "Why it's correct" / "Why it's wrong" / "Explanation" labels are real text; only the check, cross and letter badge are `aria-hidden`, so a screen reader hears the same facts as the screen shows. Not done: a run with NVDA/VoiceOver (added to MANUAL_STEPS).
+  - **U6.3, U6.4.** MANUAL_STEPS has the theme, exam and review checks, now with a keyboard/screen-reader item and the print / OG image check. `CLAUDE.md` ("Site shell and design system") and the roadmap's Design principles line already carry the theme rules from Session 2; checked, no change needed.
+  - **Left open (needs you):** U0.1 baseline screenshots, U3.4/U4.5 by eye on a real laptop and phone, U5.2 print and OG image, the signed-in pages with real data, and a screen-reader run. Nothing else in the plan is open.
