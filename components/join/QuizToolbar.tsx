@@ -79,7 +79,7 @@ export default function QuizToolbar({
             id={sortId}
             value={sort}
             onChange={(event) => onSortChange(event.target.value as QuizSort)}
-            className="h-11 cursor-pointer appearance-none rounded-md border border-border bg-surface pr-9 pl-12 text-sm text-text transition-fast hover:border-border-strong focus-visible:border-accent"
+            className="h-11 cursor-pointer appearance-none rounded-md border border-control-border bg-surface pr-9 pl-12 text-sm text-text transition-fast hover:border-text-muted focus-visible:border-accent"
           >
             <option value="newest">Newest</option>
             <option value="title">Title A–Z</option>

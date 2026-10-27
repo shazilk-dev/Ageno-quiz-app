@@ -12,7 +12,7 @@ export default function GoogleButton({ onClick, loading, disabled }: GoogleButto
     <Button
       type="button"
       variant="ghost"
-      className="w-full border border-border-strong"
+      className="w-full border border-control-border"
       onClick={onClick}
       loading={loading}
       disabled={disabled}

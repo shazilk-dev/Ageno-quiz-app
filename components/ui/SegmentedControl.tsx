@@ -56,7 +56,7 @@ export function SegmentedControl<T extends string>({
               className={cn(
                 "flex min-h-11 cursor-pointer flex-col justify-center rounded-md border border-control-border px-3 py-2 text-left transition-fast",
                 "hover:border-text-muted",
-                "peer-checked:border-accent peer-checked:bg-accent/10",
+                "peer-checked:border-accent peer-checked:bg-accent-soft",
                 "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
                 "peer-disabled:cursor-not-allowed peer-disabled:opacity-50"
               )}

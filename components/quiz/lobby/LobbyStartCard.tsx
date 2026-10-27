@@ -111,7 +111,7 @@ export default function LobbyStartCard({
               aria-invalid={shownError ? true : undefined}
               aria-describedby={shownError ? `${codeId}-error` : undefined}
               className={cn(
-                "h-12 w-full rounded-md border bg-bg px-4 font-mono text-base text-text uppercase tracking-[0.12em] transition-fast placeholder:font-sans placeholder:text-text-muted/70 placeholder:normal-case placeholder:tracking-normal hover:border-border-strong focus-visible:border-accent",
+                "h-12 w-full rounded-md border bg-bg px-4 font-mono text-base text-text uppercase tracking-[0.12em] transition-fast placeholder:font-sans placeholder:text-text-faint placeholder:normal-case placeholder:tracking-normal hover:border-text-muted focus-visible:border-accent",
                 shownError ? "border-error" : "border-border"
               )}
             />

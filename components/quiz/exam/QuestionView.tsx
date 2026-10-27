@@ -108,7 +108,7 @@ export default function QuestionView({
                     "flex min-h-11 cursor-pointer items-start gap-3 rounded-md border px-3 py-2 transition-fast",
                     "hover:border-text-muted peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
                     checked
-                      ? "border-2 border-accent bg-accent/10 px-[calc(0.75rem-1px)] py-[calc(0.5rem-1px)]"
+                      ? "border-2 border-accent bg-accent-soft px-[calc(0.75rem-1px)] py-[calc(0.5rem-1px)]"
                       : "border-control-border bg-surface"
                   )}
                 >

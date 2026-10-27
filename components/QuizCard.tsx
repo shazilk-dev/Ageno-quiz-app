@@ -65,7 +65,8 @@ export default function QuizCard({ quiz }: QuizCardProps) {
           </p>
         )}
 
-        <div className="mt-auto flex items-center justify-between gap-3 border-border border-t pt-4 text-sm">
+        <div className="mt-auto pt-4">
+        <div className="flex items-center justify-between gap-3 border-border border-t pt-4 text-sm">
           <span className="inline-flex items-center gap-1.5 font-mono text-text-muted text-xs tabular-nums">
             {duration && (
               <>
@@ -90,6 +91,7 @@ export default function QuizCard({ quiz }: QuizCardProps) {
               </>
             )}
           </span>
+        </div>
         </div>
       </Card>
     </Link>

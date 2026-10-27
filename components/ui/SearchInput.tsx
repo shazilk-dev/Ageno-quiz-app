@@ -40,7 +40,7 @@ export function SearchInput({
         autoComplete="off"
         // The native clear control is inconsistent across browsers; ours is always 44px.
         className={cn(
-          "h-12 w-full rounded-full border border-border bg-surface pr-12 pl-11 text-base text-text transition-fast [appearance:none] placeholder:text-text-muted/70 hover:border-border-strong focus-visible:border-accent [&::-webkit-search-cancel-button]:hidden",
+          "h-12 w-full rounded-full border border-control-border bg-surface pr-12 pl-11 text-base text-text transition-fast [appearance:none] placeholder:text-text-faint hover:border-text-muted focus-visible:border-accent [&::-webkit-search-cancel-button]:hidden",
           inputClassName
         )}
       />

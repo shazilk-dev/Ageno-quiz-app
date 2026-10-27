@@ -30,7 +30,7 @@ interface QuestionCardProps {
 }
 
 const fieldClasses =
-  "w-full rounded-md border border-border bg-surface px-3 text-text transition-fast placeholder:text-text-muted/70 hover:border-border-strong focus-visible:border-accent";
+  "w-full rounded-md border border-control-border bg-surface px-3 text-text transition-fast placeholder:text-text-faint hover:border-text-muted focus-visible:border-accent";
 
 function IconButton({
   label,
@@ -201,8 +201,8 @@ export function QuestionCard({
                     "inline-flex min-h-11 items-center rounded-md border px-3 text-sm transition-fast",
                     "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
                     question.type === choice.value
-                      ? "border-accent bg-accent/10 text-text"
-                      : "border-border text-text-muted hover:border-border-strong hover:text-text"
+                      ? "border-accent bg-accent-soft text-text"
+                      : "border-control-border text-text-muted hover:border-text-muted hover:text-text"
                   )}
                 >
                   {choice.label}

@@ -306,7 +306,7 @@ const GridRow = memo(function GridRow({
               aria-label={`Question ${number}, option ${letter(i)}${option?.isCorrect ? ", correct" : ""}`}
               title={option?.text}
               placeholder={option ? undefined : "–"}
-              className={cn(cellClasses, option?.isCorrect && "border-accent/60 bg-accent/10")}
+              className={cn(cellClasses, option?.isCorrect && "border-accent/60 bg-accent-soft")}
             />
           </td>
         );

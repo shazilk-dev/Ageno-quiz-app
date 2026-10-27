@@ -79,8 +79,8 @@ export default function JoinCodeForm({ signedIn, className }: JoinCodeFormProps)
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? messageId : undefined}
             className={cn(
-              "h-11 w-full rounded-md border bg-surface pr-4 pl-10 font-mono text-base text-text uppercase tracking-[0.12em] transition-fast placeholder:font-sans placeholder:text-text-muted/70 placeholder:normal-case placeholder:tracking-normal hover:border-border-strong focus-visible:border-accent",
-              error ? "border-error" : "border-border"
+              "h-11 w-full rounded-md border bg-surface pr-4 pl-10 font-mono text-base text-text uppercase tracking-[0.12em] transition-fast placeholder:font-sans placeholder:text-text-faint placeholder:normal-case placeholder:tracking-normal hover:border-text-muted focus-visible:border-accent",
+              error ? "border-error" : "border-control-border"
             )}
           />
         </div>

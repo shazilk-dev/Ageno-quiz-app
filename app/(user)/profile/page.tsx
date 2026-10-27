@@ -75,7 +75,7 @@ export default function ProfilePage() {
                     className={cn(
                       "transition-fast flex min-h-11 w-full items-center gap-3 whitespace-nowrap rounded-md px-3 text-sm",
                       tab === id
-                        ? "bg-accent/10 font-medium text-text"
+                        ? "bg-accent-soft font-medium text-text"
                         : "text-text-muted hover:bg-surface hover:text-text"
                     )}
                   >

@@ -21,14 +21,17 @@ export default function FullscreenNotice({
           aria-hidden="true"
         />
         <p className="min-w-0 flex-1 text-text-body">
-          You&apos;ve left fullscreen. That&apos;s fine for practice.
+          You&apos;ve left fullscreen.
+          <span className="max-sm:hidden"> That&apos;s fine for practice.</span>
         </p>
         <button
           type="button"
           onClick={onReturn}
           className="inline-flex min-h-11 items-center px-2 text-link underline underline-offset-4 hover:no-underline"
         >
-          Return to fullscreen
+          <span>
+            Return<span className="max-sm:sr-only"> to fullscreen</span>
+          </span>
         </button>
         <button
           type="button"

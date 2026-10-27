@@ -51,8 +51,8 @@ export default function QuestionNavigator({
                   isCurrent
                     ? "border-accent bg-accent text-ink"
                     : done
-                      ? "border-accent/50 bg-accent/15 text-text hover:border-accent"
-                      : "border-border text-text-muted hover:border-border-strong hover:text-text"
+                      ? "border-accent/50 bg-accent-soft text-text hover:border-accent"
+                      : "border-control-border text-text-muted hover:border-text-muted hover:text-text"
                 )}
               >
                 {index + 1}
@@ -76,8 +76,8 @@ export default function QuestionNavigator({
         className="mt-4 grid grid-cols-2 gap-x-3 gap-y-1.5 text-text-muted text-xs"
       >
         <LegendItem swatch="border-accent bg-accent" label="Current" />
-        <LegendItem swatch="border-accent/50 bg-accent/15" label="Answered" />
-        <LegendItem swatch="border-border" label="Not answered" />
+        <LegendItem swatch="border-accent/50 bg-accent-soft" label="Answered" />
+        <LegendItem swatch="border-control-border" label="Not answered" />
         <li className="flex items-center gap-2">
           <Flag className="size-3.5 fill-current text-text" />
           Flagged

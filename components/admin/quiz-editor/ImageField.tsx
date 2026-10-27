@@ -65,7 +65,7 @@ export function ImageField({ id, value, onChange, className }: ImageFieldProps) 
           value={value}
           onChange={(event) => onChange(event.target.value)}
           className={cn(
-            "h-11 min-w-0 flex-1 rounded-md border border-border bg-surface px-3 text-text transition-fast placeholder:text-text-muted/70 hover:border-border-strong focus-visible:border-accent",
+            "h-11 min-w-0 flex-1 rounded-md border border-control-border bg-surface px-3 text-text transition-fast placeholder:text-text-faint hover:border-text-muted focus-visible:border-accent",
             className
           )}
         />
