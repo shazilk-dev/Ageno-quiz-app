@@ -153,3 +153,19 @@ Check in a real browser after the deploy (about 10 minutes):
 - [ ] On a phone-sized window (390 wide) look at the question and the review with long option text: nothing runs off the screen, tap targets are comfortable.
 - [ ] Start a quiz **before** the deploy and finish it **after** it: it still submits and shows its result. (Only possible if you have an attempt open when it goes live; otherwise skip.)
 - [ ] Open an old result under **My quizzes**: the review still shows.
+
+## Admin Phase A2 (import/export and the AI skill; after it is deployed)
+
+Nothing here changes data you already have. The wizard creates quizzes **closed** unless you tick "Open it to players right away".
+
+Check in a real browser as admin (about 15 minutes):
+- [ ] **Quizzes → AI & formats**: the page opens signed in. Download the skill zip, the CSV template, the text template and the example; they open. Open `/ageno-quiz/schema.json` in a private window (signed out): it loads without a sign-in.
+- [ ] **Import** with `skills/ageno-quiz-format/examples/full.ageno.json` (Choose file): "3 questions: all ready, 1 with a warning", the note is highlighted, **Continue → Create the quiz**. The quiz exists, is closed, has an access code, the select-all question shows "Select all that apply".
+- [ ] Open the CSV template in Excel or Google Sheets, delete the `#` in front of `easy`, add two more rows (one with two correct answers, e.g. `A,C`), save as CSV (UTF-8) and import it. Also try copying the rows from the sheet and pasting them into the box. Both should give the same questions.
+- [ ] A row with something wrong (empty question, an answer that names an option that isn't there): it says Needs fixing with the reason, **Edit** opens the normal question card, fixing it turns the row Ready; **Leave out** drops it.
+- [ ] **Import into a quiz I have → Replace / Update** on a quiz with results: the plan lists new, changed, removed, unchanged per level before you press Import; nothing changes until you do.
+- [ ] On a quiz page use **Export JSON / CSV / text**. Import the JSON back into the same quiz with **Update**: the plan says "N unchanged" and nothing else.
+- [ ] In the quiz editor, **Import** (inside a level) opens the same checks in a dialog and adds to the draft without saving.
+- [ ] 390-wide window: the Import page and the AI & formats page have no sideways scroll; the buttons are easy to tap; keyboard-only works through the steps (Tab, Enter, arrow keys on the option groups).
+- [ ] The skill itself, in your own AI tool: install the zip (claude.ai: Settings → Features; Claude Code: unzip into `~/.claude/skills/`). Give it a short list of questions, one with several right answers and one with no answer given. It should write `quiz.ageno.json`, mark the guessed one with a note, run `validate.mjs`, and the file should import. Also try the **Copy AI instructions** text in a plain chat. Note what it got wrong and tell me.
+- [ ] A big replace (optional, only on a throwaway quiz): import a file with 300+ questions in a level into a quiz with **Replace**. The page warns it is a large update; players can't start the quiz for a moment; afterwards it is whole.

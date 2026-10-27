@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil } from "lucide-react";
+import { Download, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -8,6 +8,8 @@ import { AdminPage } from "@/components/admin/AdminPage";
 import { Alert, Badge, Button, CopyButton, Skeleton } from "@/components/ui";
 import { adminQuizzes } from "@/lib/admin-api";
 import { ApiRequestError } from "@/lib/api-client";
+import { downloadText, fileSlug } from "@/lib/download";
+import { exportCsv, exportJson, exportText } from "@/lib/quiz-format/write";
 import { LEVELS, LEVEL_LABELS, type AdminQuizDetail } from "@/lib/quiz-schema";
 
 const BACK = { href: "/quizzes", label: "All quizzes" };
@@ -85,12 +87,24 @@ export default function ViewQuizPage() {
       description={quiz.description || undefined}
       back={BACK}
       actions={
-        <Button asChild>
-          <Link href={`/quizzes/${quiz.id}/edit`}>
-            <Pencil className="size-4" aria-hidden="true" />
-            Edit quiz
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="secondary" onClick={() => downloadText(`${fileSlug(quiz.title)}.ageno.json`, exportJson(quiz), "application/json")}>
+            <Download className="size-4" aria-hidden="true" />
+            Export JSON
+          </Button>
+          <Button variant="ghost" onClick={() => downloadText(`${fileSlug(quiz.title)}.csv`, exportCsv(quiz), "text/csv")}>
+            Export CSV
+          </Button>
+          <Button variant="ghost" onClick={() => downloadText(`${fileSlug(quiz.title)}.txt`, exportText(quiz))}>
+            Export text
+          </Button>
+          <Button asChild>
+            <Link href={`/quizzes/${quiz.id}/edit`}>
+              <Pencil className="size-4" aria-hidden="true" />
+              Edit quiz
+            </Link>
+          </Button>
+        </div>
       }
     >
       <dl className="grid gap-6 rounded-lg border border-border bg-surface p-5 sm:grid-cols-2 lg:grid-cols-4">

@@ -1,0 +1,25 @@
+# Network basics
+
+## Easy | 20 min | x1
+
+1. Which protocol encrypts web traffic?
+   - HTTP
+     ~ Sends data in plain text.
+   - [x] HTTPS
+     ~ Adds TLS on top of HTTP.
+   - FTP
+   > The S stands for secure.
+
+2. Which of these are private IPv4 address ranges? (Choose all that apply.)
+   - [x] 10.0.0.0/8
+   - [x] 192.168.0.0/16
+   - 8.8.8.0/24
+     ~ A public range.
+
+## Hard | 30 min | x1.5
+
+1. What does a TCP three-way handshake end with?
+   - SYN
+   - SYN-ACK
+   - [x] ACK
+   ! https://example.com/handshake.png

@@ -37,6 +37,7 @@ export function QuizEditor(props: QuizEditorProps) {
   const [form, dispatch] = useReducer(editorReducer, undefined, blankForm);
   const [loading, setLoading] = useState<Loading>(editing ? { state: "loading" } : { state: "ready" });
   const [version, setVersion] = useState(0);
+  const [unfinished, setUnfinished] = useState(false);
   const [baseline, setBaseline] = useState(() => snapshotOf(blankForm()));
   const [level, setLevel] = useState<Level>("easy");
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
@@ -55,6 +56,7 @@ export function QuizEditor(props: QuizEditorProps) {
       dispatch({ type: "load", form: loaded });
       setBaseline(snapshotOf(loaded));
       setVersion(detail.version);
+      setUnfinished(detail.updateUnfinished === true);
       setLevel(LEVELS.find((value) => loaded.levels[value].questions.length > 0) ?? "easy");
       setIssues([]);
       setSaveError(null);
@@ -201,6 +203,13 @@ export function QuizEditor(props: QuizEditorProps) {
             </Alert>
           )}
         </div>
+
+        {unfinished && (
+          <Alert variant="warning" title="An earlier update of this quiz didn't finish">
+            Part of a large import or save was applied, and players can&apos;t start the quiz until it is finished. What you
+            see below is what is stored now. Check it, then save: saving finishes the job.
+          </Alert>
+        )}
 
         <DetailsSection form={form} issues={generalIssues} dispatch={dispatch} />
 

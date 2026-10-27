@@ -182,6 +182,7 @@ function toDetail(
     showAnswerReview: quiz.showAnswerReview !== false,
     examMode: quiz.examMode ?? "practice",
     levels,
+    ...(data.importing ? { updateUnfinished: true } : {}),
   };
 }
 
@@ -246,8 +247,28 @@ function assertFitsOneSave(writes: QuestionWrites) {
     throw new ApiError(
       400,
       "too_many_changes",
-      "That's too many changes to save at once. Save in smaller steps; every save is all-or-nothing, so it can't be split for you."
+      "That's too many changes to save in one step."
     );
+  }
+}
+
+/** How long an update that says "running" is believed. A function that died mid-way never says otherwise. */
+const UPDATE_STALE_MS = 3 * 60 * 1000;
+
+/**
+ * A large update marks the quiz `importing` while it writes in chunks. Nobody else may save it then, and
+ * players can't start it (`startAttempt` checks the same flag). A mark older than `UPDATE_STALE_MS`, or one
+ * that says "interrupted", is something to finish, so a new save is allowed to take over.
+ */
+function assertNotUpdating(data: FirebaseFirestore.DocumentData | undefined) {
+  const flag = data?.importing;
+  if (
+    flag &&
+    flag.state === "running" &&
+    flag.at instanceof Timestamp &&
+    Date.now() - flag.at.toMillis() < UPDATE_STALE_MS
+  ) {
+    throw new ApiError(409, "quiz_updating", "This quiz is being updated right now. Try again in a minute.");
   }
 }
 
@@ -325,32 +346,99 @@ export async function updateQuiz(
   }
   const ref = quizzes().doc(quizId);
 
-  return db.runTransaction(async (tx: Transaction) => {
+  try {
+    return await db.runTransaction(async (tx: Transaction) => {
+      const snap = await tx.get(ref);
+      assertEditable(snap, version);
+      assertNotUpdating(snap.data());
+
+      const accessCode = await chooseAccessCode(input.accessCode, quizId, (query) => tx.get(query));
+      const existing = await loadExisting(quizId, (query) => tx.get(query));
+      const writes = planQuestionWrites(input.levels, existing, newQuestionId);
+      assertFitsOneSave(writes);
+
+      const now = Timestamp.now();
+      // Saving also finishes (or replaces) an update that was left half done.
+      tx.update(ref, { ...quizFields(input, accessCode, writes.counts, now), importing: FieldValue.delete() });
+      applyQuestionWrites(tx, quizId, writes);
+      return { version: now.toMillis(), accessCode };
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "too_many_changes") {
+      return updateQuizInChunks(quizId, input, version);
+    }
+    throw error;
+  }
+}
+
+function assertEditable(snap: FirebaseFirestore.DocumentSnapshot, version: number) {
+  if (!snap.exists) {
+    throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
+  }
+  if (snap.data()?.deletedAt) {
+    throw new ApiError(409, "quiz_in_trash", "This quiz is in the trash. Restore it before editing.");
+  }
+  if (millis(snap.data()?.updatedAt) !== version) {
+    throw new ApiError(
+      409,
+      "quiz_changed",
+      "Someone else saved this quiz while you were editing. Reload it to see their changes."
+    );
+  }
+}
+
+/**
+ * A save with more than `MAX_WRITES_PER_SAVE` writes (for example replacing a 400-question level) can't be
+ * one transaction. It is NOT all-or-nothing, so it is done carefully and says so when it fails:
+ *  1. work out the writes, then mark the quiz `importing` (checking `version`). Players can't start it
+ *     meanwhile; attempts already running hold their own copy of the questions and finish normally;
+ *  2. write the questions in chunks;
+ *  3. write the quiz fields last and clear the mark.
+ * If a chunk fails the mark stays (state "interrupted") and the error says so. Sending the same request again
+ * finishes the job (the writes are worked out from what is stored now, so it converges), and sending the
+ * previous contents puts the quiz back. `updatedAt` changes only in step 3, so the `version` the admin holds
+ * stays valid for either.
+ */
+async function updateQuizInChunks(
+  quizId: string,
+  input: QuizInput,
+  version: number
+): Promise<{ version: number; accessCode: string }> {
+  const ref = quizzes().doc(quizId);
+  const accessCode = await chooseAccessCode(input.accessCode, quizId, (query) => query.get());
+  const existing = await loadExisting(quizId, (query) => query.get());
+  const writes = planQuestionWrites(input.levels, existing, newQuestionId);
+
+  // Anyone who saved since the admin opened the quiz has changed `updatedAt`, so this refuses before any write.
+  await db.runTransaction(async (tx: Transaction) => {
     const snap = await tx.get(ref);
-    if (!snap.exists) {
-      throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
-    }
-    if (snap.data()?.deletedAt) {
-      throw new ApiError(409, "quiz_in_trash", "This quiz is in the trash. Restore it before editing.");
-    }
-    if (millis(snap.data()?.updatedAt) !== version) {
-      throw new ApiError(
-        409,
-        "quiz_changed",
-        "Someone else saved this quiz while you were editing. Reload it to see their changes."
-      );
-    }
-
-    const accessCode = await chooseAccessCode(input.accessCode, quizId, (query) => tx.get(query));
-    const existing = await loadExisting(quizId, (query) => tx.get(query));
-    const writes = planQuestionWrites(input.levels, existing, newQuestionId);
-    assertFitsOneSave(writes);
-
-    const now = Timestamp.now();
-    tx.update(ref, quizFields(input, accessCode, writes.counts, now));
-    applyQuestionWrites(tx, quizId, writes);
-    return { version: now.toMillis(), accessCode };
+    assertEditable(snap, version);
+    assertNotUpdating(snap.data());
+    tx.update(ref, { importing: { state: "running", at: Timestamp.now() } });
   });
+
+  try {
+    for (let start = 0; start < writes.sets.length; start += CHUNK) {
+      const batch = db.batch();
+      applyQuestionWrites(batch, quizId, { ...writes, sets: writes.sets.slice(start, start + CHUNK), removes: [] });
+      await batch.commit();
+    }
+    for (let start = 0; start < writes.removes.length; start += CHUNK) {
+      const batch = db.batch();
+      applyQuestionWrites(batch, quizId, { ...writes, sets: [], removes: writes.removes.slice(start, start + CHUNK) });
+      await batch.commit();
+    }
+    const now = Timestamp.now();
+    await ref.update({ ...quizFields(input, accessCode, writes.counts, now), importing: FieldValue.delete() });
+    return { version: now.toMillis(), accessCode };
+  } catch {
+    await ref.update({ importing: { state: "interrupted", at: Timestamp.now() } }).catch(() => undefined);
+    throw new ApiError(
+      500,
+      "update_interrupted",
+      "Part of the update was applied before something went wrong. Players can't start this quiz until it is finished. Try again, or put the quiz back as it was."
+    );
+  }
 }
 
 // ---- the trash -------------------------------------------------------------------------------------

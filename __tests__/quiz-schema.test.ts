@@ -5,10 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   LIMITS,
   blankQuestion,
-  exportQuestions,
   levelBytes,
   makeAccessCode,
-  parseImportedQuestions,
   planLegacyQuestions,
   questionFromStored,
   questionToDoc,
@@ -394,38 +392,12 @@ describe("planQuestionWrites", () => {
   });
 });
 
-describe("access codes, import and export", () => {
+describe("access codes and blank questions", () => {
   it("makes codes from letters and digits people can tell apart", () => {
     let n = 0;
     const code = makeAccessCode(() => n++ % 32);
     expect(code).toMatch(/^[A-Z2-9]{6}$/);
     expect(code).not.toMatch(/[01OIL]/);
-  });
-
-  it("exports to JSON an import can read back", () => {
-    const original = [question("One"), question("Two", { explanation: "Because." })];
-    const back = parseImportedQuestions(exportQuestions(original));
-    expect(back).toEqual({
-      ok: true,
-      questions: original.map((q) => ({ ...q })),
-    });
-  });
-
-  it("imports string options with a correctIndex, and a { questions: [] } wrapper", () => {
-    const text = JSON.stringify({ questions: [{ text: "Q", options: ["a", "b", "c"], correctIndex: 2 }] });
-    const result = parseImportedQuestions(text);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.questions[0].options.map((o) => o.isCorrect)).toEqual([false, false, true]);
-      expect(result.questions[0]).not.toHaveProperty("id");
-    }
-  });
-
-  it("explains what is wrong with an import", () => {
-    expect(parseImportedQuestions("nope")).toMatchObject({ ok: false, message: expect.stringMatching(/valid JSON/) });
-    expect(parseImportedQuestions("{}")).toMatchObject({ ok: false, message: "Expected a list of questions." });
-    expect(parseImportedQuestions("[]")).toMatchObject({ ok: false });
-    expect(parseImportedQuestions('[{"text":"Q"}]')).toMatchObject({ ok: false, message: 'Question 1 needs "text" and "options".' });
   });
 
   it("starts a new question with four empty options and nothing picked", () => {

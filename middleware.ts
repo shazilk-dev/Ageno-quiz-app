@@ -20,6 +20,8 @@ const PUBLIC_PATHS = new Set([
 
 const PUBLIC_PREFIXES = [
   "/q/",
+  // The quiz format's schema, templates and examples (`npm run build:format`): an AI tool fetches these.
+  "/ageno-quiz/",
   "/api/auth/session",
   // These check the caller's ID token themselves. (`/api/auth/user` is called by sign-up, before there
   // is a session cookie.)

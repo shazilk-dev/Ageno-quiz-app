@@ -124,6 +124,8 @@ export interface AdminQuizDetail extends QuizInput {
   createdAt: number;
   createdBy: string;
   responseCount: number;
+  /** A large update stopped part way (see `updateQuizInChunks`); saving the quiz again finishes it. */
+  updateUnfinished?: boolean;
 }
 
 export interface ValidationIssue {
@@ -180,6 +182,17 @@ export function blankQuestion(type: QuestionType = "single"): EditorQuestion {
   };
 }
 
+/**
+ * Checks one question and returns it cleaned, or the list of problems (short sentences such as "write the
+ * question."). The editor, the server and the import checks all go through this, so a question is valid or
+ * not by one set of rules.
+ */
+export function checkQuestion(raw: unknown): { question: EditorQuestion | null; problems: string[] } {
+  const problems: string[] = [];
+  const question = readQuestion(raw, (message) => problems.push(message));
+  return { question: problems.length === 0 ? question : null, problems };
+}
+
 function validateQuestion(
   raw: unknown,
   level: Level,
@@ -187,13 +200,16 @@ function validateQuestion(
   issues: ValidationIssue[]
 ): EditorQuestion | null {
   const here = where(level, index);
-  const fail = (message: string) => issues.push({ message: `${here}: ${message}`, level, question: index });
+  const { question, problems } = checkQuestion(raw);
+  for (const problem of problems) issues.push({ message: `${here}: ${problem}`, level, question: index });
+  return question;
+}
 
+function readQuestion(raw: unknown, fail: (message: string) => void): EditorQuestion | null {
   if (!isRecord(raw)) {
     fail("this question is not valid.");
     return null;
   }
-  const before = issues.length;
 
   const question: EditorQuestion = { type: "single", text: "", options: [] };
 
@@ -261,7 +277,7 @@ function validateQuestion(
     else question.imageUrl = imageUrl;
   }
 
-  return issues.length === before ? question : null;
+  return question;
 }
 
 const encoder = new TextEncoder();
@@ -544,64 +560,4 @@ export function planLegacyQuestions(
     if (mine.length > 0) plan[level] = sortQuestionDocs(mine);
   }
   return plan;
-}
-
-/** The questions of one level as plain JSON, for download. No ids: an import makes new questions. */
-export function exportQuestions(questions: EditorQuestion[]): string {
-  return JSON.stringify(
-    questions.map((question) => ({
-      type: question.type,
-      text: question.text,
-      options: question.options.map((option) => ({
-        text: option.text,
-        isCorrect: option.isCorrect,
-        ...(option.rationale ? { rationale: option.rationale } : {}),
-      })),
-      ...(question.explanation ? { explanation: question.explanation } : {}),
-      ...(question.imageUrl ? { imageUrl: question.imageUrl } : {}),
-    })),
-    null,
-    2
-  );
-}
-
-export type ImportResult =
-  | { ok: true; questions: EditorQuestion[] }
-  | { ok: false; message: string };
-
-/**
- * Reads pasted or uploaded JSON: a list of questions (or `{ "questions": [...] }`). Options may be plain
- * strings with a `correctIndex`, or `{ text, isCorrect }` objects, which is what the export writes.
- */
-export function parseImportedQuestions(text: string): ImportResult {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return { ok: false, message: "That isn't valid JSON. Paste the list of questions exactly as exported." };
-  }
-  const list = Array.isArray(parsed)
-    ? parsed
-    : isRecord(parsed) && Array.isArray(parsed.questions)
-      ? parsed.questions
-      : null;
-  if (!list) {
-    return { ok: false, message: "Expected a list of questions." };
-  }
-  if (list.length === 0) return { ok: false, message: "The list has no questions in it." };
-  if (list.length > LIMITS.maxQuestionsPerLevel) {
-    return { ok: false, message: `A level can have up to ${LIMITS.maxQuestionsPerLevel} questions.` };
-  }
-
-  const questions: EditorQuestion[] = [];
-  for (let i = 0; i < list.length; i++) {
-    const item = list[i];
-    if (!isRecord(item) || typeof item.text !== "string" || !Array.isArray(item.options)) {
-      return { ok: false, message: `Question ${i + 1} needs "text" and "options".` };
-    }
-    const question = questionFromStored("import", item);
-    delete question.id;
-    questions.push(question);
-  }
-  return { ok: true, questions };
 }

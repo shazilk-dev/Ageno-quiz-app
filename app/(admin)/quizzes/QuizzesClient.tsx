@@ -1,6 +1,6 @@
 "use client";
 
-import { FileQuestion, Plus, Trash2 } from "lucide-react";
+import { FileQuestion, Plus, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminPage } from "@/components/admin/AdminPage";
@@ -151,7 +151,20 @@ export default function QuizzesClient({ initial = null }: { initial?: AdminQuizS
     <AdminPage
       title="Quizzes"
       description="Create and edit the quizzes players can take. A deleted quiz waits in the trash until you delete it for good."
-      actions={newQuiz}
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="ghost">
+            <Link href="/quizzes/ai">AI &amp; formats</Link>
+          </Button>
+          <Button asChild variant="secondary">
+            <Link href="/quizzes/import">
+              <Upload className="size-4" aria-hidden="true" />
+              Import
+            </Link>
+          </Button>
+          {newQuiz}
+        </div>
+      }
     >
       {error && (
         <Alert

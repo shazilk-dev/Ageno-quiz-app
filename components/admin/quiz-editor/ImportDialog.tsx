@@ -1,117 +1,114 @@
 "use client";
 
 import { useState } from "react";
-import { Alert, Button, Dialog, Textarea } from "@/components/ui";
-import { LEVEL_LABELS, parseImportedQuestions, type Level } from "@/lib/quiz-schema";
-import { draftQuestion, type DraftQuestion } from "./editor-state";
+import { CheckStep } from "@/components/admin/quiz-import/CheckStep";
+import { SourceStep } from "@/components/admin/quiz-import/SourceStep";
+import { MODE_HELP, MODE_OPTIONS } from "@/components/admin/quiz-import/TargetStep";
+import { useImportSession } from "@/components/admin/quiz-import/useImportSession";
+import { Button, Dialog, SegmentedControl } from "@/components/ui";
+import type { ParsedImport } from "@/lib/quiz-format/types";
+import { applyImport, type ImportMode } from "@/lib/quiz-import/apply";
+import { LEVELS, LEVEL_LABELS, type EditorQuestion, type Level } from "@/lib/quiz-schema";
 
 interface ImportDialogProps {
   open: boolean;
+  /** The level on screen: questions that name no level go here. */
   level: Level;
-  hasQuestions: boolean;
+  /** What each level holds now. */
+  current: Record<Level, readonly EditorQuestion[]>;
   onClose: () => void;
-  onImport: (questions: DraftQuestion[], mode: "append" | "replace") => void;
+  /** The new contents of a level. */
+  onApply: (level: Level, questions: EditorQuestion[]) => void;
 }
 
-/** Paste exported JSON (or load a .json file) to add questions to one level. */
-export function ImportDialog({ open, level, hasQuestions, onClose, onImport }: ImportDialogProps) {
-  const [text, setText] = useState("");
-  const [mode, setMode] = useState<"append" | "replace">("append");
-  const [error, setError] = useState<string | null>(null);
+/** What the file holds, with the same checks as the Import page; the result goes into the editor's draft, unsaved. */
+function Review({
+  parsed,
+  level,
+  current,
+  onBack,
+  onApply,
+  onDone,
+}: {
+  parsed: ParsedImport;
+  level: Level;
+  current: ImportDialogProps["current"];
+  onBack: () => void;
+  onApply: ImportDialogProps["onApply"];
+  onDone: () => void;
+}) {
+  const [mode, setMode] = useState<ImportMode>("add");
+  const session = useImportSession(parsed, current, level);
+  const levels = LEVELS.filter((name) => (session.ready[name]?.length ?? 0) > 0);
+
+  const apply = () => {
+    for (const name of levels) {
+      onApply(name, applyImport(current[name], session.ready[name] ?? [], mode));
+    }
+    onDone();
+  };
+
+  return (
+    <div className="space-y-6">
+      <CheckStep session={session} fileIssues={parsed.issues} />
+      {session.count > 0 && (
+        <div className="space-y-2">
+          <SegmentedControl<ImportMode>
+            label="What should happen to the levels in the file?"
+            value={mode}
+            onChange={setMode}
+            options={MODE_OPTIONS}
+          />
+          <p className="max-w-[65ch] text-sm text-text-muted">{MODE_HELP[mode]}</p>
+          <p className="text-sm text-text-muted">
+            Into: {levels.map((name) => `${LEVEL_LABELS[name]} (${session.ready[name]?.length})`).join(", ")}. Nothing is saved
+            until you save the quiz.
+          </p>
+        </div>
+      )}
+      <div className="flex flex-wrap justify-end gap-3">
+        <Button variant="ghost" onClick={onBack}>
+          Start again
+        </Button>
+        <Button onClick={apply} disabled={session.count === 0}>
+          Add {session.count} {session.count === 1 ? "question" : "questions"} to the editor
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Import into the quiz being edited: read, check and fix the rows, then put them in the draft. */
+export function ImportDialog({ open, level, current, onClose, onApply }: ImportDialogProps) {
+  const [read, setRead] = useState<{ id: number; parsed: ParsedImport } | null>(null);
 
   const close = () => {
-    setText("");
-    setError(null);
+    setRead(null);
     onClose();
-  };
-
-  const submit = () => {
-    const result = parseImportedQuestions(text);
-    if (!result.ok) {
-      setError(result.message);
-      return;
-    }
-    onImport(result.questions.map((question) => draftQuestion(question)), hasQuestions ? mode : "append");
-    close();
-  };
-
-  const loadFile = async (file: File | undefined) => {
-    if (!file) return;
-    try {
-      setText(await file.text());
-      setError(null);
-    } catch {
-      setError("We couldn't read that file.");
-    }
   };
 
   return (
     <Dialog
       open={open}
       onClose={close}
-      title={`Import ${LEVEL_LABELS[level].toLowerCase()} questions`}
-      description="Paste a list of questions as JSON, or choose a file. Questions you export from here import back in."
-      className="max-w-xl"
-      footer={
-        <>
-          <Button variant="ghost" onClick={close}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!text.trim()}>
-            Import
-          </Button>
-        </>
-      }
+      title="Import questions"
+      description="From a file an AI made, a spreadsheet or plain text. You can fix or leave out any question before it goes in."
+      className="max-w-3xl"
     >
-      <div className="space-y-4">
-        <Textarea
-          label="Questions (JSON)"
-          value={text}
-          onChange={(event) => {
-            setText(event.target.value);
-            setError(null);
-          }}
-          className="min-h-48 font-mono text-sm"
-          spellCheck={false}
-        />
-        <div>
-          <label htmlFor="import-file" className="mb-2 block text-sm font-medium">
-            Or choose a file
-          </label>
-          <input
-            id="import-file"
-            type="file"
-            accept="application/json,.json"
-            onChange={(event) => loadFile(event.target.files?.[0])}
-            className="block w-full text-sm text-text-muted file:mr-3 file:h-11 file:cursor-pointer file:rounded-md file:border file:border-border file:bg-surface file:px-4 file:text-text"
+      {open &&
+        (read ? (
+          <Review
+            key={read.id}
+            parsed={read.parsed}
+            level={level}
+            current={current}
+            onBack={() => setRead(null)}
+            onApply={onApply}
+            onDone={close}
           />
-        </div>
-        {hasQuestions && (
-          <fieldset>
-            <legend className="mb-2 text-sm font-medium">This level already has questions</legend>
-            <div className="space-y-1">
-              {(
-                [
-                  ["append", "Add them after the current questions"],
-                  ["replace", "Replace the current questions"],
-                ] as const
-              ).map(([value, label]) => (
-                <label key={value} className="flex min-h-11 items-center gap-3">
-                  <input
-                    type="radio"
-                    name="import-mode"
-                    checked={mode === value}
-                    onChange={() => setMode(value)}
-                    className="size-5 accent-[var(--color-teal)]"
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        )}
-        {error && <Alert variant="error">{error}</Alert>}
-      </div>
+        ) : (
+          <SourceStep onRead={(parsed) => setRead({ id: Date.now(), parsed })} showHelpLink={false} />
+        ))}
     </Dialog>
   );
 }

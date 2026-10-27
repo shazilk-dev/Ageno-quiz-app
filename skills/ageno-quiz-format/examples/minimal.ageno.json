@@ -1,0 +1,27 @@
+{
+  "format": "ageno-quiz",
+  "version": 1,
+  "levels": {
+    "easy": {
+      "questions": [
+        {
+          "text": "Which protocol encrypts web traffic?",
+          "options": [
+            {
+              "text": "HTTP",
+              "isCorrect": false
+            },
+            {
+              "text": "HTTPS",
+              "isCorrect": true
+            },
+            {
+              "text": "FTP",
+              "isCorrect": false
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

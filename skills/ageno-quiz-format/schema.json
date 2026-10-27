@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ageno Quiz Format v1",
+  "description": "A quiz for Ageno Quiz: settings, and questions grouped by difficulty level. Import it from Quizzes > Import.",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "levels"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "ageno-quiz"
+    },
+    "version": {
+      "const": 1
+    },
+    "quiz": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "pattern": "\\S",
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "duration": {
+          "description": "Default time limit in minutes; a level can set its own.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
+        },
+        "examMode": {
+          "enum": [
+            "practice",
+            "strict"
+          ]
+        },
+        "showAnswerReview": {
+          "type": "boolean"
+        }
+      }
+    },
+    "levels": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "easy": {
+          "$ref": "#/$defs/level"
+        },
+        "medium": {
+          "$ref": "#/$defs/level"
+        },
+        "hard": {
+          "$ref": "#/$defs/level"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "required": [
+        "questions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "description": "Minutes for this level.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
+        },
+        "pointsMultiplier": {
+          "description": "The score is the percent correct times this, capped at 100.",
+          "type": "number",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "questions": {
+          "type": "array",
+          "maxItems": 400,
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        }
+      }
+    },
+    "question": {
+      "type": "object",
+      "required": [
+        "text",
+        "options"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Only in an export. Present means: update this question; absent means: a new question.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "type": {
+          "description": "single: exactly one correct option. multiple: one or more, and the player must pick all of them. Leave out and it follows the number of correct options.",
+          "enum": [
+            "single",
+            "multiple"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "pattern": "\\S",
+          "maxLength": 2000
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/option"
+          }
+        },
+        "explanation": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "imageUrl": {
+          "type": "string",
+          "maxLength": 2000,
+          "pattern": "^https://\\S+$"
+        },
+        "note": {
+          "description": "A remark for the person importing (for example, that the answer was guessed). Shown in the preview, never saved.",
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "properties": {
+            "options": {
+              "type": "array",
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "isCorrect": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "isCorrect"
+                ]
+              },
+              "minContains": 1
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "single"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "options": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "properties": {
+                    "isCorrect": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "isCorrect"
+                  ]
+                },
+                "maxContains": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "option": {
+      "type": "object",
+      "required": [
+        "text",
+        "isCorrect"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "pattern": "\\S",
+          "maxLength": 1000
+        },
+        "isCorrect": {
+          "type": "boolean"
+        },
+        "rationale": {
+          "description": "Why this option is right or wrong.",
+          "type": "string",
+          "maxLength": 1000
+        }
+      }
+    }
+  }
+}

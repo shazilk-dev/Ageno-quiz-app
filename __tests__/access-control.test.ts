@@ -66,7 +66,18 @@ describe("middleware: admin screens", () => {
 });
 
 describe("middleware: everything else", () => {
-  it.each(["/", "/sign-in", "/sign-up", "/reset-password", "/verify-email", "/join", "/q/abc123xyz", "/api/auth/session"])(
+  it.each([
+    "/",
+    "/sign-in",
+    "/sign-up",
+    "/reset-password",
+    "/verify-email",
+    "/join",
+    "/q/abc123xyz",
+    "/api/auth/session",
+    "/ageno-quiz/schema.json",
+    "/ageno-quiz/template.csv",
+  ])(
     "%s is open to anyone",
     async (path) => {
       expect(passesThrough(await call(path))).toBe(true);

@@ -267,6 +267,10 @@ export async function startAttempt(
   if (!quizSnap.exists || quizSnap.data()?.deletedAt) {
     throw new ApiError(404, "quiz_not_found", "That quiz doesn't exist.");
   }
+  if (quizSnap.data()?.importing) {
+    // An admin's large update is being written (or stopped half way): the questions aren't a whole set.
+    throw new ApiError(409, "quiz_updating", "This quiz is being updated. Try again in a minute.");
+  }
   const quiz = quizFromData(quizSnap.id, quizSnap.data() ?? {}, new Date());
   if (quiz.active === false) {
     throw new ApiError(403, "quiz_inactive", "This quiz isn't open right now.");

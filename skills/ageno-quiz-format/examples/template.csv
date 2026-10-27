@@ -1,0 +1,3 @@
+﻿level,type,question,option_a,option_b,option_c,option_d,option_e,option_f,correct,explanation,a_why,b_why,c_why,d_why,e_why,f_why,image
+"# One row per question. Level: easy, medium or hard (blank = you choose when importing). Type: single or multiple (blank = decided by the correct answers).",,"# Up to 2000 characters. Options: fill option_a, option_b, ... in order; 2 to 10.",,,,,,,"# The letter (B), the number (2) or the text of the right option; for several: A,C","# Optional. a_why, b_why, ...: why each option is right or wrong. Delete the # in front of the sample row to use it.",,,,,,,
+#easy,single,Which protocol encrypts web traffic?,HTTP,HTTPS,FTP,,,,B,The S stands for secure.,Sends data in plain text.,Adds TLS on top of HTTP.,,,,,

@@ -442,32 +442,60 @@ describe("editing a quiz", () => {
     expect(await screen.findByDisplayValue("Existing quiz")).toBeTruthy();
   });
 
-  it("imports pasted questions into the level", async () => {
+  it("warns when an earlier large update didn't finish", async () => {
+    api.get.mockResolvedValue(detail({ updateUnfinished: true }));
+    renderEditor({ mode: "edit", quizId: "quiz1" });
+    expect(await screen.findByText("An earlier update of this quiz didn't finish")).toBeTruthy();
+  });
+
+  it("imports pasted questions into the level on screen, after the check", async () => {
     api.get.mockResolvedValue(detail());
     renderEditor({ mode: "edit", quizId: "quiz1" });
     await screen.findByDisplayValue("Existing quiz");
 
     click("Import");
-    const dialog = dialogNamed(/Import medium questions/);
+    const dialog = dialogNamed(/Import questions/);
     const pasted = JSON.stringify([{ text: "Imported?", options: ["yes", "no"], correctIndex: 0 }]);
-    fireEvent.change(within(dialog).getByLabelText("Questions (JSON)"), { target: { value: pasted } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Import", hidden: true }));
+    fireEvent.change(within(dialog).getByLabelText("Paste here"), { target: { value: pasted } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Check the questions", hidden: true }));
+
+    expect(within(dialog).getByText("1 question: all ready")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add 1 question to the editor", hidden: true }));
 
     const questions = screen.getAllByLabelText(exact("Question")) as HTMLTextAreaElement[];
     expect(questions.map((q) => q.value)).toEqual(["First?", "Second?", "Imported?"]);
     expect(screen.getByText("Unsaved changes")).toBeTruthy();
   });
 
-  it("explains an import it can't read, and adds nothing", async () => {
+  it("replaces the level when asked", async () => {
     api.get.mockResolvedValue(detail());
     renderEditor({ mode: "edit", quizId: "quiz1" });
     await screen.findByDisplayValue("Existing quiz");
 
     click("Import");
-    const dialog = dialogNamed(/Import medium questions/);
-    fireEvent.change(within(dialog).getByLabelText("Questions (JSON)"), { target: { value: "not json" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Import", hidden: true }));
+    const dialog = dialogNamed(/Import questions/);
+    const pasted = JSON.stringify({ level: "medium", questions: [{ text: "Only one?", options: [{ text: "a", isCorrect: true }, { text: "b", isCorrect: false }] }] });
+    fireEvent.change(within(dialog).getByLabelText("Paste here"), { target: { value: pasted } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Check the questions", hidden: true }));
+    fireEvent.click(within(dialog).getByLabelText("Replace", { exact: false }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add 1 question to the editor", hidden: true }));
+
+    const questions = screen.getAllByLabelText(exact("Question")) as HTMLTextAreaElement[];
+    expect(questions.map((q) => q.value)).toEqual(["Only one?"]);
+  });
+
+  it("shows what is wrong with an import and adds nothing", async () => {
+    api.get.mockResolvedValue(detail());
+    renderEditor({ mode: "edit", quizId: "quiz1" });
+    await screen.findByDisplayValue("Existing quiz");
+
+    click("Import");
+    const dialog = dialogNamed(/Import questions/);
+    fireEvent.click(within(dialog).getByLabelText("JSON"));
+    fireEvent.change(within(dialog).getByLabelText("Paste here"), { target: { value: "not json" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Check the questions", hidden: true }));
     expect(within(dialog).getByText(/valid JSON/)).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Add 0 questions to the editor", hidden: true })).toHaveProperty("disabled", true);
     expect(screen.getAllByLabelText(exact("Question"))).toHaveLength(2);
   });
 });

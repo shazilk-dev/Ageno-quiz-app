@@ -3,18 +3,19 @@
 import { Download, Plus, Upload } from "lucide-react";
 import { type Dispatch, useState } from "react";
 import { Button, EmptyState, FilterTabs, Input } from "@/components/ui";
+import { downloadText, fileSlug } from "@/lib/download";
+import { exportJson } from "@/lib/quiz-format/write";
 import {
   LEVELS,
   LEVEL_LABELS,
   LIMITS,
-  exportQuestions,
   levelBytes,
   type Level,
   type ValidationIssue,
 } from "@/lib/quiz-schema";
 import { ImportDialog } from "./ImportDialog";
 import { QuestionCard } from "./QuestionCard";
-import { newKey, type EditorAction, type FormState } from "./editor-state";
+import { draftQuestion, newKey, type EditorAction, type FormState } from "./editor-state";
 
 interface LevelsSectionProps {
   form: FormState;
@@ -35,15 +36,6 @@ function problemsByQuestion(issues: ValidationIssue[], level: Level) {
   return problems;
 }
 
-function download(filename: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 /** The three difficulty levels: a tab each, with that level's time limit, multiplier and questions. */
 export function LevelsSection({ form, level, onLevelChange, issues, dispatch }: LevelsSectionProps) {
   const [importing, setImporting] = useState(false);
@@ -52,10 +44,25 @@ export function LevelsSection({ form, level, onLevelChange, issues, dispatch }: 
   const bytes = levelBytes(draft.questions);
   const levelIssue = issues.find((issue) => issue.level === level && issue.question === undefined);
 
+  // This level as a file in the quiz format (ids included), so it can be edited elsewhere and imported back.
   const exportLevel = () =>
-    download(
-      `${(form.title.trim() || "quiz").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${level}.json`,
-      exportQuestions(draft.questions)
+    downloadText(
+      `${fileSlug(form.title)}-${level}.ageno.json`,
+      exportJson({
+        title: form.title.trim() || "Untitled quiz",
+        description: form.description,
+        duration: Number(form.duration) || 30,
+        examMode: form.examMode,
+        showAnswerReview: form.showAnswerReview,
+        levels: {
+          [level]: {
+            duration: Number(draft.duration) || 30,
+            pointsMultiplier: Number(draft.pointsMultiplier) || 1,
+            questions: draft.questions,
+          },
+        },
+      }),
+      "application/json"
     );
 
   return (
@@ -173,9 +180,20 @@ export function LevelsSection({ form, level, onLevelChange, issues, dispatch }: 
       <ImportDialog
         open={importing}
         level={level}
-        hasQuestions={draft.questions.length > 0}
+        current={{
+          easy: form.levels.easy.questions,
+          medium: form.levels.medium.questions,
+          hard: form.levels.hard.questions,
+        }}
         onClose={() => setImporting(false)}
-        onImport={(questions, mode) => dispatch({ type: "importQuestions", level, questions, mode })}
+        onApply={(target, questions) =>
+          dispatch({
+            type: "importQuestions",
+            level: target,
+            questions: questions.map((question) => draftQuestion(question)),
+            mode: "replace",
+          })
+        }
       />
     </section>
   );

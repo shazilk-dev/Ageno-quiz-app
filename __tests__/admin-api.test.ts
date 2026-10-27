@@ -290,17 +290,146 @@ describe.skipIf(!emulator)("creating and opening a quiz", () => {
     expect(detail.levels.hard?.questions.map((x) => x.text).slice(0, 3)).toEqual(["Q0", "Q1", "Q2"]);
   });
 
-  it("refuses a save that needs more writes than one transaction holds, and changes nothing", async () => {
-    const { id } = await createOk({ title: "Small" });
-    const body = asInput(await open(id));
-    body.levels = bigLevels();
-    const response = await save(id, body);
-    expect(response.status).toBe(400);
-    expect(await errorCode(response)).toBe("too_many_changes");
-    const after = await open(id);
-    expect(after.title).toBe("Small");
-    expect(after.levels.easy?.questions).toHaveLength(2);
-    expect(after.levels.medium).toBeUndefined();
+  describe("a save with more writes than one transaction holds", () => {
+    const startAs = (player: string, quizId: string) =>
+      startRoute(request("/api/attempts/start", "POST", `uid:${player}`, { quizId, difficulty: "easy" }));
+
+    /** Makes the n-th batch commit fail, as a dropped connection would. */
+    const failBatch = (nth: number) => {
+      let calls = 0;
+      const real = db.batch.bind(db);
+      return vi.spyOn(db, "batch").mockImplementation(() => {
+        const batch = real();
+        const commit = batch.commit.bind(batch);
+        batch.commit = async () => {
+          if (++calls === nth) throw new Error("connection lost");
+          return commit();
+        };
+        return batch;
+      });
+    };
+
+    it("is written in chunks: all of it lands, the quiz is whole and not marked", async () => {
+      const { id } = await createOk({ title: "Small" });
+      const before = await open(id);
+      const body = asInput(before);
+      body.levels = bigLevels();
+      cacheState.revalidated.length = 0;
+
+      const response = await save(id, body);
+      expect(response.status).toBe(200);
+      const { version } = await response.json();
+      expect(version).toBeGreaterThan(before.version);
+
+      for (const level of ["easy", "medium", "hard"]) {
+        expect((await db.collection(`quizzes/${id}/questions_${level}`).get()).size).toBe(200);
+      }
+      const stored = (await db.doc(`quizzes/${id}`).get()).data()!;
+      expect(stored.importing).toBeUndefined();
+      expect(stored.questionCountByDifficulty).toEqual({ easy: 200, medium: 200, hard: 200 });
+      expect(stored.availableDifficulties).toEqual(["easy", "medium", "hard"]);
+      const after = await open(id);
+      expect(after.updateUnfinished).toBeUndefined();
+      expect(after.levels.hard?.questions.map((x) => x.text).slice(0, 3)).toEqual(["Q0", "Q1", "Q2"]);
+      expect(cacheState.revalidated).toContain(`quiz:${id}`);
+      // And players can start it.
+      expect((await startAs("p1", id)).status).toBe(201);
+    });
+
+    it("lets an attempt that began before it finish and be scored", async () => {
+      const { id } = await createOk({ title: "Running", levels: { easy: { duration: 10, pointsMultiplier: 1, questions: [q("Pick b", 1), q("Pick a", 0)] } } });
+      const started = await startAs("early", id);
+      expect(started.status).toBe(201);
+      const attempt = (await started.json()) as AttemptState;
+
+      const body = asInput(await open(id));
+      body.levels = bigLevels();
+      expect((await save(id, body)).status).toBe(200);
+
+      // The old questions are gone from the quiz, but the attempt holds its own copy of them.
+      const answers = Object.fromEntries(attempt.questions.map((x) => [x.id, x.text === "Pick b" ? 1 : 0]));
+      const submitted = await submitRoute(
+        request(`/api/attempts/${attempt.attemptId}/submit`, "POST", "uid:early", { answers }),
+        { params: Promise.resolve({ id: attempt.attemptId }) }
+      );
+      expect(submitted.status).toBe(200);
+      expect(((await submitted.json()) as SubmitResult).score).toBe(100);
+    });
+
+    it("says so when a chunk fails, keeps players out, and finishes when the same save is sent again", async () => {
+      const { id } = await createOk({ title: "Interrupted" });
+      const before = await open(id);
+      const body = asInput(before);
+      body.levels = bigLevels();
+
+      const spy = failBatch(2);
+      const failed = await save(id, body);
+      spy.mockRestore();
+      expect(failed.status).toBe(500);
+      expect(await errorCode(failed)).toBe("update_interrupted");
+
+      const stored = (await db.doc(`quizzes/${id}`).get()).data()!;
+      expect(stored.importing).toMatchObject({ state: "interrupted" });
+      // The quiz's own fields (and the version) have not moved, so the same request is still valid.
+      expect(stored.availableDifficulties).toEqual(["easy"]);
+      expect((await open(id)).updateUnfinished).toBe(true);
+      const blocked = await startAs("late", id);
+      expect(blocked.status).toBe(409);
+      expect(await errorCode(blocked)).toBe("quiz_updating");
+
+      expect((await save(id, body)).status).toBe(200);
+      const done = (await db.doc(`quizzes/${id}`).get()).data()!;
+      expect(done.importing).toBeUndefined();
+      expect(done.questionCountByDifficulty).toEqual({ easy: 200, medium: 200, hard: 200 });
+      for (const level of ["easy", "medium", "hard"]) {
+        expect((await db.collection(`quizzes/${id}/questions_${level}`).get()).size).toBe(200);
+      }
+      expect((await startAs("late", id)).status).toBe(201);
+    });
+
+    it("puts the quiz back when the previous contents are sent after a failure", async () => {
+      const { id } = await createOk({ title: "Undo" });
+      const before = await open(id);
+      const previous = asInput(before);
+      const body = asInput(before);
+      body.levels = bigLevels();
+
+      const spy = failBatch(2);
+      expect((await save(id, body)).status).toBe(500);
+      spy.mockRestore();
+
+      expect((await save(id, previous)).status).toBe(200);
+      const after = await open(id);
+      expect(after.updateUnfinished).toBeUndefined();
+      expect(after.levels.easy?.questions.map((x) => x.text)).toEqual(["One", "Two"]);
+      expect(after.levels.medium).toBeUndefined();
+      expect((await db.collection(`quizzes/${id}/questions_medium`).get()).size).toBe(0);
+    });
+
+    it("refuses a second save while one is running, and takes over one that went stale", async () => {
+      const { id } = await createOk({ title: "Busy" });
+      const body = asInput(await open(id));
+      await db.doc(`quizzes/${id}`).update({ importing: { state: "running", at: Timestamp.now() } });
+      const refused = await save(id, body);
+      expect(refused.status).toBe(409);
+      expect(await errorCode(refused)).toBe("quiz_updating");
+
+      await db.doc(`quizzes/${id}`).update({ importing: { state: "running", at: Timestamp.fromMillis(Date.now() - 10 * 60_000) } });
+      expect((await save(id, body)).status).toBe(200);
+      expect((await db.doc(`quizzes/${id}`).get()).data()!.importing).toBeUndefined();
+    });
+
+    it("does not let the quiz change under it: a stale version is refused before anything is written", async () => {
+      const { id } = await createOk({ title: "Raced" });
+      const body = asInput(await open(id));
+      body.levels = bigLevels();
+      body.version = 1;
+      const response = await save(id, body);
+      expect(response.status).toBe(409);
+      expect(await errorCode(response)).toBe("quiz_changed");
+      expect((await db.collection(`quizzes/${id}/questions_medium`).get()).size).toBe(0);
+      expect((await db.doc(`quizzes/${id}`).get()).data()!.importing).toBeUndefined();
+    });
   });
 
   it("makes a quiz players can take: admin create, then start, answer and score", async () => {
