@@ -71,7 +71,6 @@ function Toast({
 
   return (
     <div
-      data-theme="dark"
       onPointerEnter={() => setPaused(true)}
       onPointerLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}

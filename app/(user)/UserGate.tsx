@@ -33,7 +33,7 @@ export default function UserGate({
   if (user || (loading && serverSignedIn)) return children;
 
   return (
-    <div data-theme="dark" className="flex-1 bg-bg text-text">
+    <div className="flex-1 bg-bg text-text">
       <Container aria-busy="true" className="space-y-4 py-8 sm:py-10">
         <Skeleton className="h-9 w-56" />
         <Skeleton className="h-24 w-full" />

@@ -128,7 +128,7 @@ export default function JoinClient({ initialQuizzes }: { initialQuizzes: PublicQ
   };
 
   return (
-    <div data-theme="dark" className="flex-1 bg-bg text-text">
+    <div className="flex-1 bg-bg text-text">
       <Container className="py-8 sm:py-10">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div>

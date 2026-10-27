@@ -187,7 +187,7 @@ export default function SignUp() {
   return (
     <Suspense
       fallback={
-        <div data-theme="dark" className="flex-1 bg-bg" aria-busy="true">
+        <div className="flex-1 bg-bg" aria-busy="true">
           <div className="mx-auto w-full max-w-md px-4 py-16">
             <Skeleton className="h-[34rem] w-full rounded-lg" />
           </div>

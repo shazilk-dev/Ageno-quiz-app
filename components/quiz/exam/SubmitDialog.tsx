@@ -55,7 +55,7 @@ export default function SubmitDialog({
       >
         <p role="status" className="flex items-center gap-3 text-text-body">
           <LoaderCircle
-            className="size-5 shrink-0 animate-spin text-accent"
+            className="size-5 shrink-0 animate-spin text-link"
             aria-hidden="true"
           />
           Saving your answers. Keep this page open.

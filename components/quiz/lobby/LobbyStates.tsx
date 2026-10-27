@@ -6,7 +6,7 @@ import { Alert, Button, Card, Skeleton } from "@/components/ui";
 /** Dark surface shared by every lobby screen. */
 export function LobbyFrame({ children }: { children: ReactNode }) {
   return (
-    <div data-theme="dark" className="flex-1 bg-bg text-text">
+    <div className="flex-1 bg-bg text-text">
       <Container className="py-6 sm:py-8">{children}</Container>
     </div>
   );

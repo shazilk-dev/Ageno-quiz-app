@@ -28,8 +28,8 @@ function NavLinks({ pathname, className }: { pathname: string; className?: strin
               href={link.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "transition-fast inline-flex min-h-11 items-center whitespace-nowrap rounded-md px-3 text-sm hover:text-accent",
-                active ? "text-accent" : "text-text-muted"
+                "transition-fast inline-flex min-h-11 items-center whitespace-nowrap rounded-md px-3 text-sm hover:text-link",
+                active ? "text-link" : "text-text-muted"
               )}
             >
               {link.label}
@@ -51,7 +51,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   const { loading } = useAuth();
 
   return (
-    <div data-theme="light" className="min-h-screen bg-bg text-text">
+    <div className="min-h-screen bg-bg text-text">
       <header data-theme="dark" className="sticky top-0 z-40 border-b border-border bg-ink text-text print:hidden">
         <Container className="flex h-(--nav-height) items-center justify-between gap-6">
           <Link href="/dashboard" className="inline-flex min-h-11 items-center gap-3">
@@ -63,7 +63,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           </nav>
           <Link
             href="/"
-            className="transition-fast inline-flex min-h-11 items-center px-2 text-sm text-text-muted hover:text-accent"
+            className="transition-fast inline-flex min-h-11 items-center px-2 text-sm text-text-muted hover:text-link"
           >
             Exit admin
           </Link>

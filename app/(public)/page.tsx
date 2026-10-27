@@ -45,7 +45,7 @@ const PROMISES = [
 /** Landing page. A server component: the only script it loads is the access-code field. */
 export default function Home() {
   return (
-    <div data-theme="dark" className="flex-1 bg-bg text-text">
+    <div className="flex-1 bg-bg text-text">
       {/* Hero */}
       <section className="relative overflow-hidden border-border border-b">
         <div aria-hidden="true" className="bg-grid pointer-events-none absolute inset-0" />
@@ -58,7 +58,7 @@ export default function Home() {
             <p className="text-label">{"// ASSESSMENT BY AGENOVERSE"}</p>
             <h1 className="mt-4 text-5xl">
               Take the quiz. See where you{" "}
-              <em className="font-normal font-serif text-accent italic">stand.</em>
+              <em className="font-normal font-serif text-link italic">stand.</em>
             </h1>
             <p className="mt-6 max-w-[65ch] text-lg text-text-body">
               Ageno Quiz is the assessment space of Agenoverse. Join with an access code or pick a
@@ -100,7 +100,7 @@ export default function Home() {
           <ol className="mt-10 grid gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
             {STEPS.map((step, index) => (
               <li key={step.title} className="border-border border-t pt-5">
-                <span className="font-mono text-accent text-sm tabular-nums">
+                <span className="font-mono text-link text-sm tabular-nums">
                   {String(index + 1).padStart(2, "0")}
                 </span>
                 <h3 className="mt-3 text-lg">{step.title}</h3>
@@ -143,7 +143,7 @@ export default function Home() {
         <Container className="py-16 sm:py-20">
           <div className="flex flex-col gap-6 rounded-lg border border-border border-l-4 border-l-warm bg-surface p-6 sm:p-10 md:flex-row md:items-center md:justify-between md:gap-10">
             <div className="max-w-[65ch]">
-              <p className="text-label text-warm">{"// AGENOVERSE COMMUNITY"}</p>
+              <p className="text-label text-warm-text">{"// AGENOVERSE COMMUNITY"}</p>
               <h2 id="community-heading" className="mt-2 text-2xl sm:text-3xl">
                 Practice with the Agenoverse community
               </h2>

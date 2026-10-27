@@ -42,10 +42,9 @@ export default function FullscreenGate({
 
   return (
     <div
-      data-theme="dark"
       className="flex min-h-dvh flex-1 flex-col bg-bg text-text"
     >
-      <div className="border-b border-border bg-ink">
+      <div className="border-b border-border bg-bg-alt">
         <Container className="flex h-14 items-center gap-4">
           <p className="min-w-0 flex-1 truncate font-medium">{title}</p>
           <ExamTimer

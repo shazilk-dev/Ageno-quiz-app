@@ -3,6 +3,7 @@
 import { ArrowLeft, ArrowRight, Eye, Flag } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Container } from "@/components/layout/Container";
+import ThemeToggle from "@/components/layout/ThemeToggle";
 import { Button, Card, Dialog } from "@/components/ui";
 import type { QuizAttemptApi } from "@/hooks/useQuizAttempt";
 import { cn } from "@/lib/utils";
@@ -98,7 +99,6 @@ export default function ExamShell({
 
   return (
     <div
-      data-theme="dark"
       className="flex min-h-dvh flex-1 flex-col bg-bg text-text"
     >
       <ExamTopBar
@@ -114,10 +114,10 @@ export default function ExamShell({
       />
       {notice}
 
-      <Container className="flex flex-1 flex-col pt-6 lg:py-8">
-        <div className="grid flex-1 gap-8 lg:grid-cols-[minmax(0,1fr)_18rem] lg:flex-none lg:gap-12">
+      <Container className="flex flex-1 flex-col pt-4 lg:py-6">
+        <div className="grid flex-1 gap-6 lg:grid-cols-[minmax(0,1fr)_16rem] lg:flex-none lg:gap-10">
           <div className="flex min-w-0 max-w-3xl flex-col">
-            <div className="pb-6 lg:pb-0">
+            <div className="pb-4 lg:pb-0">
               <QuestionView
                 key={question.id}
                 question={question}
@@ -132,8 +132,8 @@ export default function ExamShell({
             {/* Sticky to the bottom of the screen on phones, so Next never scrolls out of reach. */}
             <div
               className={cn(
-                "mt-6 flex items-center gap-3 max-lg:mt-auto lg:mt-8",
-                "max-lg:sticky max-lg:bottom-0 max-lg:z-20 max-lg:-mx-4 max-lg:border-border max-lg:border-t max-lg:bg-bg/95 max-lg:px-4 max-lg:py-3 max-lg:backdrop-blur-md"
+                "mt-3 flex items-center gap-3 max-lg:mt-auto lg:mt-4",
+                "max-lg:sticky max-lg:bottom-0 max-lg:z-20 max-lg:-mx-4 max-lg:border-border max-lg:border-t max-lg:bg-bg/95 max-lg:px-4 max-lg:py-2.5 max-lg:backdrop-blur-md"
               )}
             >
               <Button
@@ -182,8 +182,8 @@ export default function ExamShell({
           </div>
 
           <aside aria-label="Question navigator" className="hidden lg:block">
-            <Card className="sticky top-32 p-5">
-              <h2 className="text-label mb-3">Questions</h2>
+            <Card className="sticky top-20 p-4">
+              <h2 className="text-label mb-2">Questions</h2>
               <QuestionNavigator
                 questions={questions}
                 answers={answers}
@@ -213,6 +213,7 @@ export default function ExamShell({
             setSheetOpen(false);
           }}
         />
+        <ThemeToggle variant="segmented" className="mt-5 sm:hidden" />
       </Dialog>
     </div>
   );

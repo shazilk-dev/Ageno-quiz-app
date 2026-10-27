@@ -4,7 +4,7 @@ import { Skeleton } from "@/components/ui";
 /** Shown at once when one of a person's pages is opened, while the server reads their data. */
 export default function UserLoading() {
   return (
-    <div data-theme="dark" className="flex-1 bg-bg text-text">
+    <div className="flex-1 bg-bg text-text">
       <Container aria-busy="true" aria-label="Loading" className="space-y-4 py-8 sm:py-10">
         <Skeleton className="h-4 w-28" />
         <Skeleton className="h-9 w-56" />

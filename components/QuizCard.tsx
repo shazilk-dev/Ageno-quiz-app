@@ -74,7 +74,7 @@ export default function QuizCard({ quiz }: QuizCardProps) {
               </>
             )}
           </span>
-          <span className="inline-flex items-center gap-1.5 text-text-muted transition-fast group-hover:text-accent">
+          <span className="inline-flex items-center gap-1.5 text-text-muted transition-fast group-hover:text-link">
             {needsCode ? (
               <>
                 <Lock className="size-3.5" aria-hidden="true" />

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Container } from "@/components/layout/Container";
-import { Alert, Badge, Card, FilterTabs } from "@/components/ui";
+import { Alert, Card, FilterTabs } from "@/components/ui";
 import { formatClock, getQuestionStatus } from "@/lib/exam/answers";
 import type { ExamQuestion, SubmitResult } from "@/lib/exam/types";
 import QuestionReview from "./QuestionReview";
@@ -70,47 +70,49 @@ export default function ResultsScreen({
       ({ question }) => filter === "all" || statuses.get(question.id) === filter
     );
 
-  const facts: [string, string][] = [];
-  if (graded) facts.push(["Correct", `${result.correct} of ${result.total}`]);
-  facts.push(
-    ["Time taken", formatClock(result.timeTakenSec)],
+  // The three numbers that matter, side by side.
+  const headline: [string, string][] = [];
+  if (graded) headline.push(["Correct", `${result.correct} of ${result.total}`]);
+  headline.push(
+    ["Time", formatClock(result.timeTakenSec)],
     ["Difficulty", capitalise(difficulty)]
   );
-  if (unanswered > 0) facts.push(["Not answered", String(unanswered)]);
-  // What the server recorded, not what this browser counted.
+  // The rest, quieter. Integrity counts are what the server recorded, not what this browser counted.
+  const details: [string, string][] = [];
+  if (unanswered > 0) details.push(["Not answered", String(unanswered)]);
   if (result.tabSwitches > 0) {
-    facts.push(["Tab switches", String(result.tabSwitches)]);
+    details.push(["Tab switches", String(result.tabSwitches)]);
   }
-  if (result.blurs > 0) facts.push(["Window focus lost", String(result.blurs)]);
+  if (result.blurs > 0) details.push(["Window focus lost", String(result.blurs)]);
   if (result.fullscreenExits > 0) {
-    facts.push(["Left fullscreen", String(result.fullscreenExits)]);
+    details.push(["Left fullscreen", String(result.fullscreenExits)]);
   }
 
   return (
-    <div data-theme="dark" className="flex-1 bg-bg text-text">
+    <div className="flex-1 bg-bg text-text">
       <Container className="py-6 sm:py-8">
-        <div className="grid gap-8 lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start lg:gap-12">
-          <Card className="p-5 sm:p-6 lg:sticky lg:top-8">
+        <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start lg:gap-10">
+          <Card className="p-5 lg:sticky lg:top-8">
             <p className="text-label">{"// Results"}</p>
             <h1
               ref={headingRef}
               tabIndex={-1}
-              className="mt-2 w-fit max-w-full text-3xl focus:outline-none"
+              className="mt-2 w-fit max-w-full text-2xl focus:outline-none"
             >
               {graded ? "Quiz complete" : "Answers submitted"}
             </h1>
-            <p className="mt-1 text-text-muted">{title}</p>
+            <p className="mt-1 text-text-body">{title}</p>
             {subtitle && <p className="text-sm text-text-muted">{subtitle}</p>}
 
             {graded ? (
               <p
-                className="mt-6 font-mono text-6xl tabular-nums leading-none"
+                className="mt-5 font-mono text-5xl tabular-nums leading-none"
                 data-testid="quiz-score"
               >
                 {score}%
               </p>
             ) : (
-              <p className="mt-6 text-text-body">
+              <p className="mt-5 text-text-body">
                 This quiz is checked by its owner, so there&apos;s no score yet.
               </p>
             )}
@@ -129,31 +131,35 @@ export default function ResultsScreen({
               </Alert>
             )}
 
-            <dl className="mt-6 divide-y divide-border border-border border-y">
-              {facts.map(([term, value]) => (
-                <div
-                  key={term}
-                  className="flex items-center justify-between gap-4 py-2.5"
-                >
-                  <dt className="text-sm text-text-muted">{term}</dt>
-                  <dd className="font-mono text-sm tabular-nums">
-                    {term === "Difficulty" ? (
-                      <Badge variant="outline">{value}</Badge>
-                    ) : (
-                      value
-                    )}
+            <dl className="mt-5 grid auto-cols-fr grid-flow-col divide-x divide-border rounded-md border border-border bg-bg-alt">
+              {headline.map(([term, value]) => (
+                <div key={term} className="min-w-0 px-3 py-2.5">
+                  <dt className="text-text-muted text-xs">{term}</dt>
+                  <dd className="mt-0.5 truncate font-medium font-mono text-sm tabular-nums">
+                    {value}
                   </dd>
                 </div>
               ))}
             </dl>
 
-            <div className="mt-6 flex flex-col gap-3">{actions}</div>
+            {details.length > 0 && (
+              <dl className="mt-3 space-y-1 text-text-muted text-xs">
+                {details.map(([term, value]) => (
+                  <div key={term} className="flex items-center justify-between gap-4">
+                    <dt>{term}</dt>
+                    <dd className="font-mono tabular-nums">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+
+            <div className="mt-5 flex flex-col gap-2.5">{actions}</div>
           </Card>
 
           {review !== null && (
             <section aria-labelledby="review-heading" className="min-w-0">
               <div className="flex flex-wrap items-end justify-between gap-x-6 border-border border-b">
-                <h2 id="review-heading" className="pb-3 text-xl">
+                <h2 id="review-heading" className="pb-3 text-lg">
                   Review your answers
                 </h2>
                 <FilterTabs<ReviewFilter>
@@ -173,13 +179,13 @@ export default function ResultsScreen({
               </div>
 
               {visible.length === 0 ? (
-                <p className="mt-6 text-text-muted">
+                <p className="mt-4 text-text-muted">
                   {filter === "incorrect"
                     ? "No incorrect answers."
                     : "You answered every question."}
                 </p>
               ) : (
-                <ol className="mt-6 space-y-4">
+                <ol className="mt-4 space-y-4">
                   {visible.map(({ question, index }) => (
                     <QuestionReview
                       key={question.id}

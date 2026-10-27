@@ -10,6 +10,7 @@ import { adminLink, mainNav, myQuizzesLink, type NavLink } from "@/lib/navigatio
 import { AGENOVERSE_URL, cn } from "@/lib/utils";
 import AccountMenu, { MobileAccount } from "./AccountMenu";
 import { Container } from "./Container";
+import ThemeToggle from "./ThemeToggle";
 
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -98,9 +99,8 @@ export default function Header({ className }: { className?: string }) {
   return (
     <>
       <header
-        data-theme="dark"
         className={cn(
-          "sticky top-0 z-40 h-(--nav-height) border-b bg-ink/90 text-text backdrop-blur-md transition-[border-color] duration-200 print:hidden",
+          "sticky top-0 z-40 h-(--nav-height) border-b bg-bg/90 text-text backdrop-blur-md transition-[border-color] duration-200 print:hidden",
           scrolled || open ? "border-border" : "border-transparent",
           className
         )}
@@ -123,8 +123,8 @@ export default function Header({ className }: { className?: string }) {
                       href={link.href}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "inline-flex min-h-11 items-center rounded-md px-3 text-sm transition-fast hover:text-accent",
-                        active ? "text-accent" : "text-text-muted"
+                        "inline-flex min-h-11 items-center rounded-md px-3 text-sm transition-fast hover:text-link",
+                        active ? "text-link" : "text-text-muted"
                       )}
                     >
                       {link.label}
@@ -140,11 +140,12 @@ export default function Header({ className }: { className?: string }) {
               href={AGENOVERSE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden min-h-11 items-center gap-1 rounded-md px-2 font-mono text-text-muted text-xs transition-fast hover:text-accent lg:inline-flex"
+              className="hidden min-h-11 items-center gap-1 rounded-md px-2 font-mono text-text-muted text-xs transition-fast hover:text-link lg:inline-flex"
             >
               Agenoverse
               <ArrowUpRight className="size-3.5" aria-hidden="true" />
             </a>
+            <ThemeToggle className="hidden md:inline-flex" />
             <div className="hidden md:block">
               <AccountMenu />
             </div>
@@ -155,7 +156,7 @@ export default function Header({ className }: { className?: string }) {
               aria-expanded={open}
               aria-controls="mobile-menu"
               onClick={() => setOpenOnPath(pathname)}
-              className="-mr-2 inline-flex size-11 items-center justify-center rounded-md text-text transition-fast hover:text-accent md:hidden"
+              className="-mr-2 inline-flex size-11 items-center justify-center rounded-md text-text transition-fast hover:text-link md:hidden"
             >
               <Menu className="size-6" aria-hidden="true" />
             </button>
@@ -164,7 +165,7 @@ export default function Header({ className }: { className?: string }) {
       </header>
 
       {/* Mobile drawer. `inert` keeps it out of the tab order and the a11y tree while closed. */}
-      <div data-theme="dark" className="md:hidden">
+      <div className="md:hidden">
         <button
           type="button"
           tabIndex={-1}
@@ -183,7 +184,7 @@ export default function Header({ className }: { className?: string }) {
           aria-label="Menu"
           inert={!open}
           className={cn(
-            "fixed inset-y-0 right-0 z-50 flex w-[min(20rem,85vw)] flex-col border-l border-border bg-ink text-text transition-base print:hidden",
+            "fixed inset-y-0 right-0 z-50 flex w-[min(20rem,85vw)] flex-col border-l border-border bg-bg text-text transition-base print:hidden",
             open ? "translate-x-0" : "translate-x-full"
           )}
         >
@@ -193,7 +194,7 @@ export default function Header({ className }: { className?: string }) {
               type="button"
               aria-label="Close menu"
               onClick={() => setOpenOnPath(null)}
-              className="inline-flex size-11 items-center justify-center rounded-md text-text transition-fast hover:text-accent"
+              className="inline-flex size-11 items-center justify-center rounded-md text-text transition-fast hover:text-link"
             >
               <X className="size-6" aria-hidden="true" />
             </button>
@@ -209,8 +210,8 @@ export default function Header({ className }: { className?: string }) {
                         href={link.href}
                         aria-current={active ? "page" : undefined}
                         className={cn(
-                          "flex min-h-14 items-center text-2xl transition-fast hover:text-accent",
-                          active ? "text-accent" : "text-text"
+                          "flex min-h-14 items-center text-2xl transition-fast hover:text-link",
+                          active ? "text-link" : "text-text"
                         )}
                       >
                         {link.label}
@@ -223,11 +224,12 @@ export default function Header({ className }: { className?: string }) {
             <div className="mt-8">
               <MobileAccount />
             </div>
+            <ThemeToggle variant="segmented" className="mt-8" />
             <a
               href={AGENOVERSE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-auto inline-flex min-h-11 items-center gap-1 pt-8 font-mono text-text-muted text-xs transition-fast hover:text-accent"
+              className="mt-auto inline-flex min-h-11 items-center gap-1 pt-8 font-mono text-text-muted text-xs transition-fast hover:text-link"
             >
               Agenoverse
               <ArrowUpRight className="size-3.5" aria-hidden="true" />

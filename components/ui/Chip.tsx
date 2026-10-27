@@ -26,7 +26,7 @@ export function Chip({ label, active, onClick, count, className }: ChipProps) {
           "inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 font-medium font-mono text-xs uppercase tracking-[0.05em] transition-fast",
           active
             ? "border-accent bg-accent text-ink"
-            : "border-border text-text-muted hover:border-accent hover:text-text"
+            : "border-control-border text-text-muted hover:border-accent hover:text-text"
         )}
       >
         {label}

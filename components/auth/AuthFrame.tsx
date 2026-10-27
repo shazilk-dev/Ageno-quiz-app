@@ -17,7 +17,7 @@ interface AuthFrameProps {
  */
 export default function AuthFrame({ eyebrow, title, description, children, footer }: AuthFrameProps) {
   return (
-    <div data-theme="dark" className="relative flex-1 overflow-hidden bg-bg text-text">
+    <div className="relative flex-1 overflow-hidden bg-bg text-text">
       <div aria-hidden="true" className="bg-grid pointer-events-none absolute inset-0" />
       <div className="relative mx-auto flex min-h-full w-full max-w-md flex-col justify-center px-4 py-10 sm:py-16">
         <Card className="rise p-6 sm:p-8">

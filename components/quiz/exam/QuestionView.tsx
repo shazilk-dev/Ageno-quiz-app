@@ -52,14 +52,11 @@ export default function QuestionView({
 
   return (
     <section aria-labelledby={headingId}>
-      <p className="text-label" aria-hidden="true">
-        Question {position}
-      </p>
       <h2
         id={headingId}
         ref={headingRef}
         tabIndex={-1}
-        className="mt-2 w-fit max-w-full scroll-mt-32 whitespace-pre-line text-xl leading-snug focus:outline-none sm:text-2xl"
+        className="w-fit max-w-[68ch] scroll-mt-20 whitespace-pre-line font-sans font-medium text-lg text-text leading-[1.45] tracking-normal focus:outline-none lg:text-xl"
       >
         <span className="sr-only">
           Question {position} of {total}:{" "}
@@ -68,7 +65,7 @@ export default function QuestionView({
       </h2>
 
       {instruction && (
-        <p id={hintId} className="mt-3 font-mono text-sm text-accent">
+        <p id={hintId} className="mt-1.5 font-mono text-text-muted text-xs">
           {instruction}
         </p>
       )}
@@ -79,12 +76,12 @@ export default function QuestionView({
         <img
           src={question.imageUrl}
           alt="Illustration for this question"
-          className="mt-4 max-h-72 w-auto max-w-full rounded-md border border-border"
+          className="mt-3 max-h-56 w-auto max-w-full rounded-md border border-border"
         />
       )}
 
       {options.length === 0 ? (
-        <p className="mt-6 rounded-md border border-border bg-surface px-4 py-3 text-text-muted">
+        <p className="mt-4 rounded-md border border-border bg-surface px-4 py-3 text-text-muted">
           This question has no answer options. Skip it, or flag it for review.
         </p>
       ) : (
@@ -92,7 +89,7 @@ export default function QuestionView({
           role={multiple ? "group" : "radiogroup"}
           aria-labelledby={headingId}
           aria-describedby={instruction ? hintId : undefined}
-          className="mt-6 space-y-3"
+          className="mt-4 space-y-2"
         >
           {options.map((option, index) => {
             const checked = selected.includes(index);
@@ -108,26 +105,26 @@ export default function QuestionView({
                 />
                 <span
                   className={cn(
-                    "flex min-h-14 cursor-pointer items-start gap-4 rounded-md border px-4 py-3 transition-fast",
-                    "hover:border-border-strong peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
+                    "flex min-h-11 cursor-pointer items-start gap-3 rounded-md border px-3 py-2 transition-fast",
+                    "hover:border-text-muted peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent",
                     checked
-                      ? "border-accent bg-accent/10"
-                      : "border-border bg-surface"
+                      ? "border-2 border-accent bg-accent/10 px-[calc(0.75rem-1px)] py-[calc(0.5rem-1px)]"
+                      : "border-control-border bg-surface"
                   )}
                 >
                   <span
                     aria-hidden="true"
                     className={cn(
-                      "mt-px grid size-7 shrink-0 place-items-center border font-mono text-xs transition-fast",
+                      "mt-px grid size-6 shrink-0 place-items-center border font-mono text-xs transition-fast",
                       multiple ? "rounded-sm" : "rounded-full",
                       checked
                         ? "border-accent bg-accent text-ink"
-                        : "border-border-strong text-text-muted"
+                        : "border-control-border text-text-muted"
                     )}
                   >
                     {letter(index)}
                   </span>
-                  <span className="min-w-0 whitespace-pre-line pt-0.5 text-base text-text-body leading-snug [overflow-wrap:anywhere]">
+                  <span className="min-w-0 whitespace-pre-line text-base text-text-body leading-[1.4] [overflow-wrap:anywhere]">
                     {getOptionText(option, index)}
                   </span>
                 </span>
@@ -137,7 +134,7 @@ export default function QuestionView({
         </div>
       )}
 
-      <div className="mt-3 flex min-h-11 items-center justify-between gap-4">
+      <div className="mt-2 flex min-h-9 items-center justify-between gap-4">
         <p className="hidden font-mono text-text-muted text-xs md:block">
           1–{Math.min(options.length, 9) || 1} or A–
           {letter(Math.max(0, Math.min(options.length, 26) - 1))}{" "}
@@ -147,7 +144,7 @@ export default function QuestionView({
           <button
             type="button"
             onClick={onClear}
-            className="ml-auto inline-flex min-h-11 items-center rounded-md px-3 text-sm text-text-muted underline-offset-4 transition-fast hover:text-text hover:underline"
+            className="ml-auto inline-flex min-h-9 items-center rounded-md px-3 text-sm text-text-muted underline-offset-4 transition-fast hover:text-text hover:underline"
           >
             Clear answer
           </button>

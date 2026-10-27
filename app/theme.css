@@ -33,16 +33,28 @@
 	--color-text-body: #d4d6da;
 	--color-border: #2d333b;
 	--color-border-strong: #3d444e;
+	/* The edge of a control (answer option, input, switch): 3:1 against its surface (WCAG 1.4.11). Dividers use --color-border. */
+	--color-control-border: #6b727d;
 	--color-accent: var(--color-teal);
 	--color-accent-deep: var(--color-teal-deep);
+	--color-accent-soft: #1d3036;
+	/* Placeholders and decoration only (3:1). Anything a person must read is text-muted or stronger. */
+	--color-text-faint: #7d8087;
 	/* Accent for small TEXT and links. Same teal on dark; darker on bone (teal-deep is 3.8:1 there, this is 5.1:1). */
 	--color-link: var(--color-teal);
 	--color-warm: var(--color-amber);
+	/* Amber as TEXT: the fill amber is too pale on bone, so light darkens this one. */
+	--color-warm-text: var(--color-amber);
 
 	/* Semantic states */
 	--color-success: #34d399;
 	--color-error: #f87171;
 	--color-warning: var(--color-amber);
+	/* Tinted fills and edges for right / wrong answers and notices. Hexes, so scripts/check-contrast.mjs can read them. */
+	--color-success-soft: #1f3636;
+	--color-success-line: #277153;
+	--color-error-soft: #362a31;
+	--color-error-line: #7f4449;
 
 	/* Typography. --font-geist-* are set on <html> by the `geist` package. */
 	--font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
@@ -120,6 +132,8 @@
 	/* Elevation: light-sourced, tinted by ink so it works on dark and bone. */
 	--shadow-float: 0 18px 40px -18px
 		color-mix(in oklab, var(--color-ink) 55%, transparent);
+	/* Cards: none on dark (flat, 1px border); a hairline lift on bone (set in [data-theme="light"]). */
+	--shadow-card: 0 0 #0000;
 	--shadow-glow:
 		0 0 0 1px color-mix(in oklab, var(--color-teal) 45%, transparent),
 		0 0 36px -6px color-mix(in oklab, var(--color-teal) 40%, transparent);
@@ -162,11 +176,22 @@
 	--color-text-body: #2a2e35;
 	--color-border: #d4d1ca;
 	--color-border-strong: #bfbbb2;
+	--color-control-border: #8a8780;
 	--color-accent: var(--color-teal-deep);
+	--color-accent-soft: #ecf6f5;
+	--color-text-faint: #7a7d84;
 	--color-link: #0a756b;
 	/* The dark-mode state colours are too pale on bone (about 2.5:1). These clear AA. */
 	--color-error: #b42318;
 	--color-success: #067647;
+	--color-warning: #8a5300;
+	--color-warm-text: #8a5300;
+	--color-success-soft: #ecfdf3;
+	--color-success-line: #a6d9bd;
+	--color-error-soft: #fef3f2;
+	--color-error-line: #f1b5ae;
+	--shadow-card: 0 1px 2px color-mix(in oklab, var(--color-ink) 8%, transparent),
+		0 1px 3px color-mix(in oklab, var(--color-ink) 5%, transparent);
 }
 
 /* Explicit dark: the site shell, and any dark card inside a light section. */
@@ -181,8 +206,20 @@
 	--color-text-body: #d4d6da;
 	--color-border: #2d333b;
 	--color-border-strong: #3d444e;
+	--color-control-border: #6b727d;
 	--color-accent: var(--color-teal);
+	--color-accent-soft: #1d3036;
+	--color-text-faint: #7d8087;
 	--color-link: var(--color-teal);
+	--color-error: #f87171;
+	--color-success: #34d399;
+	--color-warning: var(--color-amber);
+	--color-warm-text: var(--color-amber);
+	--color-success-soft: #1f3636;
+	--color-success-line: #277153;
+	--color-error-soft: #362a31;
+	--color-error-line: #7f4449;
+	--shadow-card: 0 0 #0000;
 }
 
 /* Paper. Print is always light, whatever section the content sits in. */
@@ -200,7 +237,19 @@
 		--color-text-body: #1a1a1a;
 		--color-border: #c4c4c0;
 		--color-border-strong: #8a8a86;
+		--color-control-border: #8a8a86;
 		--color-accent: #0a756b;
+		--color-accent-soft: #ecf6f5;
+		--color-text-faint: #6b6b68;
 		--color-link: #0a756b;
+		--color-error: #b42318;
+		--color-success: #067647;
+		--color-warning: #8a5300;
+		--color-warm-text: #8a5300;
+		--color-success-soft: #ecfdf3;
+		--color-success-line: #a6d9bd;
+		--color-error-soft: #fef3f2;
+		--color-error-line: #f1b5ae;
+		--shadow-card: none;
 	}
 }

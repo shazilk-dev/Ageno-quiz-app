@@ -41,7 +41,7 @@ export function ChecksPanel({ form, onJump }: ChecksPanelProps) {
         {checks.length === 0 ? (
           <CircleCheck className="size-4 text-success" aria-hidden="true" />
         ) : (
-          <ListChecks className="size-4 text-accent" aria-hidden="true" />
+          <ListChecks className="size-4 text-link" aria-hidden="true" />
         )}
         <span className="font-medium">Checks</span>
         <span className="font-mono text-text-muted" role="status">

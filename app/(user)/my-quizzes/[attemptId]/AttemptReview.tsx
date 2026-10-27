@@ -88,12 +88,12 @@ export default function AttemptReview({ initial = null }: { initial?: ReviewStat
   }
 
   return (
-    <div data-theme="dark" className="flex-1 bg-bg text-text">
+    <div className="flex-1 bg-bg text-text">
       <Container className="py-8 sm:py-10">
         {state.kind === "loading" ? (
           <div aria-busy="true" aria-label="Loading your results">
             <Skeleton className="h-9 w-56" />
-            <div className="mt-8 grid gap-8 lg:grid-cols-[22rem_minmax(0,1fr)]">
+            <div className="mt-8 grid gap-8 lg:grid-cols-[20rem_minmax(0,1fr)]">
               <Skeleton className="h-96 w-full rounded-lg" />
               <div className="space-y-4">
                 <Skeleton className="h-40 w-full rounded-lg" />

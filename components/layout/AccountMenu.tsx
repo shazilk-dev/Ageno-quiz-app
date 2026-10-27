@@ -106,7 +106,7 @@ export default function AccountMenu() {
         onClick={() => setOpen((value) => !value)}
         className="grid size-11 place-items-center rounded-full"
       >
-        <span className="grid size-9 place-items-center rounded-full border border-border-strong bg-surface-raised font-mono font-semibold text-accent text-sm transition-fast hover:border-accent">
+        <span className="grid size-9 place-items-center rounded-full border border-border-strong bg-surface-raised font-mono font-semibold text-link text-sm transition-fast hover:border-accent">
           {name.charAt(0).toUpperCase()}
         </span>
       </button>
@@ -194,7 +194,7 @@ export function MobileAccount() {
   }
 
   const rowClass =
-    "flex min-h-12 items-center text-lg text-text transition-fast hover:text-accent";
+    "flex min-h-12 items-center text-lg text-text transition-fast hover:text-link";
 
   return (
     <div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import ThemeToggle from "@/components/layout/ThemeToggle";
 import { Badge, Button, Input } from "@/components/ui";
 import { updateUserProfile } from "@/lib/actions/auth-account";
 import { sendVerificationEmail } from "@/lib/actions/auth-core";
@@ -32,6 +33,7 @@ export default function ProfileSection({ user, action }: SectionProps) {
     });
 
   return (
+    <>
     <form onSubmit={submit} className="max-w-lg space-y-6">
       <Input
         label="Display name"
@@ -72,5 +74,16 @@ export default function ProfileSection({ user, action }: SectionProps) {
         Save changes
       </Button>
     </form>
+
+    <section aria-labelledby="preferences-heading" className="mt-10 max-w-lg border-border border-t pt-6">
+      <h3 id="preferences-heading" className="text-lg">
+        Appearance
+      </h3>
+      <p className="mt-1 mb-4 text-sm text-text-muted">
+        Kept on this device. System follows your phone or computer.
+      </p>
+      <ThemeToggle variant="segmented" />
+    </section>
+    </>
   );
 }

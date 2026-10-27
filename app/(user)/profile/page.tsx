@@ -31,7 +31,7 @@ export default function ProfilePage() {
   // The server knew someone was signed in, so the page is shown; the browser's sign-in is a moment behind.
   if (!user) {
     return (
-      <div data-theme="dark" className="flex-1 bg-bg text-text">
+      <div className="flex-1 bg-bg text-text">
         <Container aria-busy="true" className="space-y-4 py-8 sm:py-10">
           <Skeleton className="h-12 w-72" />
           <Skeleton className="h-64 w-full" />
@@ -44,7 +44,7 @@ export default function ProfilePage() {
   const initial = (user.displayName || user.email || "U").charAt(0).toUpperCase();
 
   return (
-    <div data-theme="dark" className="flex-1 bg-bg text-text">
+    <div className="flex-1 bg-bg text-text">
       <Container className="py-8 sm:py-10">
         <p className="text-label">{"// ACCOUNT"}</p>
         <div className="mt-3 flex items-center gap-4">
@@ -80,7 +80,7 @@ export default function ProfilePage() {
                     )}
                   >
                     <Icon
-                      className={cn("size-4", tab === id && "text-accent")}
+                      className={cn("size-4", tab === id && "text-link")}
                       aria-hidden="true"
                     />
                     {label}

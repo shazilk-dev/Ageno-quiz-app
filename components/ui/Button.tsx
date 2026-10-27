@@ -25,7 +25,7 @@ const variantStyles: Record<Variant, string> = {
   secondary: "border border-accent text-link hover:bg-accent/10",
   // Amber is reserved for community moments (a leaderboard highlight, a "Rise together" call to action).
   warm: "bg-warm text-ink hover:brightness-110",
-  ghost: "text-text-muted hover:bg-surface hover:text-text",
+  ghost: "text-text-muted hover:bg-text/[0.06] hover:text-text",
   // Outlined so it reads on both the dark and the bone theme.
   danger: "border border-error text-error hover:bg-error/10",
 };

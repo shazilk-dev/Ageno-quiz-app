@@ -17,7 +17,7 @@ const variantStyles: Record<
   Variant,
   { bar: string; icon: string; Icon: typeof Info }
 > = {
-  info: { bar: "border-l-accent", icon: "text-accent", Icon: Info },
+  info: { bar: "border-l-accent", icon: "text-link", Icon: Info },
   success: {
     bar: "border-l-success",
     icon: "text-success",

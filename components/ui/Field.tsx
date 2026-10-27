@@ -57,10 +57,10 @@ function FieldShell({
 }
 
 const controlStyles =
-  "w-full rounded-md border bg-surface px-4 text-base text-text transition-fast placeholder:text-text-muted/70 hover:border-border-strong focus-visible:border-accent disabled:opacity-60";
+  "w-full rounded-md border bg-surface px-4 text-base text-text transition-fast placeholder:text-text-faint hover:border-text-muted focus-visible:border-accent disabled:opacity-60";
 
 const stateStyles = (error?: string) =>
-  error ? "border-error" : "border-border";
+  error ? "border-error" : "border-control-border";
 
 interface BaseProps {
   label: string;

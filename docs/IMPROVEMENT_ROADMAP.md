@@ -6,6 +6,7 @@
 - **Last updated:** 2026-10-26 (Session 10)
 - **Current phase:** 7 (App-wide polish and accessibility). P7.1 to P7.5 are done; the user hasn't looked at any of them yet.
 - **Admin plan:** `docs/ADMIN_PLAN.md` (written 2026-10-26, nothing built yet) covers the admin side: several correct answers and reasoning per option (A1, includes a data-structure change), the quiz format, import/export and an AI skill (A2), lifecycle, insights. Decisions are made; the first step is A1.1.
+- **UX plan:** `docs/UX_PLAN.md` (written 2026-10-27; U3 and U1 built): light theme as the default with a Light/Dark/System switch (this changes the "Dark by default" rule in Design principles once U1 ships), a compact exam screen, a clearer result and review.
 - **Next up:** P7.6 (palette: what still has stock colours is the four `(auth)` pages, the two `(dev)` pages and `app/layout.tsx`'s `<body>`). Items carried over: the raw-vs-weighted *headline* decision for the results screen (the leaderboard no longer depends on it), rate limiting, the speed plan (now its own file: `docs/PERFORMANCE_PLAN.md`; S0–S5 code done, S5 not merged yet; the manual steps in `docs/MANUAL_STEPS.md` are what's left). Note for P7.6: the `useauth-test` dev page no longer exists (deleted in S4.5), so one `(dev)` page is left.
 
 ---
@@ -70,7 +71,7 @@ Ageno Quiz is the assessment product of **Agenoverse**, the "Let's Rise Together
 ### Style: "Dawn on the terminal"
 
 - **Colours**
-  - **Dark by default.** Use `data-theme="light"` (bone paper) for reading-heavy sections.
+  - **Light by default, dark on request** (changed 2026-10-27, `docs/UX_PLAN.md` U1): `<html data-theme>` follows the visitor's Light / Dark / System choice; do not lock a wrapper to one theme.
   - Ink `#0e1116` background; surfaces `#1c2028` and `#232831`; border `#2d333b`; text bone `#f6f5f1`; muted text `#a5a8ae`.
   - **Teal `#22c3b0` is the system:** primary buttons, links, focus, active and selected states, timer, progress.
   - **Amber `#f5b544` is the people:** community moments only, around 5% of a page. Examples are a leaderboard highlight, a "Rise together" CTA or a personal best. Never use it as a fill behind nav, cards or headings.

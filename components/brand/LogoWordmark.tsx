@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { Logo } from "./Logo";
 
 interface LogoWordmarkProps {
-  variant?: "light" | "dark";
+  variant?: "auto" | "light" | "dark";
   blink?: boolean;
   /** Show only the mark below the `sm` breakpoint. */
   hideTextOnMobile?: boolean;
@@ -12,18 +12,20 @@ interface LogoWordmarkProps {
 }
 
 const textStyles = {
+  auto: "text-text",
   light: "text-bone",
   dark: "text-ink",
 } as const;
 
 const bylineStyles = {
+  auto: "text-text-muted",
   light: "text-text-muted",
   dark: "text-ink/60",
 } as const;
 
 /** Logo mark + lowercase "ageno quiz", with an optional mono "by agenoverse" label. */
 export function LogoWordmark({
-  variant = "light",
+  variant = "auto",
   blink = false,
   hideTextOnMobile = false,
   byline = false,

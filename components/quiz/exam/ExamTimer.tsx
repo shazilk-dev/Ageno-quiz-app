@@ -82,7 +82,7 @@ export default function ExamTimer({
               ? "border-error text-error"
               : low
                 ? "border-warning text-warning"
-                : "border-border text-accent"
+                : "border-border text-link"
           )}
         >
           <Icon className="size-4" aria-hidden="true" />

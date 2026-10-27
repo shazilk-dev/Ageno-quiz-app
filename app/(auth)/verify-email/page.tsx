@@ -115,7 +115,7 @@ function VerifyEmailContent() {
 
 function VerifySkeleton() {
   return (
-    <div data-theme="dark" className="flex-1 bg-bg" aria-busy="true" aria-label="Loading">
+    <div className="flex-1 bg-bg" aria-busy="true" aria-label="Loading">
       <div className="mx-auto w-full max-w-md px-4 py-16">
         <Skeleton className="h-72 w-full rounded-lg" />
       </div>

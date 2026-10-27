@@ -9,7 +9,7 @@ interface BadgeProps extends ComponentPropsWithoutRef<"span"> {
 }
 
 const variantStyles: Record<Variant, string> = {
-  default: "bg-surface text-text-muted",
+  default: "border border-border bg-surface text-text-muted",
   teal: "bg-teal text-ink",
   // Amber is reserved for community moments (for example a `challenge` quiz).
   amber: "bg-amber text-ink",

@@ -22,7 +22,7 @@ function RankCell({ rank }: { rank: number }) {
       className={cn(
         td,
         "w-14 font-mono tabular-nums",
-        rank <= 3 ? "font-semibold text-warm" : "text-text-muted"
+        rank <= 3 ? "font-semibold text-warm-text" : "text-text-muted"
       )}
     >
       {rank}

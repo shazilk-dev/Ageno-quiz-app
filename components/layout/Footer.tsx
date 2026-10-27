@@ -7,7 +7,7 @@ import { Container } from "./Container";
 
 // min-h-11: a 44px tap target per link.
 const linkClass =
-  "inline-flex min-h-11 items-center gap-1 text-text-muted transition-fast hover:text-accent";
+  "inline-flex min-h-11 items-center gap-1 text-text-muted transition-fast hover:text-link";
 
 /** Slim footer: who we are, where the rest of Agenoverse lives. */
 export default function Footer({ className }: { className?: string }) {
@@ -15,9 +15,8 @@ export default function Footer({ className }: { className?: string }) {
 
   return (
     <footer
-      data-theme="dark"
       className={cn(
-        "border-t border-border bg-ink text-text print:hidden",
+        "border-t border-border bg-bg-alt text-text print:hidden",
         className
       )}
     >

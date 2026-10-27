@@ -1,4 +1,4 @@
-import { Check, CircleHelp, X } from "lucide-react";
+import { Check, ChevronRight, CircleHelp, X } from "lucide-react";
 import { Card } from "@/components/ui";
 import {
   getOptionText,
@@ -8,15 +8,24 @@ import {
 import type { ExamQuestion, ReviewItem } from "@/lib/exam/types";
 import { cn } from "@/lib/utils";
 
+/** The status pill beside the question number: an icon and a word on a tint, never colour alone. */
 const statusMeta: Record<
   QuestionStatus,
   { label: string; className: string; Icon: typeof Check }
 > = {
-  correct: { label: "Correct", className: "text-success", Icon: Check },
-  incorrect: { label: "Incorrect", className: "text-error", Icon: X },
+  correct: {
+    label: "Correct",
+    className: "border-success-line bg-success-soft text-success",
+    Icon: Check,
+  },
+  incorrect: {
+    label: "Incorrect",
+    className: "border-error-line bg-error-soft text-error",
+    Icon: X,
+  },
   unanswered: {
     label: "Not answered",
-    className: "text-text-muted",
+    className: "border-border bg-bg-alt text-text-muted",
     Icon: CircleHelp,
   },
 };
@@ -34,9 +43,10 @@ interface QuestionReviewProps {
 const letter = (index: number) => String.fromCharCode(65 + index);
 
 /**
- * One reviewed question: its options with your picks and the right ones marked in words. The reason for a
- * right option, or for a wrong option you picked, sits under that option; the reasons for the rest are
- * folded away under "Why the others are wrong". An overall explanation, if there is one, follows.
+ * One reviewed question, kept short so two fit a screen. Each option says what it was in words, an icon and
+ * a tint: a right option is green with a check, a wrong pick is red with a cross, the rest stay plain. The
+ * reason for a right option, or for a wrong option you picked, sits in a ruled block inside that option; the
+ * reasons for the rest are folded away under "Why the others are wrong". An overall explanation follows.
  */
 export default function QuestionReview({
   question,
@@ -56,31 +66,33 @@ export default function QuestionReview({
 
   return (
     <li>
-      <Card className="p-5">
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-label">Question {position}</p>
+      <Card className="p-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="font-medium font-mono text-text-muted text-xs uppercase tracking-[0.05em]">
+            Question {position}
+          </p>
           <p
             className={cn(
-              "inline-flex items-center gap-1.5 font-medium text-sm",
+              "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-semibold text-xs",
               className
             )}
           >
-            <Icon className="size-4" aria-hidden="true" />
+            <Icon className="size-3.5" aria-hidden="true" />
             {label}
           </p>
         </div>
 
-        <h3 className="mt-2 whitespace-pre-line text-lg leading-snug">
+        <h3 className="mt-2 max-w-[68ch] whitespace-pre-line font-medium text-base text-text leading-[1.45] tracking-normal">
           {question.text}
         </h3>
 
         {selectAll && (
-          <p className="mt-1 text-sm text-text-muted">
+          <p className="mt-1 text-text-muted text-xs">
             Select-all question: it counts only when you pick exactly the correct options.
           </p>
         )}
 
-        <ul className="mt-4 space-y-2">
+        <ul className="mt-3 space-y-2">
           {options.map((option, index) => {
             const isYours = answer.includes(index);
             const isRight = correct.includes(index);
@@ -92,45 +104,75 @@ export default function QuestionReview({
               <li
                 key={index}
                 className={cn(
-                  "rounded-md border px-4 py-2.5 text-text-body",
+                  "flex items-start gap-3 rounded-md border px-3 py-2 text-[15px] text-text-body leading-[1.4]",
                   isRight
-                    ? "border-success"
+                    ? "border-success-line bg-success-soft"
                     : isYours
-                      ? "border-error"
-                      : "border-border"
+                      ? "border-error-line bg-error-soft"
+                      : "border-border bg-surface"
                 )}
               >
-                <div className="flex items-start justify-between gap-4">
-                  <span className="min-w-0 whitespace-pre-line [overflow-wrap:anywhere]">
-                    {getOptionText(option, index)}
-                  </span>
-                  {tags.length > 0 && (
-                    <span className="shrink-0 pt-0.5 font-mono text-text text-xs uppercase tracking-[0.05em]">
-                      {tags.join(" · ")}
+                <span
+                  aria-hidden="true"
+                  className="mt-px grid size-5 shrink-0 place-items-center font-mono text-text-muted text-xs"
+                >
+                  {isRight ? (
+                    <Check className="size-4 text-success" strokeWidth={2.5} />
+                  ) : isYours ? (
+                    <X className="size-4 text-error" strokeWidth={2.5} />
+                  ) : (
+                    letter(index)
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                    <span className="min-w-0 whitespace-pre-line [overflow-wrap:anywhere]">
+                      {getOptionText(option, index)}
                     </span>
+                    {tags.length > 0 && (
+                      <span
+                        className={cn(
+                          "w-fit shrink-0 rounded-full border bg-surface px-2 py-px font-semibold text-xs leading-[1.4]",
+                          isRight
+                            ? "border-success-line text-success"
+                            : "border-error-line text-error"
+                        )}
+                      >
+                        {tags.join(" · ")}
+                      </span>
+                    )}
+                  </div>
+                  {reason && (
+                    <div
+                      className={cn(
+                        "mt-2 rounded-r-md border-l-[3px] bg-surface/70 px-3 py-2 text-sm leading-[1.5]",
+                        isRight ? "border-success" : "border-error"
+                      )}
+                    >
+                      <p className="font-semibold text-text text-xs">
+                        {isRight ? "Why it's correct" : "Why it's wrong"}
+                      </p>
+                      <p className="mt-0.5 max-w-[65ch] whitespace-pre-line [overflow-wrap:anywhere]">
+                        {reason}
+                      </p>
+                    </div>
                   )}
                 </div>
-                {reason && (
-                  <p
-                    className={cn(
-                      "mt-2 whitespace-pre-line text-sm [overflow-wrap:anywhere]",
-                      isYours && !isRight ? "text-text" : "text-text-muted"
-                    )}
-                  >
-                    {reason}
-                  </p>
-                )}
               </li>
             );
           })}
         </ul>
 
         {others.length > 0 && (
-          <details className="mt-3 text-sm">
-            <summary className="inline-flex min-h-11 cursor-pointer items-center text-text-muted underline-offset-4 hover:text-text hover:underline">
+          <details className="group mt-3 border-border border-t">
+            <summary className="flex min-h-10 cursor-pointer list-none items-center gap-1.5 font-medium text-sm text-text-muted hover:text-text [&::-webkit-details-marker]:hidden">
+              <ChevronRight
+                className="size-4 transition-transform group-open:rotate-90"
+                aria-hidden="true"
+              />
               Why the others are wrong
             </summary>
-            <ul className="space-y-2 pb-1">
+            <ul className="space-y-2 pb-1 text-sm leading-[1.5]">
               {others.map(({ option, index, reason }) => (
                 <li key={index} className="text-text-muted [overflow-wrap:anywhere]">
                   <span className="font-mono text-text">{letter(index)}.</span>{" "}
@@ -144,10 +186,12 @@ export default function QuestionReview({
         )}
 
         {review.explanation && (
-          <p className="mt-4 border-border border-t pt-4 text-sm text-text-body">
-            <span className="text-label mr-2">Why</span>
-            {review.explanation}
-          </p>
+          <div className="mt-3 rounded-r-md border-border-strong border-l-[3px] bg-bg-alt px-3 py-2.5 text-sm text-text-body leading-[1.5]">
+            <p className="font-semibold text-text text-xs">Explanation</p>
+            <p className="mt-0.5 max-w-[65ch] whitespace-pre-line [overflow-wrap:anywhere]">
+              {review.explanation}
+            </p>
+          </div>
         )}
       </Card>
     </li>

@@ -1,8 +1,8 @@
 import { cn } from "@/lib/utils";
 
 interface LogoProps {
-  /** `light` = bone strokes for dark backgrounds (default). `dark` = ink strokes for light backgrounds. */
-  variant?: "light" | "dark";
+  /** `auto` (default) follows the theme. `light` = bone strokes for dark backgrounds, `dark` = ink strokes for light ones. */
+  variant?: "auto" | "light" | "dark";
   width?: number | string;
   height?: number | string;
   /** Play the one-shot cursor blink. */
@@ -15,13 +15,14 @@ interface LogoProps {
 }
 
 const strokeStyles = {
+  auto: "stroke-text",
   light: "stroke-bone",
   dark: "stroke-ink",
 } as const;
 
 /** The Cursor A: a terminal-style "A" whose crossbar is a teal block cursor. */
 export function Logo({
-  variant = "light",
+  variant = "auto",
   width = 32,
   height = 32,
   blink = false,

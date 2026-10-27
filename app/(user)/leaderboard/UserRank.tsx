@@ -40,7 +40,7 @@ export default function UserRank({ entry, total }: UserRankProps) {
       <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
         <div>
           <p className="text-label">Your place</p>
-          <p className="mt-1 font-mono text-4xl text-warm tabular-nums leading-none">
+          <p className="mt-1 font-mono text-4xl text-warm-text tabular-nums leading-none">
             #{entry.rank}
             <span className="ml-2 text-base text-text-muted">of {total}</span>
           </p>

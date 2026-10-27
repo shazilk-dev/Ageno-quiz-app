@@ -109,7 +109,7 @@ export default function LeaderboardClient({
   };
 
   return (
-    <div data-theme="dark" className="flex-1 bg-bg text-text">
+    <div className="flex-1 bg-bg text-text">
       <Container className="py-8 sm:py-10">
         <p className="text-label">{"// LEADERBOARD"}</p>
         <h1 className="mt-2 text-3xl">Leaderboard</h1>

@@ -160,7 +160,7 @@ function SignInContent() {
 
 function SignInSkeleton() {
   return (
-    <div data-theme="dark" className="flex-1 bg-bg" aria-busy="true" aria-label="Checking who is signed in">
+    <div className="flex-1 bg-bg" aria-busy="true" aria-label="Checking who is signed in">
       <div className="mx-auto w-full max-w-md px-4 py-16">
         <Skeleton className="h-96 w-full rounded-lg" />
       </div>

@@ -5,8 +5,10 @@ import { GeistSans } from "geist/font/sans";
 import localFont from "next/font/local";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Metadata, Viewport } from "next";
+import ThemeSync from "@/components/layout/ThemeSync";
 import { ToastProvider } from "@/components/ui/Toast";
 import { AuthProvider } from "@/contexts/auth-context";
+import { themeInitScript } from "@/lib/theme";
 
 // Self-hosted (app/fonts) so a slow or blocked font CDN can never take the app down.
 // Italic accent for 1-3 emotional words of a big heading only; never inside the exam.
@@ -66,16 +68,19 @@ export const metadata: Metadata = {
   // The OG image comes from app/opengraph-image.tsx.
 };
 
-// Browser chrome (mobile address bar) matches the ink shell. A raw hex: viewport metadata cannot read CSS
-// variables, so this mirrors --color-ink in app/theme.css. The app is dark by default (the admin switches
-// itself to the bone theme with data-theme="light", which sets its own color-scheme).
+// Browser chrome (mobile address bar). Raw hexes: viewport metadata cannot read CSS variables, so these
+// mirror --color-bone and --color-ink in app/theme.css. They follow the OS; a manual choice that differs from
+// the OS changes the page but not the address bar colour.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1.0,
   maximumScale: 5.0, // Allow zooming for better accessibility
   userScalable: true, // Allow zooming for better accessibility
-  themeColor: "#0e1116",
-  colorScheme: "dark",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f6f5f1" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e1116" },
+  ],
+  colorScheme: "light dark",
 };
 
 export default function RootLayout({
@@ -87,16 +92,19 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
+      // Light is the default; the script below switches it before the first paint when the visitor chose otherwise.
+      data-theme="light"
       className={`scroll-smooth ${GeistSans.variable} ${GeistMono.variable} ${instrumentSerif.variable}`}
     >
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
       </head>
       <body className="bg-bg font-sans text-text antialiased overscroll-none">
         {/* The first thing a keyboard user reaches. No wrapper element: it would be page content outside every landmark. */}
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:fixed focus:top-0 focus:left-0 focus:z-50 focus:block focus:bg-ink focus:p-4 focus:text-bone"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-0 focus:left-0 focus:z-50 focus:block focus:bg-surface focus:p-4 focus:text-text"
         >
           Skip to main content
         </a>
@@ -105,6 +113,7 @@ export default function RootLayout({
             <AuthProvider>{children}</AuthProvider>
           </ToastProvider>
         </div>
+        <ThemeSync />
         {/* Real visitors' load and interaction timings per route (Vercel dashboard); does nothing elsewhere. */}
         <SpeedInsights />
       </body>

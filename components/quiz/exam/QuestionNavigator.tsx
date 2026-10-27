@@ -32,7 +32,7 @@ export default function QuestionNavigator({
         {answered} of {questions.length} answered
       </p>
 
-      <ol className="mt-4 grid grid-cols-5 gap-2">
+      <ol className="mt-3 grid grid-cols-5 gap-2">
         {questions.map((question, index) => {
           const isCurrent = index === current;
           const done = isAnswered(answers[question.id]);
@@ -73,7 +73,7 @@ export default function QuestionNavigator({
 
       <ul
         aria-hidden="true"
-        className="mt-5 grid grid-cols-2 gap-x-3 gap-y-2 text-text-muted text-xs"
+        className="mt-4 grid grid-cols-2 gap-x-3 gap-y-1.5 text-text-muted text-xs"
       >
         <LegendItem swatch="border-accent bg-accent" label="Current" />
         <LegendItem swatch="border-accent/50 bg-accent/15" label="Answered" />

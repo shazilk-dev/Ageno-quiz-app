@@ -42,7 +42,7 @@ export function CopyButton({
       onClick={copy}
       className={cn(
         "inline-flex min-h-11 items-center gap-2 rounded-md px-3 print:hidden font-medium font-mono text-text-muted text-xs uppercase tracking-[0.05em] transition-fast hover:text-text",
-        state === "copied" && "text-accent hover:text-accent",
+        state === "copied" && "text-link hover:text-link",
         className,
       )}
     >

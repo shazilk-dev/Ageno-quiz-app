@@ -190,3 +190,24 @@ Check in a real browser as admin (about 15 minutes):
 - [ ] **Checks** panel (above the level tabs): put the same question twice, leave explanations empty, give a level 40 questions and 5 minutes: each shows up, and clicking one jumps to the question.
 - [ ] **Duplicate** (Quizzes list and the quiz page): the copy is "Copy of ...", closed, has its own access code and opens in the editor; the original is untouched.
 - [ ] 390-wide window: the editor in card view has no sideways scroll; the grid scrolls sideways inside its own box only. Keyboard-only: Tab to the Grid toggle, edit cells with the arrow keys.
+
+## UX plan (docs/UX_PLAN.md)
+
+Compact exam screen (U3), about 5 minutes on a laptop and a phone:
+- [ ] Start any quiz. A normal question (about 3 lines, 4 short options) and the Previous / Flag / Next buttons fit in the window **without scrolling** at roughly 1366×768 and on a 390-wide phone. A very long question or 6+ options scrolls, and on a phone the Next bar stays at the bottom.
+- [ ] Top bar is one row: title, "Q 5 of 20", progress bar, clock, Submit. On a phone the title is hidden (it is still read by screen readers), the progress shows as a thin line along the bottom of the bar, and the clock, the questions button and Submit still fit.
+- [ ] Picked option: thicker teal border, tinted fill, filled letter badge. Unpicked options have a visible border. Check the select-all questions the same way.
+
+Theme switch (U1):
+- [ ] A first visit (private window) opens **light**, with no dark flash while loading. Reload a few pages in both themes: no flash of the other theme.
+- [ ] Header icon (desktop) steps Light, Dark, System; on a phone use the menu drawer. Profile → Appearance has the same three choices. The choice survives a reload and a new tab.
+- [ ] On **System**, change the OS theme while the page is open: the page follows at once. Change the choice in one tab: another open tab follows.
+- [ ] In a quiz, switch theme from the top bar (laptop) or the Questions sheet (phone); the answers and the clock are unaffected.
+- [ ] Walk every screen in both themes and note anything unreadable or oddly dark/light (lobby, join, my quizzes, leaderboard, profile, sign-in/up, the home page, the admin pages): U5 will fix what you find.
+
+Results and review (U2, U4), in light and dark:
+- [ ] Finish a quiz that has several questions with reasons. The summary card is narrow: score, a three-cell strip (Correct, Time, Difficulty), then small quiet rows if there were unanswered questions or tab switches.
+- [ ] In the review a right option is **green with a check and a "Correct answer" pill**, your wrong pick is **red with a cross and "Your answer"**, the others plain. You can tell them apart without colour (cover the colour: icons and words remain). Reasons sit in a ruled block inside the option, the general explanation is a grey ruled block, "Why the others are wrong" opens with a chevron.
+- [ ] About **two** four-option questions with one reason each fit on a 1366×768 screen; on a phone about one and a half. If a card is still too tall, say which part (U4 can be tightened).
+- [ ] Light mode text is comfortable to read: nothing pale grey you have to squint at, input boxes and answer options have a clear edge, the amber leaderboard numbers are readable.
+

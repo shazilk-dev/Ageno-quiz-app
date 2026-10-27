@@ -152,6 +152,7 @@
 	}
 
 	html {
+		background-color: var(--color-bg);
 		scroll-padding-top: var(--nav-height);
 		-webkit-text-size-adjust: 100%;
 		text-size-adjust: 100%;
@@ -264,6 +265,14 @@
 		animation: none !important;
 		transition-duration: 0.01ms !important;
 	}
+}
+
+/* A theme change (lib/theme.ts sets this for two frames) is instant, not a colour smear. */
+[data-theme-switching],
+[data-theme-switching] *,
+[data-theme-switching] *::before,
+[data-theme-switching] *::after {
+	transition: none !important;
 }
 
 @media print {

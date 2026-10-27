@@ -54,7 +54,7 @@ export function FilterTabs<T extends string>({
               <span
                 className={cn(
                   "font-mono text-xs tabular-nums",
-                  active ? "text-accent" : "text-text-muted"
+                  active ? "text-link" : "text-text-muted"
                 )}
               >
                 {option.count}

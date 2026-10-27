@@ -46,7 +46,6 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      data-theme="dark"
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       // Escape fires `cancel` first; for a non-dismissible dialog we swallow it.
