@@ -381,6 +381,9 @@ describe("Enter in a text box", () => {
 });
 
 describe("a question's picture", () => {
+  beforeEach(() => vi.stubEnv("NEXT_PUBLIC_IMAGE_UPLOAD", "1"));
+  afterEach(() => vi.unstubAllEnvs());
+
   const openExtras = async () => {
     renderEditor({ mode: "edit", quizId: "quiz1" });
     await screen.findByText("Edit quiz");
@@ -423,5 +426,15 @@ describe("a question's picture", () => {
     pick(png());
     expect(await screen.findByText("Image storage isn't set up for this project yet.")).toBeTruthy();
     expect((screen.getAllByLabelText(/^Image/)[0] as HTMLInputElement).value).toBe("");
+  });
+});
+
+describe("a question's picture on the free plan", () => {
+  it("offers only the address box, no upload, unless uploads are switched on", async () => {
+    renderEditor({ mode: "edit", quizId: "quiz1" });
+    await screen.findByText("Edit quiz");
+    expect(screen.getAllByLabelText(/^Image/)).toHaveLength(3);
+    expect(screen.queryByLabelText("Choose a picture to upload")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
   });
 });

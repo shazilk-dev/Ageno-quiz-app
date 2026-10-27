@@ -174,7 +174,7 @@ Check in a real browser as admin (about 15 minutes):
 
 Nothing here changes stored data: the draft copy lives in your browser only, and Duplicate saves an ordinary new (closed) quiz.
 
-**Turn on image storage (only if you want question pictures; everything else works without it):**
+**Image upload is off by default** (Firebase Storage needs the paid Blaze plan; on the free plan, paste the address of a picture hosted elsewhere, which works as before). Skip this block unless you move to Blaze, then also set `NEXT_PUBLIC_IMAGE_UPLOAD=1` in Vercel and redeploy to show the Upload button:
 - [ ] Firebase console → project `ageno-quiz-af3ff` → **Build → Storage → Get started** (production mode). New buckets may need the Blaze plan; check what the console says before agreeing to anything that costs money.
 - [ ] Look at the bucket name at the top of the Files tab. If it is `ageno-quiz-af3ff.appspot.com` nothing more is needed. If it is `...firebasestorage.app`, add `FIREBASE_STORAGE_BUCKET` with that name to Vercel (Production and Preview) and redeploy.
 - [ ] Optional, to keep the rules file in step with the console: `firebase deploy --only storage --project ageno-quiz-af3ff` (deny-all; the server's uploads don't use rules).

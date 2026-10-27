@@ -15,8 +15,15 @@ interface ImageFieldProps {
   className?: string;
 }
 
-/** A question's picture: upload one (stored by the server), or paste the address of one that is already online. */
+/**
+ * Uploading needs Firebase Storage, which the free plan doesn't include, so the button only shows when
+ * `NEXT_PUBLIC_IMAGE_UPLOAD=1` is set. Read on each render (Next inlines it at build time).
+ */
+const uploadEnabled = () => process.env.NEXT_PUBLIC_IMAGE_UPLOAD === "1";
+
+/** A question's picture: the address of one that is online, or (when switched on) an upload stored by the server. */
 export function ImageField({ id, value, onChange, className }: ImageFieldProps) {
+  const canUpload = uploadEnabled();
   const picker = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -46,7 +53,9 @@ export function ImageField({ id, value, onChange, className }: ImageFieldProps) 
     <div>
       <label htmlFor={id} className="mb-2 block text-sm font-medium">
         Image
-        <span className="ml-2 font-normal text-text-muted">Upload a picture, or paste a full https:// address.</span>
+        <span className="ml-2 font-normal text-text-muted">
+          {canUpload ? "Upload a picture, or paste a full https:// address." : "A full https:// address."}
+        </span>
       </label>
       <div className="flex flex-wrap items-center gap-2">
         <input
@@ -60,19 +69,23 @@ export function ImageField({ id, value, onChange, className }: ImageFieldProps) 
             className
           )}
         />
-        <input
-          ref={picker}
-          type="file"
-          accept={IMAGE_TYPES.join(",")}
-          onChange={(event) => void upload(event.target.files?.[0])}
-          aria-label="Choose a picture to upload"
-          className="sr-only"
-          tabIndex={-1}
-        />
-        <Button variant="secondary" size="sm" loading={uploading} onClick={() => picker.current?.click()}>
-          <ImageUp className="size-4" aria-hidden="true" />
-          Upload
-        </Button>
+        {canUpload && (
+          <>
+            <input
+              ref={picker}
+              type="file"
+              accept={IMAGE_TYPES.join(",")}
+              onChange={(event) => void upload(event.target.files?.[0])}
+              aria-label="Choose a picture to upload"
+              className="sr-only"
+              tabIndex={-1}
+            />
+            <Button variant="secondary" size="sm" loading={uploading} onClick={() => picker.current?.click()}>
+              <ImageUp className="size-4" aria-hidden="true" />
+              Upload
+            </Button>
+          </>
+        )}
       </div>
       {problem && (
         <p role="alert" className="mt-2 text-sm text-error">
