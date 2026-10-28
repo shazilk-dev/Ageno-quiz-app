@@ -18,7 +18,7 @@ export function cn(...inputs: ClassValue[]): string {
 
 /** Absolute URL of the Agenoverse site (override with NEXT_PUBLIC_AGENOVERSE_URL). */
 export const AGENOVERSE_URL = (
-  process.env.NEXT_PUBLIC_AGENOVERSE_URL || "https://agenoverse.com"
+  process.env.NEXT_PUBLIC_AGENOVERSE_URL || "https://agenoverse.org"
 ).replace(/\/$/, "");
 
 /** Link to a page on the Agenoverse site. */
