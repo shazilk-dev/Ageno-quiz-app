@@ -223,7 +223,7 @@ Final checks (U5.2, U6.2, U6.3):
 Nothing here can be checked until the matching phase is built; tick each item after you try it.
 
 Showing tables (after R2):
-- [ ] Run `npm run scan:richtext` (needs `.env.local`; read-only). Look at every question it lists: each one would look different from today. Usual fix: put a formula in backticks (`x**2`) or escape a character with a backslash.
+- [ ] Run `npm run scan:richtext` (needs `.env.local`; read-only). Look at every question it lists: each one would look different from today. Usual fix: put a formula in backticks (`x**2`) or escape a character with a backslash. *(Claude ran it on 2026-10-28 against the current data: 12 hits, all intended: 9 backticked code terms in the JavaScript and Python quizzes, and 3 ordering questions in PCAO-F whose "1. ... 5. ..." lines now show as a numbered list. Run it again before any release that changes the parser or after importing new quizzes.)*
 - [ ] Open a quiz with a scenario + table question on a **390-wide phone** and on a laptop: the table is readable, a wide table scrolls sideways inside its own box (the page does not), and the Next button still works.
 - [ ] Switch Light / Dark with a table on screen: header, lines and text are readable in both.
 - [ ] Keyboard only: Tab reaches a wide table and the arrow keys scroll it. With NVDA or VoiceOver, a new question reads "Question N of M" and then its text; the table is read as a table (columns, rows).

@@ -165,6 +165,8 @@ Firestore rules stay "deny everything"; no new rules. New indexes are only neede
 
 ### 3.3 The format and the AI skill (A2)
 
+> Tables, lists and code inside `text` / `explanation` (a Markdown subset in the same string, format still v1) are specified in `docs/RICH_TEXT_PLAN.md`; the AI rules for them are rules 7 and 8 in `lib/quiz-format/instructions.ts`.
+
 **Ageno Quiz Format v1** is JSON: the editor's `QuizInput` plus an envelope. One schema, not two.
 
 ```json

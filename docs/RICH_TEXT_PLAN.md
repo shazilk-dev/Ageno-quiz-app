@@ -3,8 +3,8 @@
 **Purpose:** a question can hold structure, not just a line of text: a scenario paragraph, then a table, then the question; or a list; or a snippet of code. What an admin types, pastes or imports as a table must reach the player as a real table, in the exam, in the review and in the admin pages. The AI skill that converts a file into an Ageno Quiz file must produce such questions and check them.
 
 - **Created:** 2026-10-28
-- **Last updated:** 2026-10-28 (Session 5: R4)
-- **Current phase:** R4 done. Next up: R5 (hardening, QA and docs). R0.1 (the user confirming inline-only options) is still open.
+- **Last updated:** 2026-10-28 (Session 6: R5)
+- **Current phase:** All phases done. What is left is only the user's: R0.1 (confirming inline-only options) and the checks in `docs/MANUAL_STEPS.md` ("Rich text plan").
 - **Same rules as the other plans:** read `docs/IMPROVEMENT_ROADMAP.md` ("How to use this file") first; tick a box only after verifying; run `npx tsc --noEmit` and `npm run lint` after each task and `npm run build` at the end of a phase; update this file's Status table and Session Log every session; reference task IDs in commits (`feat(richtext): R1.2 ...`). Things only the user can check (a phone, a real Excel or Word paste, claude.ai) go in `docs/MANUAL_STEPS.md`.
 
 ## Decisions
@@ -161,12 +161,12 @@ The tree has one node type per construct. **Adding a construct later** (an image
 
 ### R5: Hardening, QA and docs (about 1.5 h)
 
-- [ ] R5.1 Golden test: a set of plain questions (the ones in the existing tests, plus awkward ones with `|`, `*`, `_`, `-`, `1.`, `<b>`) renders text-for-text as before.
-- [ ] R5.2 Fuzz test: random strings (including very long, 4000 characters, and 200-row tables) never throw, finish fast, and never produce an element other than the allowed set.
-- [ ] R5.3 Safety test: `<script>`, `<img onerror>`, `javascript:` links and `[x](http://...)` input show as inert text; a test greps `lib/rich-text`, `components/rich-text` and the editor for `dangerouslySetInnerHTML`.
-- [ ] R5.4 Run the full checks: `tsc`, `lint`, `build` (page sizes against the budget), the affected test files, and `npm run scan:richtext` (R2.4) against the real data. Record the sizes and the scan result in the log.
-- [ ] R5.5 Docs: `CLAUDE.md` (a "Rich text in questions" paragraph in the data layer or format section; the plan in the first bullet), `docs/ADMIN_PLAN.md` (a line in 3.3 pointing here), the Status table and the log here.
-- [ ] R5.6 `docs/MANUAL_STEPS.md` ("Rich text plan"): see the section added with this plan; tick it as the user checks.
+- [x] R5.1 Golden test: a set of plain questions (the ones in the existing tests, plus awkward ones with `|`, `*`, `_`, `-`, `1.`, `<b>`) renders text-for-text as before.
+- [x] R5.2 Fuzz test: random strings (including very long, 4000 characters, and 200-row tables) never throw, finish fast, and never produce an element other than the allowed set.
+- [x] R5.3 Safety test: `<script>`, `<img onerror>`, `javascript:` links and `[x](http://...)` input show as inert text; a test greps `lib/rich-text`, `components/rich-text` and the editor for `dangerouslySetInnerHTML`.
+- [x] R5.4 Run the full checks: `tsc`, `lint`, `build` (page sizes against the budget), the affected test files, and `npm run scan:richtext` (R2.4) against the real data. Record the sizes and the scan result in the log.
+- [x] R5.5 Docs: `CLAUDE.md` (a "Rich text in questions" paragraph in the data layer or format section; the plan in the first bullet), `docs/ADMIN_PLAN.md` (a line in 3.3 pointing here), the Status table and the log here.
+- [x] R5.6 `docs/MANUAL_STEPS.md` ("Rich text plan"): see the section added with this plan; tick it as the user checks.
 
 **Done when:** all of the above is green and documented; the manual checks are listed for the user.
 
@@ -204,7 +204,7 @@ R0 → R1 → R2 (players see tables; safe to ship alone, because plain text is 
 | R2 | Show it everywhere | Done (manual checks in MANUAL_STEPS) |
 | R3 | Editor: write, paste, check | Done (real-browser checks in MANUAL_STEPS) |
 | R4 | Import, export, AI skill | Done (re-upload the skill and the real-paper check are in MANUAL_STEPS) |
-| R5 | Hardening, QA, docs | Not started |
+| R5 | Hardening, QA, docs | Done (the manual checks in MANUAL_STEPS and R0.1 are the user's) |
 
 ## Session log
 
@@ -251,3 +251,10 @@ R0 → R1 → R2 (players see tables; safe to ship alone, because plain text is 
   - **Verification:** `tsc` and `lint` clean; `rich-text-import` 58, `quiz-format` 62, `quiz-import` 37, `format-artifacts` 12, `import-wizard` 16, `quiz-editor` + `quiz-editor-richtext` + `quiz-schema` + `rich-text-screens` + `admin-pages` 129, `rich-text` + `rich-text-edit` all green. `npm run build` passes: public pages unchanged (`/q/[id]` 169 kB, `/my-quizzes/[attemptId]` 167, `/join` 166); admin: `/quizzes/import` 192 → 194, `/quizzes/[quizId]` 171 → 173, `/quizzes/ai` 120.
   - **R4.9:** added to MANUAL_STEPS (re-upload the skill zip, a real past paper, Excel / Sheets cells with line breaks, the templates). Not done here: they need claude.ai and Excel.
   - **Next:** R5 (golden, fuzz and safety tests, the full check, `CLAUDE.md` and `ADMIN_PLAN.md` lines).
+- **2026-10-28 (Session 6): R5.**
+  - **R5.1-R5.3 `__tests__/rich-text-hardening.test.tsx` (45 tests):** *Golden:* 29 plain questions (pipes, `*`, `_`, dashes, `1.` and `1)` alone, a lone `- `, `<b>`, `\`, a URL with underscores, `![alt](url)`...) render the same words in the same order in both modes with no table, list, bold, italic, code, link or image, and a plain text draws no advice; the documented changing cases (`x**2 + y**2`, two numbered lines) are pinned so they cannot drift. *Fuzz:* a seeded generator (replayable) makes 600 texts in both parser modes that never throw, stay inside the node set (a table row always has the header's width, a list always 2+ items), and the test fails if the generator stops reaching tables, lists and code (the first version never made a table, and the check caught it); 15 worst-case 4000-character texts (unclosed `**`, `_`, backtick, only pipes, backslashes, repeated header/delimiter rows, fences, blank lines) each parse in under 400 ms (they take a few ms); a 200-row and a 5000-row table; 40 random texts and a 200-row table are rendered and every element is on an allow list (`div span p br strong em code ul ol li table thead tbody tr th td pre`) with no `on*`, `href`, `src` or `srcdoc` attribute. *Safety:* 13 hostile strings (script, img onerror, svg onload, iframe, `javascript:` and `http` links, images, entities, markup inside bold or backticks) in six places (paragraph, table cell, table header, list item, bold, inline option) stay inert text; a source check bans `dangerouslySetInnerHTML`, `.innerHTML =`, `.outerHTML =`, `insertAdjacentHTML` and `document.write(` under `lib/rich-text`, `components/rich-text`, the editor and the exam. Nothing in the code needed fixing; no behaviour changed in this session.
+  - **R5.4 checks:** `tsc` and `lint` clean. `npm run build` passes. First Load JS: `/q/[id]` **169 kB**, `/my-quizzes/[attemptId]` **167**, `/join` **166**, `/my-quizzes` 169, `/` 163 (all under 170, none larger than the R0.3 baseline, and the result page is 4 kB smaller); admin (no budget): `/quizzes/[quizId]/edit` and `/new` 209, `/quizzes/import` 194, `/quizzes/[quizId]` 173, `/quizzes/ai` 120. Tests, all passing: rich-text 43, render 14, screens 21, scan 8, edit 53, paste 22, import 58, hardening 45, quiz-attempt 47, question-review 6, quiz-schema 28, quiz-format 62, quiz-import 37, theme-contrast 2, quiz-editor 26, quiz-editor-richtext 36, quiz-editor-speed 22, quiz-editor-tools 27, import-wizard 16, admin-pages 18, format-artifacts 12, server-rendered-pages 6.
+  - **`npm run scan:richtext` against the real data (read-only):** 54 questions in 3 quizzes, **12 texts would look different, all intended**. 9 are backticks around code in the JavaScript and Python quizzes (`` `NaN` ``, `` `typeof null` ``, `` `bool([])` ``...) which now show as code. 3 are in "PCAO-F Exam Practice" (medium): ordering questions whose text ends in "1. ... 5. ..." lines; they now show as a real numbered list, which is what the author meant. No `x**2`-style accident was found, so nothing needs editing before release. No question in the data has a table yet.
+  - **R5.5 docs:** `CLAUDE.md` has a "Rich text in questions" section and the test-file mention; `docs/ADMIN_PLAN.md` 3.3 points here; this file's Status and header.
+  - **R5.6:** the "Rich text plan" section in MANUAL_STEPS was written with the earlier phases; I added the scan result under its first item. Still open for the user: phone, dark mode, screen reader, real Excel / Sheets / Word paste, Ctrl+Z, re-upload of the skill zip and a real past paper, and R0.1.
+  - **Next:** nothing in this plan. Ideas for later are under "Out of scope" (a shared scenario for several questions is the first to consider).
