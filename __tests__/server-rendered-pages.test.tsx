@@ -86,4 +86,44 @@ describe("Attempt review", () => {
     expect(screen.getByText("We couldn't find that attempt")).toBeTruthy();
     expect(api.fetchAttemptResult).not.toHaveBeenCalled();
   });
+
+  it("shows the finished attempt the server already had, with a table in its question, without asking again", async () => {
+    const table = "| Region | Q1 |\n|---|---|\n| North | 120 |";
+    render(
+      <AttemptReview
+        initial={{
+          kind: "ready",
+          data: {
+            attemptId: "a1",
+            quizId: "q1",
+            quizTitle: "Sales basics",
+            difficulty: "easy",
+            submittedAt: Date.UTC(2026, 9, 1),
+            questions: [{ id: "x", text: `Read this.\n\n${table}`, options: ["North", "South"], type: "single" }],
+            result: {
+              responseId: "a1",
+              graded: true,
+              score: 100,
+              rawPercent: 100,
+              correct: 1,
+              total: 1,
+              answered: 1,
+              multiplier: 1,
+              timeTakenSec: 30,
+              late: false,
+              answers: { x: [0] },
+              tabSwitches: 0,
+              blurs: 0,
+              fullscreenExits: 0,
+              review: { x: { correct: [0], explanation: "North sold 120." } },
+            },
+          },
+        }}
+      />
+    );
+    expect(await screen.findByText("Sales basics")).toBeTruthy();
+    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(screen.getByText("North sold 120.")).toBeTruthy();
+    expect(api.fetchAttemptResult).not.toHaveBeenCalled();
+  });
 });

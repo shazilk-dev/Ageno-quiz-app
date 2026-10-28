@@ -30,9 +30,9 @@ export const LEVEL_LABELS: Record<Level, string> = {
 export const LIMITS = {
   title: 200,
   description: 5000,
-  questionText: 2000,
+  questionText: 4000,
   optionText: 1000,
-  explanation: 2000,
+  explanation: 4000,
   /** The reason attached to one answer option. */
   rationale: 1000,
   imageUrl: 2000,

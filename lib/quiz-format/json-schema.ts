@@ -13,6 +13,9 @@ import { FORMAT_NAME, FORMAT_VERSION } from "./types";
 
 const notBlank = "\\S";
 
+const RICH_TEXT =
+  "May use a small Markdown subset: blank line between paragraphs, **bold**, _italic_, `code`, lists (- item, 1. item), code blocks and tables (| a | b | with a |---|---| line under the header). Write line breaks as \\n. No HTML, links or images.";
+
 const text = (maxLength: number) => ({ type: "string", pattern: notBlank, maxLength });
 
 export function buildJsonSchema() {
@@ -96,14 +99,17 @@ export function buildJsonSchema() {
               "single: exactly one correct option. multiple: one or more, and the player must pick all of them. Leave out and it follows the number of correct options.",
             enum: [...QUESTION_TYPES],
           },
-          text: text(LIMITS.questionText),
+          text: {
+            ...text(LIMITS.questionText),
+            description: RICH_TEXT,
+          },
           options: {
             type: "array",
             minItems: LIMITS.minOptions,
             maxItems: LIMITS.maxOptions,
             items: { $ref: "#/$defs/option" },
           },
-          explanation: { type: "string", maxLength: LIMITS.explanation },
+          explanation: { description: RICH_TEXT, type: "string", maxLength: LIMITS.explanation },
           imageUrl: { type: "string", maxLength: LIMITS.imageUrl, pattern: "^https://\\S+$" },
           note: {
             description: "A remark for the person importing (for example, that the answer was guessed). Shown in the preview, never saved.",

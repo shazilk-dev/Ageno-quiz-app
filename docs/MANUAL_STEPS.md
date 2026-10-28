@@ -217,3 +217,31 @@ Final checks (U5.2, U6.2, U6.3):
 - [ ] **Screen reader** (NVDA on Windows or VoiceOver): the theme button reads its current setting and the next one; in the review each option says "Your answer" / "Correct answer" in words, and each reason says "Why it's correct" or "Why it's wrong".
 - [ ] **Print.** Print (or "Save as PDF") a result page in Chrome: dark text on white, no coloured page background. Open `/opengraph-image` in a tab: the image is unchanged (dark, it is a fixed picture).
 
+
+## Rich text plan (docs/RICH_TEXT_PLAN.md)
+
+Nothing here can be checked until the matching phase is built; tick each item after you try it.
+
+Showing tables (after R2):
+- [ ] Run `npm run scan:richtext` (needs `.env.local`; read-only). Look at every question it lists: each one would look different from today. Usual fix: put a formula in backticks (`x**2`) or escape a character with a backslash.
+- [ ] Open a quiz with a scenario + table question on a **390-wide phone** and on a laptop: the table is readable, a wide table scrolls sideways inside its own box (the page does not), and the Next button still works.
+- [ ] Switch Light / Dark with a table on screen: header, lines and text are readable in both.
+- [ ] Keyboard only: Tab reaches a wide table and the arrow keys scroll it. With NVDA or VoiceOver, a new question reads "Question N of M" and then its text; the table is read as a table (columns, rows).
+- [ ] Review and result pages show the same table; a plain-text question looks exactly as before.
+
+Writing and pasting (after R3):
+- [ ] Copy a table from **Excel**, from **Google Sheets** and from **Word**, paste it into a question: each becomes a table with the right cells. "Paste as plain text instead" gives back the raw paste.
+- [ ] Insert table (3×3), fill it, save, start the quiz: it shows to players.
+- [ ] Break a table on purpose (remove a cell from a row): the line under the box and the Checks panel both say which row.
+- [ ] **Ctrl+Z** (Cmd+Z) after Bold, after Insert table and after a table paste takes that one step back, in Chrome, Firefox and Safari (the toolbar hands its edits to the browser so Undo works; the automated tests cannot check this).
+- [ ] Put the cursor inside a table in the question box: **Edit table** appears; change a cell and an alignment, Update table, and the text and the preview match. Paste a block of cells into the dialog's grid.
+- [ ] On a **390-wide phone**: the toolbar buttons are easy to hit, the table dialog's grid scrolls sideways inside itself, and Insert table fits on the screen.
+- [ ] Light and Dark: the toolbar, the preview box, the table dialog and the help dialog are readable in both.
+- [ ] Keyboard only: Tab goes through the toolbar, the dialog's cells (Enter moves down a row) and its buttons; Escape closes a dialog and the cursor returns to the question box.
+
+Import and the AI skill (after R4):
+- [ ] In claude.ai: Settings > Features, upload the new `ageno-quiz-format.zip` from `public/ageno-quiz/` (replace the old skill). Give it a real past paper that has tables; import the JSON it makes. Tables render in the import preview and in the quiz; warnings, if any, are understood.
+- [ ] Export a quiz that has a table question as JSON, CSV and text, import each into a new quiz: the table is unchanged.
+- [ ] In **Excel** (Alt+Enter) and **Google Sheets** (Ctrl+Enter) type a question with a scenario, a table and the question on separate lines inside one cell, copy the row, and paste it into Import > Sheet / CSV. The check step draws the table. Save the sheet as CSV and import that file too: same result.
+- [ ] Open `public/ageno-quiz/template.txt` and `template.csv` (also on the AI & formats page): questions 3 and 4 of the text template and the second sample row of the CSV (take the `#` off) import cleanly and show a table / a list.
+- [ ] Ask the AI (with the skill, then again with the pasted instructions only) for a table question where the source has no delimiter row or uses `<br>`: it should write a proper table; if `<br>` slips through, Import says it turned it into a line break.

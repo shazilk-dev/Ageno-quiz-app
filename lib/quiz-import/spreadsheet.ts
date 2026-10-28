@@ -5,6 +5,7 @@ import {
   addRow,
   emptyImport,
   error,
+  finishRows,
   warning,
   type ImportIssue,
   type ImportRow,
@@ -124,7 +125,8 @@ export function missingColumns(fields: ColumnMap["fields"]): string[] {
 
 const cellAt = (record: readonly string[], map: ColumnMap["fields"], field: SheetField): string => {
   const index = map[field];
-  return index === undefined ? "" : unescapeCell((record[index] ?? "").trim());
+  // A cell with line breaks (a scenario, a table) can come with Windows line ends; the text keeps plain \n.
+  return index === undefined ? "" : unescapeCell((record[index] ?? "").replace(/\r\n?/g, "\n").trim());
 };
 
 const isBlank = (record: readonly string[]) => record.every((cell) => !cell.trim());
@@ -293,7 +295,7 @@ export function readSpreadsheet(records: readonly (readonly string[])[], columns
     }
     addRow(parsed, level, row);
   }
-  return parsed;
+  return finishRows(parsed);
 }
 
 /** Pasted cells or CSV text as an import. The separator is found from the first line. */

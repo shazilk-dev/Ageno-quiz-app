@@ -1,9 +1,10 @@
 import { checkQuestion, type EditorQuestion } from "@/lib/quiz-schema";
+import { formattingAdvice } from "@/lib/rich-text/advice";
 import { error, warning, type ImportIssue, type ImportRow } from "./types";
 
 // Holds every row of an import to the rules the editor and the server use (`checkQuestion`) and adds the
 // warnings that are worth a look before saving: duplicates, a note the AI left, a "select all" question where
-// everything is right. An error keeps a row out of the import until it is fixed or skipped; a warning does not.
+// everything is right, formatting that will not show as meant (a table with a missing cell). An error keeps a row out of the import until it is fixed or skipped; a warning does not.
 
 export type RowStatus = "ok" | "warning" | "error";
 
@@ -68,6 +69,8 @@ export function checkRows(rows: readonly ImportRow[], options: CheckOptions = {}
         issues.push(warning(`option ${index + 1} is "${option.text.trim()}", which stops making sense if the options are reordered.`));
       }
     });
+    // A broken table, HTML shown as text, a table too wide for a phone: a warning, never a reason to refuse the row.
+    for (const advice of formattingAdvice(row.question)) issues.push(warning(advice.message));
     if (row.note) issues.push(warning(`note: ${row.note}`));
 
     const status: RowStatus = issues.some((issue) => issue.severity === "error")

@@ -1,5 +1,6 @@
 import { NONE_OR_ALL, textKey } from "@/lib/quiz-format/checks";
 import { LEVELS, LEVEL_LABELS, type EditorQuestion, type Level } from "@/lib/quiz-schema";
+import { formattingAdvice, LONG_TABLE_ROWS, WIDE_TABLE_COLUMNS } from "@/lib/rich-text/advice";
 
 // The editor's "Checks" panel: things worth a second look in a quiz that is valid and could be saved as it
 // is. Validation (`validateQuizInput`) says what is wrong; this says what looks careless: a repeated
@@ -15,7 +16,10 @@ export type CheckCode =
   | "answer-position"
   | "longest-is-right"
   | "no-explanation"
-  | "tight-time";
+  | "tight-time"
+  | "formatting"
+  | "wide-table"
+  | "long-table";
 
 export interface QuizCheck {
   code: CheckCode;
@@ -35,12 +39,17 @@ export interface LevelForChecks {
 export const PATTERN_MIN_QUESTIONS = 8;
 /** A position or a "longest option" that is the key this often is a giveaway. */
 export const PATTERN_SHARE = 0.5;
+export { LONG_TABLE_ROWS, WIDE_TABLE_COLUMNS };
 /** Fewer seconds per question than this and a level is more a typing test than a quiz. */
 export const MIN_SECONDS_PER_QUESTION = 20;
 
 const letter = (index: number) => String.fromCharCode(65 + index);
 const where = (level: Level, index: number) => `${LEVEL_LABELS[level]} · Question ${index + 1}`;
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** What the parser's advice and the table sizes say about the text fields of one question. */
+const formattingChecks = (level: Level, index: number, question: EditorQuestion): QuizCheck[] =>
+  formattingAdvice(question).map(({ kind, message }) => ({ code: kind, level, questions: [index], message }));
 
 export function checkQuiz(levels: Record<Level, LevelForChecks>): QuizCheck[] {
   const checks: QuizCheck[] = [];
@@ -69,6 +78,8 @@ export function checkQuiz(levels: Record<Level, LevelForChecks>): QuizCheck[] {
     const { questions, duration } = levels[level];
 
     questions.forEach((question, index) => {
+      checks.push(...formattingChecks(level, index, question));
+
       const texts = question.options.map((option) => textKey(option.text));
       const repeated = texts.findIndex((key, i) => key !== "" && texts.indexOf(key) !== i);
       if (repeated >= 0) {

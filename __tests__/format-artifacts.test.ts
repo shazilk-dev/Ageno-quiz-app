@@ -142,6 +142,15 @@ describe("validate.mjs", () => {
     expect(JSON.parse(result.out)).toMatchObject({ ok: true, shape: "quiz", counts: { easy: 1 }, errors: [] });
   });
 
+  it("accepts a table and warns about a broken one, without refusing the file", () => {
+    const table = { ...good, text: "Scenario.\n\n| a | b |\n|---|---:|\n| 1 | 2 |\n\nWhich?" };
+    expect(run(write("table.json", quiz([table]))).out).toContain("Ready to import. 1 question: all ready");
+    const broken = { ...good, text: "| a | b |\n|---|---|\n| 1 | 2 | 3 |" };
+    const result = run(write("broken-table.json", quiz([broken])));
+    expect(result.code).toBe(0);
+    expect(result.out).toMatch(/Easy · question 1: Question text, line 3: Row 2 has 3 cells but the header has 2/);
+  });
+
   it("agrees with the app's own validator on the same file", async () => {
     const { validateQuizFile } = await import("@/lib/quiz-format/validate");
     const text = quiz([good, { ...good, type: "single", options: [{ text: "A", isCorrect: true }, { text: "B", isCorrect: true }] }]);

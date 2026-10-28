@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AdminPage } from "@/components/admin/AdminPage";
+import RichText from "@/components/rich-text/RichText";
 import { Alert, Badge, Button, CopyButton, Skeleton } from "@/components/ui";
 import { useDuplicateQuiz } from "@/hooks/useDuplicateQuiz";
 import { adminQuizzes } from "@/lib/admin-api";
@@ -163,7 +164,7 @@ export default function ViewQuizPage() {
                     Question {index + 1}
                     {question.type === "multiple" && " · Select all that apply"}
                   </p>
-                  <p className="mt-2 font-medium">{question.text}</p>
+                  <RichText text={question.text} className="mt-2 font-medium" />
                   <ul className="mt-3 space-y-2">
                     {question.options.map((option, optionIndex) => (
                       <li
@@ -174,20 +175,25 @@ export default function ViewQuizPage() {
                             : "rounded-md border border-border px-3 py-2 text-text-body"
                         }
                       >
-                        {option.text}
+                        <RichText mode="inline" text={option.text} />
                         {option.isCorrect && (
                           <span className="ml-2 font-mono text-xs uppercase tracking-[0.05em] text-link">
                             Correct
                           </span>
                         )}
                         {option.rationale && (
-                          <p className="mt-1 whitespace-pre-line text-sm text-text-muted">{option.rationale}</p>
+                          <p className="mt-1 text-sm text-text-muted">
+                            <RichText mode="inline" text={option.rationale} />
+                          </p>
                         )}
                       </li>
                     ))}
                   </ul>
                   {question.explanation && (
-                    <p className="mt-3 text-sm text-text-muted">Explanation: {question.explanation}</p>
+                    <div className="mt-3 text-sm text-text-muted">
+                      <p className="font-medium">Explanation</p>
+                      <RichText text={question.explanation} />
+                    </div>
                   )}
                 </li>
               ))}

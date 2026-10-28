@@ -2,8 +2,11 @@
 
 import { useState } from "react";
 import { QuestionCard } from "@/components/admin/quiz-editor/QuestionCard";
+import RichText from "@/components/rich-text/RichText";
 import { Alert, Badge, Button, EmptyState, FilterTabs, Select } from "@/components/ui";
 import { issueMessage } from "@/lib/quiz-format/checks";
+import { parseRichText } from "@/lib/rich-text/parse";
+import { structureOf, toPlainText } from "@/lib/rich-text/plain";
 import type { ImportIssue } from "@/lib/quiz-format/types";
 import { LEVELS, LEVEL_LABELS, type Level } from "@/lib/quiz-schema";
 import { cn } from "@/lib/utils";
@@ -13,6 +16,12 @@ import type { ImportSession } from "./useImportSession";
 type Show = "all" | "fix" | "check";
 
 const letter = (index: number) => String.fromCharCode(65 + index);
+
+/** One line of a question for the list (a table is flattened), and a tag for each table, list or code block in it. */
+function previewOf(text: string) {
+  const { blocks } = parseRichText(text);
+  return { text: toPlainText(blocks), tags: structureOf(blocks) };
+}
 
 function IssueLine({ issue }: { issue: ImportIssue }) {
   return (
@@ -126,6 +135,7 @@ export function CheckStep({ session, fileIssues }: CheckStepProps) {
                 const isOpen = open === key;
                 const indexInLevel = form.levels[row.level].questions.findIndex((question) => question.key === key);
                 const issues = row.checked.issues.filter((issue) => !issue.message.startsWith("note: "));
+                const preview = previewOf(row.question.text);
                 const correct = row.question.options.flatMap((option, index) => (option.isCorrect ? [letter(index)] : []));
                 return (
                   <li key={key} className={cn("p-4", row.skipped && "opacity-60")}>
@@ -137,8 +147,20 @@ export function CheckStep({ session, fileIssues }: CheckStepProps) {
                             {row.meta.source} · {LEVEL_LABELS[row.level]}
                             {row.meta.unplaced && " (no level given)"}
                           </span>
+                          {preview.tags.map((tag) => (
+                            <Badge key={tag} variant="outline">
+                              {tag}
+                            </Badge>
+                          ))}
                         </div>
-                        <p className="mt-2 line-clamp-2 font-medium">{row.question.text.trim() || "(no question text)"}</p>
+                        {preview.tags.length > 0 ? (
+                          // A table, list or code block is shown as the player will see it, so a broken one is seen before it is imported.
+                          <div className="mt-2 rounded-md border border-border bg-bg p-3">
+                            <RichText text={row.question.text} />
+                          </div>
+                        ) : (
+                          <p className="mt-2 line-clamp-2 font-medium">{preview.text || "(no question text)"}</p>
+                        )}
                         <p className="mt-1 font-mono text-sm text-text-muted">
                           {row.question.type === "multiple" ? "Select all" : "One answer"} · {row.question.options.length} options ·
                           correct: {correct.length > 0 ? correct.join(", ") : "none marked"}

@@ -1,4 +1,5 @@
 import type { EditorQuestion, ExamMode, Level } from "@/lib/quiz-schema";
+import { convertBreakTags } from "./breaks";
 
 // What every way of bringing a quiz in (the JSON file, pasted spreadsheet cells, CSV, the plain-text format)
 // hands to the import wizard. A reader never throws on bad content and never refuses a whole file for one
@@ -69,6 +70,19 @@ export const emptyImport = (shape: ParsedImport["shape"] = "questions"): ParsedI
   unplaced: [],
   issues: [],
 });
+
+/**
+ * The last step of every reader: `<br>` (what an AI writes for a line break) becomes a real line break in
+ * every row, with a warning on that row.
+ */
+export function finishRows(parsed: ParsedImport): ParsedImport {
+  for (const row of allRows(parsed)) {
+    if (convertBreakTags(row.question)) {
+      row.issues.push(warning("<br> was turned into a line break (into a space inside a table row). Check how it reads."));
+    }
+  }
+  return parsed;
+}
 
 /** Every row, in the order players would see them. */
 export function allRows(parsed: ParsedImport): ImportRow[] {

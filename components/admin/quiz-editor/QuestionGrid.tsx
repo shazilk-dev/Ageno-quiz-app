@@ -4,6 +4,8 @@ import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { type ClipboardEvent, type Dispatch, type KeyboardEvent, memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
 import { LIMITS, type Level, type QuestionType } from "@/lib/quiz-schema";
+import { parseRichText } from "@/lib/rich-text/parse";
+import { firstLine, structureOf } from "@/lib/rich-text/plain";
 import { cn } from "@/lib/utils";
 import { newKey, type DraftQuestion, type EditorAction } from "./editor-state";
 import { correctLetters, isBlockOfCells, pasteIntoGrid, setCorrectFromText } from "./grid";
@@ -12,6 +14,53 @@ const letter = (index: number) => String.fromCharCode(65 + index);
 
 const cellClasses =
   "h-9 w-full rounded-sm border border-transparent bg-transparent px-2 text-sm text-text transition-fast placeholder:text-text-muted/50 hover:border-border focus-visible:border-accent focus-visible:bg-bg-alt";
+
+/**
+ * A cell for text with line breaks (a table, a list, a scenario). A text box cannot hold line breaks, so it
+ * would show the text flattened and the first keystroke would save it flattened. This shows the first line,
+ * read-only, with a tag for what is inside, and opens the question's card on click.
+ */
+function MultilineCell({
+  text,
+  label,
+  row,
+  col,
+  onOpen,
+  invalid,
+  className,
+}: {
+  text: string;
+  label: string;
+  row: number;
+  col: number;
+  onOpen: () => void;
+  invalid?: boolean;
+  className?: string;
+}) {
+  const tags = structureOf(parseRichText(text).blocks);
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        readOnly
+        data-row={row}
+        data-col={col}
+        value={firstLine(text)}
+        onClick={onOpen}
+        aria-label={`${label}, has several lines${tags.length ? ` (${tags.join(", ")})` : ""}. Read-only here: edit it in Cards`}
+        aria-invalid={invalid ? true : undefined}
+        title="Has several lines or a table. Click to edit it in Cards."
+        className={cn(cellClasses, "cursor-pointer pr-16", invalid && "border-error", className)}
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/2 right-1.5 -translate-y-1/2 rounded-full border border-border bg-surface px-1.5 font-mono text-[10px] text-text-muted uppercase leading-4 tracking-[0.05em]"
+      >
+        {tags.length ? tags.join(" · ") : "lines"}
+      </span>
+    </div>
+  );
+}
 
 interface QuestionGridProps {
   level: Level;
@@ -278,36 +327,58 @@ const GridRow = memo(function GridRow({
         <span className="mt-2.5 block">{number}</span>
       </th>
       <td className="px-1 py-1 align-top">
-        <input
-          type="text"
-          data-row={index}
-          data-col={0}
-          value={question.text}
-          onChange={(event) => dispatch({ type: "gridCell", level, key, column: 0, value: event.target.value })}
-          aria-label={`Question ${number}`}
-          aria-invalid={problem ? true : undefined}
-          title={question.text}
-          className={cn(cellClasses, problem && "border-error")}
-        />
+        {question.text.includes("\n") ? (
+          <MultilineCell
+            text={question.text}
+            label={`Question ${number}`}
+            row={index}
+            col={0}
+            onOpen={() => onOpenCard(index)}
+            invalid={!!problem}
+          />
+        ) : (
+          <input
+            type="text"
+            data-row={index}
+            data-col={0}
+            value={question.text}
+            onChange={(event) => dispatch({ type: "gridCell", level, key, column: 0, value: event.target.value })}
+            aria-label={`Question ${number}`}
+            aria-invalid={problem ? true : undefined}
+            title={question.text}
+            className={cn(cellClasses, problem && "border-error")}
+          />
+        )}
         {problem && <p className="px-2 pb-1 text-xs text-error">{problem}</p>}
       </td>
       {Array.from({ length: optionColumns }, (_, i) => {
         const option = question.options[i];
         return (
           <td key={i} className="px-1 py-1 align-top">
-            <input
-              type="text"
-              data-row={index}
-              data-col={i + 1}
-              value={option?.text ?? ""}
-              onChange={(event) =>
-                dispatch({ type: "gridCell", level, key, column: i + 1, value: event.target.value })
-              }
-              aria-label={`Question ${number}, option ${letter(i)}${option?.isCorrect ? ", correct" : ""}`}
-              title={option?.text}
-              placeholder={option ? undefined : "–"}
-              className={cn(cellClasses, option?.isCorrect && "border-accent/60 bg-accent-soft")}
-            />
+            {option?.text.includes("\n") ? (
+              <MultilineCell
+                text={option.text}
+                label={`Question ${number}, option ${letter(i)}${option.isCorrect ? ", correct" : ""}`}
+                row={index}
+                col={i + 1}
+                onOpen={() => onOpenCard(index)}
+                className={option.isCorrect ? "border-accent/60 bg-accent-soft" : undefined}
+              />
+            ) : (
+              <input
+                type="text"
+                data-row={index}
+                data-col={i + 1}
+                value={option?.text ?? ""}
+                onChange={(event) =>
+                  dispatch({ type: "gridCell", level, key, column: i + 1, value: event.target.value })
+                }
+                aria-label={`Question ${number}, option ${letter(i)}${option?.isCorrect ? ", correct" : ""}`}
+                title={option?.text}
+                placeholder={option ? undefined : "–"}
+                className={cn(cellClasses, option?.isCorrect && "border-accent/60 bg-accent-soft")}
+              />
+            )}
           </td>
         );
       })}

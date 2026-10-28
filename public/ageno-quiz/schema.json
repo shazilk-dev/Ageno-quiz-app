@@ -115,7 +115,8 @@
         "text": {
           "type": "string",
           "pattern": "\\S",
-          "maxLength": 2000
+          "maxLength": 4000,
+          "description": "May use a small Markdown subset: blank line between paragraphs, **bold**, _italic_, `code`, lists (- item, 1. item), code blocks and tables (| a | b | with a |---|---| line under the header). Write line breaks as \\n. No HTML, links or images."
         },
         "options": {
           "type": "array",
@@ -126,8 +127,9 @@
           }
         },
         "explanation": {
+          "description": "May use a small Markdown subset: blank line between paragraphs, **bold**, _italic_, `code`, lists (- item, 1. item), code blocks and tables (| a | b | with a |---|---| line under the header). Write line breaks as \\n. No HTML, links or images.",
           "type": "string",
-          "maxLength": 2000
+          "maxLength": 4000
         },
         "imageUrl": {
           "type": "string",

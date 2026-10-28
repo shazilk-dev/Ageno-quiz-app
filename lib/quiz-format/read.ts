@@ -15,6 +15,7 @@ import {
   addRow,
   emptyImport,
   error,
+  finishRows,
   warning,
   type ImportIssue,
   type ImportLevel,
@@ -223,7 +224,9 @@ function readLevel(raw: Record<string, unknown>, level: Level | null, parsed: Pa
 }
 
 /** A parsed JSON value (from `JSON.parse`, or built in code) as an import. */
-export function readQuizValue(value: unknown): ParsedImport {
+export const readQuizValue = (value: unknown): ParsedImport => finishRows(readValue(value));
+
+function readValue(value: unknown): ParsedImport {
   if (Array.isArray(value)) {
     const parsed = emptyImport("questions");
     value.forEach((item, index) => parsed.unplaced.push(readQuestion(item, `Question ${index + 1}`)));

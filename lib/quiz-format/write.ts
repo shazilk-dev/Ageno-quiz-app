@@ -1,5 +1,6 @@
 import { LEVELS, LEVEL_LABELS, type EditorQuestion, type ExamMode, type LevelInput, type Level } from "@/lib/quiz-schema";
 import { OPTION_LETTERS } from "@/lib/quiz-import/spreadsheet";
+import { writeMultiline } from "@/lib/quiz-import/multiline";
 import { toCsvText } from "@/lib/quiz-import/table";
 import { FORMAT_NAME, FORMAT_VERSION } from "./types";
 
@@ -7,6 +8,8 @@ import { FORMAT_NAME, FORMAT_VERSION } from "./types";
 // a CSV for editing in Excel or Sheets, and the plain-text format. The JSON and CSV carry question ids, so
 // importing an edited file with "update in place" changes the questions that were edited and nothing else.
 // The text format has no ids and no per-level notes beyond minutes and multiplier; use it to replace a level.
+// A question's text and explanation keep their line breaks in all three (tables, lists and code blocks
+// survive); options and reasons are one line each.
 
 export interface ExportableQuiz {
   title: string;
@@ -106,18 +109,25 @@ export function exportCsv(quiz: ExportableQuiz): string {
 
 const oneLine = (text: string) => text.replace(/\s*\r?\n\s*/g, " ").trim();
 
+/** The mark and the first line, then the rest indented (the lines of a code block stay at the left edge). */
+function multiline(mark: string, text: string): string[] {
+  return writeMultiline(text).map(({ line, inFence }, index) =>
+    index === 0 ? `${mark}${line}` : inFence || line === "" ? line : `   ${line}`
+  );
+}
+
 export function exportText(quiz: ExportableQuiz): string {
   const lines: string[] = [`# ${oneLine(quiz.title)}`, ""];
   for (const level of levelsWithQuestions(quiz)) {
     const input = quiz.levels[level] as LevelInput;
     lines.push(`## ${LEVEL_LABELS[level]} | ${input.duration} min | x${input.pointsMultiplier}`, "");
     input.questions.forEach((question, index) => {
-      lines.push(`${index + 1}. ${oneLine(question.text)}`);
+      lines.push(...multiline(`${index + 1}. `, question.text));
       for (const option of question.options) {
         lines.push(`   - ${option.isCorrect ? "[x] " : ""}${oneLine(option.text)}`);
         if (option.rationale) lines.push(`     ~ ${oneLine(option.rationale)}`);
       }
-      if (question.explanation) lines.push(`   > ${oneLine(question.explanation)}`);
+      if (question.explanation) lines.push(...multiline("   > ", question.explanation));
       if (question.imageUrl) lines.push(`   ! ${question.imageUrl}`);
       lines.push("");
     });

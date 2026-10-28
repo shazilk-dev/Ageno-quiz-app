@@ -127,6 +127,23 @@ describe("the Import page", () => {
     expect(button("Check the questions")).toHaveProperty("disabled", true);
   });
 
+  it("draws a table in a question the way players will see it, and marks a broken one as Check", async () => {
+    const table = "Sales:\n\n| Region | Q1 |\n|---|---:|\n| North | 120 |\n\nWhich region?";
+    const broken = "| a | b |\n|---|---|\n| 1 | 2 | 3 |";
+    const options = [{ text: "North", isCorrect: true }, { text: "South", isCorrect: false }];
+    open();
+    paste(JSON.stringify({ ...GOOD, levels: { easy: { questions: [{ text: table, options }, { text: broken, options }] } } }));
+
+    expect(await screen.findAllByRole("table")).toHaveLength(2);
+    expect(screen.getByRole("columnheader", { name: "Region" })).toBeTruthy();
+    expect(screen.getByText("2 questions: all ready, 1 with a warning")).toBeTruthy();
+    expect(screen.getByText(/Row 2 has 3 cells but the header has 2/)).toBeTruthy();
+    click("Continue with 2 questions");
+    click("Create the quiz");
+    await screen.findByText(/"From an AI" is ready/);
+    expect(api.create.mock.calls[0][0].levels.easy.questions.map((q: { text: string }) => q.text)).toEqual([table, broken]);
+  });
+
   it("shows what was found, with the AI's note highlighted, then creates a closed quiz", async () => {
     open();
     paste(JSON.stringify(GOOD));

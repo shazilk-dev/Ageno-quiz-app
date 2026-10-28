@@ -13,6 +13,7 @@
     "migrate:questions": "tsx --env-file=.env.local scripts/migrate-legacy-questions.ts",
     "backfill:leaderboard": "tsx --env-file=.env.local scripts/backfill-leaderboard.ts",
     "backfill:sheets": "tsx --env-file=.env.local scripts/backfill-sheets.ts",
+    "scan:richtext": "tsx --env-file=.env.local scripts/scan-richtext.ts",
     "build:format": "tsx scripts/build-format.ts"
   },
   "dependencies": {

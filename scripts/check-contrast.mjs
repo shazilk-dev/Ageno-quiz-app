@@ -38,6 +38,14 @@ const PAIRS = [
   ["accent", "surface", AA_UI, "picked border on a card"],
   ["success-line", "success-soft", 1, "decorative edge (text carries the meaning)"],
   ["ink", "teal", AA_TEXT, "text on the primary button"],
+  // Tables in question text (components/rich-text). They restate pairs above under the table's name, so a
+  // token change that breaks a table says so; a table in a tinted review box needs its own pair here.
+  ["text", "surface", AA_TEXT, "table header text on the header fill"],
+  ["text-body", "bg", AA_TEXT, "table cell text on the page"],
+  ["text-body", "surface", AA_TEXT, "table cell text on a card"],
+  ["control-border", "bg", AA_UI, "table edge on the page"],
+  ["control-border", "surface", AA_UI, "table edge on a card"],
+  ["accent", "bg", AA_UI, "focus ring of a scrolling table or code block"],
 ];
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;

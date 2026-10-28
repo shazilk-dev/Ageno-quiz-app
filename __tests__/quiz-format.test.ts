@@ -44,7 +44,7 @@ describe("reading a quiz file", () => {
     });
     expect(parsed.levels.easy).toMatchObject({ duration: 15, pointsMultiplier: 1 });
     expect(parsed.levels.hard?.pointsMultiplier).toBe(1.5);
-    expect(parsed.levels.easy?.rows).toHaveLength(2);
+    expect(parsed.levels.easy?.rows).toHaveLength(3);
     expect(parsed.levels.easy?.rows[0].source).toBe("Easy · question 1");
     expect(parsed.levels.medium).toBeUndefined();
   });
@@ -243,8 +243,8 @@ describe("validating a whole file", () => {
       expect(report.ok).toBe(true);
     }
     expect(validateQuizFile(JSON.stringify(FULL_EXAMPLE))).toMatchObject({
-      counts: { easy: 2, hard: 1 },
-      summary: "3 questions: all ready, 1 with a warning",
+      counts: { easy: 3, hard: 2 },
+      summary: "5 questions: all ready, 1 with a warning",
     });
   });
 

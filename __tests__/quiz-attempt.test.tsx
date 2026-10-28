@@ -114,7 +114,8 @@ const renderAttempt = (
   );
 
 const radios = () => screen.getAllByRole("radio") as HTMLInputElement[];
-const heading = () => screen.getByRole("heading", { name: /What is/ });
+// The heading is only "Question 1 of 3"; the question text is the focus target, in a group labelled by it.
+const heading = () => screen.getByRole("group", { name: /^Question \d+ of \d+$/ });
 const openSubmitDialog = () =>
   fireEvent.click(screen.getByRole("button", { name: "Submit" }));
 const confirmSubmit = () =>
@@ -292,7 +293,7 @@ describe("answering", () => {
     expect(radios().every((r) => !r.checked)).toBe(true);
   });
 
-  it("moves focus to the question heading when the question changes", () => {
+  it("moves focus to the question when the question changes", () => {
     renderAttempt();
     expect(document.activeElement).toBe(heading());
     fireEvent.click(screen.getByRole("button", { name: /Next/ }));

@@ -1,4 +1,5 @@
 import { Check, ChevronRight, CircleHelp, X } from "lucide-react";
+import RichText from "@/components/rich-text/RichText";
 import { Card } from "@/components/ui";
 import {
   getOptionText,
@@ -68,9 +69,9 @@ export default function QuestionReview({
     <li>
       <Card className="p-4">
         <div className="flex items-center justify-between gap-3">
-          <p className="font-medium font-mono text-text-muted text-xs uppercase tracking-[0.05em]">
+          <h3 className="font-medium font-mono text-text-muted text-xs uppercase tracking-[0.05em]">
             Question {position}
-          </p>
+          </h3>
           <p
             className={cn(
               "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-semibold text-xs",
@@ -82,9 +83,10 @@ export default function QuestionReview({
           </p>
         </div>
 
-        <h3 className="mt-2 max-w-[68ch] whitespace-pre-line font-medium text-base text-text leading-[1.45] tracking-normal">
-          {question.text}
-        </h3>
+        <RichText
+          text={question.text}
+          className="mt-2 font-medium text-base text-text leading-[1.45] tracking-normal"
+        />
 
         {selectAll && (
           <p className="mt-1 text-text-muted text-xs">
@@ -126,9 +128,11 @@ export default function QuestionReview({
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                    <span className="min-w-0 whitespace-pre-line [overflow-wrap:anywhere]">
-                      {getOptionText(option, index)}
-                    </span>
+                    <RichText
+                      mode="inline"
+                      text={getOptionText(option, index)}
+                      className="min-w-0 [overflow-wrap:anywhere]"
+                    />
                     {tags.length > 0 && (
                       <span
                         className={cn(
@@ -152,8 +156,8 @@ export default function QuestionReview({
                       <p className="font-semibold text-text text-xs">
                         {isRight ? "Why it's correct" : "Why it's wrong"}
                       </p>
-                      <p className="mt-0.5 max-w-[65ch] whitespace-pre-line [overflow-wrap:anywhere]">
-                        {reason}
+                      <p className="mt-0.5 max-w-[65ch] [overflow-wrap:anywhere]">
+                        <RichText mode="inline" text={reason} />
                       </p>
                     </div>
                   )}
@@ -176,9 +180,9 @@ export default function QuestionReview({
               {others.map(({ option, index, reason }) => (
                 <li key={index} className="text-text-muted [overflow-wrap:anywhere]">
                   <span className="font-mono text-text">{letter(index)}.</span>{" "}
-                  <span className="text-text-body">{getOptionText(option, index)}</span>
+                  <RichText mode="inline" text={getOptionText(option, index)} className="text-text-body" />
                   {": "}
-                  <span className="whitespace-pre-line">{reason}</span>
+                  <RichText mode="inline" text={reason ?? ""} />
                 </li>
               ))}
             </ul>
@@ -188,9 +192,7 @@ export default function QuestionReview({
         {review.explanation && (
           <div className="mt-3 rounded-r-md border-border-strong border-l-[3px] bg-bg-alt px-3 py-2.5 text-sm text-text-body leading-[1.5]">
             <p className="font-semibold text-text text-xs">Explanation</p>
-            <p className="mt-0.5 max-w-[65ch] whitespace-pre-line [overflow-wrap:anywhere]">
-              {review.explanation}
-            </p>
+            <RichText text={review.explanation} className="mt-0.5 [overflow-wrap:anywhere]" />
           </div>
         )}
       </Card>

@@ -16,6 +16,27 @@
    - 8.8.8.0/24
      ~ A public range.
 
+3. A company recorded these sales figures.
+
+   | Region | Q1  | Q2  |
+   |:-------|----:|----:|
+   | North  | 120 | 150 |
+   | South  |  90 |  80 |
+
+   Which region grew in Q2?
+   - [x] North
+   - South
+   > North grew by 30; South fell by 10.
+
+4. A runbook lists these steps. (A line of the question that starts with - or a number and a dot needs a
+   backslash in front, so it is not read as an option.)
+   \- Stop the database
+   \- Copy the data files
+   \- Start the database
+   Which step should come before the copy?
+   - [x] Take a snapshot of the volume
+   - Delete the old files
+
 ## Hard | 30 min | x1.5
 
 1. What does a TCP three-way handshake end with?

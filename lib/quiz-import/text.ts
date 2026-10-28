@@ -4,10 +4,12 @@ import {
   addRow,
   emptyImport,
   error,
+  finishRows,
   warning,
   type ImportRow,
   type ParsedImport,
 } from "@/lib/quiz-format/types";
+import { MultilineText } from "./multiline";
 
 // The plain-text format, for people typing a quiz by hand:
 //
@@ -24,7 +26,8 @@ import {
 //
 // Each question starts with a number and a dot. More than one [x] makes it a select-all question. A line
 // that starts with none of the marks continues the line before it (long questions can wrap). Indentation
-// does not matter and a blank line ends the continuation.
+// does not matter. The question and the explanation may hold paragraphs, a table, a list or a code block:
+// see `multiline.ts` for how their line breaks are kept. After an option, a blank line ends the continuation.
 
 const QUESTION = /^(?:q\s*)?(\d+)\s*[.):]\s+(.*)$/i;
 const OPTION = /^[-*]\s+(?:\[([ xX])\]\s*)?(.*)$/;
@@ -49,18 +52,34 @@ export function parseQuizText(input: string): ParsedImport {
   let row: ImportRow | null = null;
   let last: Continues = null;
   let sawStructure = false;
+  // The text of the question and of its explanation, which can run over several lines.
+  let questionText = new MultilineText();
+  let explanationText = new MultilineText();
 
   const question = (): EditorQuestion => (row as ImportRow).question;
   const lastOption = () => question().options[question().options.length - 1];
   const append = (base: string | undefined, more: string) => (base ? `${base} ${more}` : more);
+  const setField = () => {
+    if (last === "question") question().text = questionText.text;
+    else question().explanation = explanationText.text;
+  };
   const stray = (number: number, line: string) =>
     parsed.issues.push(warning(`Line ${number} was ignored (it isn't part of a question): ${line.length > 60 ? `${line.slice(0, 60)}...` : line}`));
 
   text.split(/\r\n|\r|\n/).forEach((raw, index) => {
     const number = index + 1;
+    const field = last === "question" ? questionText : last === "explanation" ? explanationText : null;
+    if (field?.insideCode) {
+      // Inside a code block every line is code, whatever it starts with.
+      if (raw.trim()) field.push(raw, number);
+      else field.blank();
+      setField();
+      return;
+    }
     const line = raw.trim();
     if (!line) {
-      last = null;
+      if (field) field.blank();
+      else last = null;
       return;
     }
 
@@ -99,8 +118,10 @@ export function parseQuizText(input: string): ParsedImport {
     const start = QUESTION.exec(line);
     if (start) {
       sawStructure = true;
+      questionText = new MultilineText();
+      questionText.push(start[2], number);
       row = {
-        question: { type: "single", text: start[2].trim(), options: [] },
+        question: { type: "single", text: questionText.text, options: [] },
         source: `Line ${number}`,
         issues: [],
       };
@@ -130,7 +151,9 @@ export function parseQuizText(input: string): ParsedImport {
         lastOption().rationale = body;
         last = "reason";
       } else if (mark === ">") {
-        question().explanation = body;
+        explanationText = new MultilineText();
+        if (body) explanationText.push(body, number);
+        question().explanation = explanationText.text;
         last = "explanation";
       } else {
         question().imageUrl = body;
@@ -141,11 +164,19 @@ export function parseQuizText(input: string): ParsedImport {
 
     // No mark: the line before goes on.
     if (!row || !last) return stray(number, line);
-    if (last === "question") question().text = append(question().text, line);
-    else if (last === "option") lastOption().text = append(lastOption().text, line);
-    else if (last === "reason") lastOption().rationale = append(lastOption().rationale, line);
-    else question().explanation = append(question().explanation, line);
+    if (field) {
+      field.push(raw, number);
+      setField();
+    } else if (last === "option") lastOption().text = append(lastOption().text, line);
+    else lastOption().rationale = append(lastOption().rationale, line);
   });
+
+  // A code block that was never closed swallows everything after it, so say where it began.
+  if (row) {
+    for (const field of [questionText, explanationText]) {
+      if (field.unclosedFence) (row as ImportRow).issues.push(error(`line ${field.unclosedFence}: the code block never closes (add a line with three backticks).`));
+    }
+  }
 
   // More than one [x] makes a select-all question.
   for (const item of [...LEVELS.flatMap((name) => parsed.levels[name]?.rows ?? []), ...parsed.unplaced]) {
@@ -158,5 +189,5 @@ export function parseQuizText(input: string): ParsedImport {
     );
   }
   if (parsed.settings.title || LEVELS.some((name) => parsed.levels[name])) parsed.shape = "quiz";
-  return parsed;
+  return finishRows(parsed);
 }

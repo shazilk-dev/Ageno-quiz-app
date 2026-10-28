@@ -57,6 +57,22 @@
             }
           ],
           "note": "The source listed only two ranges; I added the third from RFC 1918. Please check."
+        },
+        {
+          "text": "A company recorded these sales figures.\n\n| Region | Q1  | Q2  |\n|:-------|----:|----:|\n| North  | 120 | 150 |\n| South  |  90 |  80 |\n\nWhich region grew in Q2?",
+          "options": [
+            {
+              "text": "North",
+              "isCorrect": true,
+              "rationale": "120 to 150."
+            },
+            {
+              "text": "South",
+              "isCorrect": false,
+              "rationale": "90 to 80: it fell."
+            }
+          ],
+          "explanation": "North grew by 30; South fell by 10."
         }
       ]
     },
@@ -85,6 +101,23 @@
             }
           ],
           "imageUrl": "https://example.com/handshake.png"
+        },
+        {
+          "text": "A runbook lists these steps:\n\n- Stop the database\n- Copy the data files\n- Start the database\n\nWhich step should come before the copy?",
+          "options": [
+            {
+              "text": "Take a snapshot of the volume",
+              "isCorrect": true
+            },
+            {
+              "text": "Delete the old files",
+              "isCorrect": false
+            },
+            {
+              "text": "Restart the server twice",
+              "isCorrect": false
+            }
+          ]
         }
       ]
     }

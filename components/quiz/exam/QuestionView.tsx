@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
+import RichText from "@/components/rich-text/RichText";
 import { getOptionText } from "@/lib/exam/answers";
 import type { ExamQuestion } from "@/lib/exam/types";
+import { parseRichText } from "@/lib/rich-text/parse";
+import { hasStructure } from "@/lib/rich-text/plain";
 import { cn } from "@/lib/utils";
 
 interface QuestionViewProps {
@@ -23,7 +26,10 @@ const letter = (index: number) => String.fromCharCode(65 + index);
  * One question and its options. A single-answer question has native radios in a `radiogroup`, so Tab, Up
  * and Down and screen readers work without extra code; a select-all question has native checkboxes in a
  * `group`, with a line saying how many to choose. Left and Right are taken by the shell (previous and
- * next question). Mount it with `key={question.id}`: it moves focus to the heading each time.
+ * next question). Mount it with `key={question.id}`: it moves focus to the question each time.
+ *
+ * The heading is only "Question 3 of 20" (read out first); the question itself is rich text and may hold a
+ * table, which cannot live inside a heading. The block with the text takes the focus.
  */
 export default function QuestionView({
   question,
@@ -35,12 +41,20 @@ export default function QuestionView({
 }: QuestionViewProps) {
   const groupName = useId();
   const headingId = useId();
+  const textId = useId();
   const hintId = useId();
-  const headingRef = useRef<HTMLHeadingElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    headingRef.current?.focus();
+    textRef.current?.focus();
   }, []);
+
+  // The options are named by the question when it is a line or two; a table would be read out in full
+  // every time someone enters the options, so then the name is just "Question 3 of 20".
+  const optionsLabel = useMemo(
+    () => (hasStructure(parseRichText(question.text).blocks) ? headingId : `${headingId} ${textId}`),
+    [question.text, headingId, textId]
+  );
 
   const options = question.options ?? [];
   const multiple = question.type === "multiple";
@@ -52,17 +66,22 @@ export default function QuestionView({
 
   return (
     <section aria-labelledby={headingId}>
-      <h2
-        id={headingId}
-        ref={headingRef}
-        tabIndex={-1}
-        className="w-fit max-w-[68ch] scroll-mt-20 whitespace-pre-line font-sans font-medium text-lg text-text leading-[1.45] tracking-normal focus:outline-none lg:text-xl"
-      >
-        <span className="sr-only">
-          Question {position} of {total}:{" "}
-        </span>
-        {question.text}
+      <h2 id={headingId} className="sr-only">
+        Question {position} of {total}
       </h2>
+      <div
+        id={textId}
+        ref={textRef}
+        tabIndex={-1}
+        role="group"
+        aria-labelledby={headingId}
+        className="scroll-mt-20 focus:outline-none"
+      >
+        <RichText
+          text={question.text}
+          className="font-sans font-medium text-lg text-text leading-[1.45] tracking-normal lg:text-xl"
+        />
+      </div>
 
       {instruction && (
         <p id={hintId} className="mt-1.5 font-mono text-text-muted text-xs">
@@ -87,7 +106,7 @@ export default function QuestionView({
       ) : (
         <div
           role={multiple ? "group" : "radiogroup"}
-          aria-labelledby={headingId}
+          aria-labelledby={optionsLabel}
           aria-describedby={instruction ? hintId : undefined}
           className="mt-4 space-y-2"
         >
@@ -124,9 +143,11 @@ export default function QuestionView({
                   >
                     {letter(index)}
                   </span>
-                  <span className="min-w-0 whitespace-pre-line text-base text-text-body leading-[1.4] [overflow-wrap:anywhere]">
-                    {getOptionText(option, index)}
-                  </span>
+                  <RichText
+                    mode="inline"
+                    text={getOptionText(option, index)}
+                    className="min-w-0 text-base text-text-body leading-[1.4] [overflow-wrap:anywhere]"
+                  />
                 </span>
               </label>
             );

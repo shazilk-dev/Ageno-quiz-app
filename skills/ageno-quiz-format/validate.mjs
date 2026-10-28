@@ -17,9 +17,9 @@ var LEVEL_LABELS = {
 var LIMITS = {
   title: 200,
   description: 5e3,
-  questionText: 2e3,
+  questionText: 4e3,
   optionText: 1e3,
-  explanation: 2e3,
+  explanation: 4e3,
   /** The reason attached to one answer option. */
   rationale: 1e3,
   imageUrl: 2e3,
@@ -125,6 +125,424 @@ function levelBytes(questions) {
   return total;
 }
 
+// lib/rich-text/parse.ts
+var FENCE = /^\s*```[^`]*$/;
+var FENCE_END = /^\s*```\s*$/;
+var BULLET = /^[-*+]\s+(\S.*)$/;
+var ORDERED = /^(\d{1,9})[.)]\s+(\S.*)$/;
+var DELIMITER_CELL = /^:?-+:?$/;
+var ROW_LIKE = /^\|.*[^|\s].*\|$/;
+var HTML_TAG = /<\/?(?:br|p|b|i|u|s|em|strong|span|div|table|thead|tbody|tr|td|th|ul|ol|li|img|a|script|style|iframe|pre|code|sub|sup|hr|font|h[1-6])(?:\s+[a-z-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']+))*\s*\/?>/i;
+var ESCAPABLE = "\\*_|`";
+var MAX_DEPTH = 6;
+var isFenceStart = (line) => FENCE.test(line);
+var isFenceEnd = (line) => FENCE_END.test(line);
+function splitRow(line) {
+  const text2 = line.trim();
+  const cells = [];
+  let cell = "";
+  for (let i = 0; i < text2.length; i++) {
+    const c = text2[i];
+    if (c === "\\" && i + 1 < text2.length) {
+      cell += c + text2[i + 1];
+      i++;
+    } else if (c === "|") {
+      cells.push(cell);
+      cell = "";
+    } else {
+      cell += c;
+    }
+  }
+  cells.push(cell);
+  if (text2.startsWith("|") && cells[0].trim() === "") cells.shift();
+  if (text2.endsWith("|") && cells.length > 0 && cells[cells.length - 1].trim() === "") cells.pop();
+  return cells.map((c) => c.trim());
+}
+function hasPipe(line) {
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === "\\") i++;
+    else if (line[i] === "|") return true;
+  }
+  return false;
+}
+function parseDelimiter(line) {
+  const cells = splitRow(line);
+  if (cells.length === 0 || !cells.every((cell) => DELIMITER_CELL.test(cell))) return null;
+  return cells.map((cell) => {
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    return left && right ? "center" : left ? "left" : right ? "right" : null;
+  });
+}
+var isSpace = (c) => c !== void 0 && /\s/.test(c);
+var isWord = (c) => c !== void 0 && (/[A-Za-z0-9]/.test(c) || c.charCodeAt(0) >= 192);
+function findBackticks(s, from, n) {
+  let i = from;
+  while (i < s.length) {
+    if (s[i] !== "`") {
+      i++;
+      continue;
+    }
+    let run = 0;
+    while (s[i + run] === "`") run++;
+    if (run === n) return i;
+    i += run;
+  }
+  return -1;
+}
+function findClose(s, start, mark) {
+  let i = start;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === "\\" && i + 1 < s.length && ESCAPABLE.includes(s[i + 1])) {
+      i += 2;
+    } else if (c === "`") {
+      let n = 1;
+      while (s[i + n] === "`") n++;
+      const close = findBackticks(s, i + n, n);
+      i = close >= 0 ? close + n : i + n;
+    } else if (i > start && !isSpace(s[i - 1])) {
+      if (mark === "**" && c === "*" && s[i + 1] === "*") return i;
+      if (mark === "_" && c === "_" && !isWord(s[i + 1]) && s[i + 1] !== "_") return i;
+      i++;
+    } else {
+      i++;
+    }
+  }
+  return -1;
+}
+function parseInline(s, inTable, depth = 0) {
+  const out = [];
+  let buf = "";
+  const flush = () => {
+    if (buf) out.push({ type: "text", text: buf });
+    buf = "";
+  };
+  let boldOpen = depth < MAX_DEPTH;
+  let italicOpen = depth < MAX_DEPTH;
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === "\n") {
+      flush();
+      out.push({ type: "break" });
+      i++;
+    } else if (c === "\\" && i + 1 < s.length && ESCAPABLE.includes(s[i + 1])) {
+      buf += s[i + 1];
+      i += 2;
+    } else if (c === "`") {
+      let n = 1;
+      while (s[i + n] === "`") n++;
+      const close = findBackticks(s, i + n, n);
+      if (close < 0) {
+        buf += "`".repeat(n);
+        i += n;
+      } else {
+        flush();
+        let code = s.slice(i + n, close).replace(/\n/g, " ");
+        if (inTable) code = code.replace(/\\\|/g, "|");
+        out.push({ type: "code", text: code });
+        i = close + n;
+      }
+    } else if (c === "*" && s[i + 1] === "*") {
+      const opens = boldOpen && s[i + 2] !== void 0 && !isSpace(s[i + 2]);
+      const close = opens ? findClose(s, i + 2, "**") : -1;
+      if (close < 0) {
+        if (opens) boldOpen = false;
+        buf += "**";
+        i += 2;
+      } else {
+        flush();
+        out.push({ type: "bold", children: parseInline(s.slice(i + 2, close), inTable, depth + 1) });
+        i = close + 2;
+      }
+    } else if (c === "_") {
+      const before = s[i - 1];
+      const after = s[i + 1];
+      const opens = italicOpen && !isWord(before) && before !== "_" && after !== void 0 && !isSpace(after) && after !== "_";
+      const close = opens ? findClose(s, i + 1, "_") : -1;
+      if (close < 0) {
+        if (opens) italicOpen = false;
+        buf += c;
+        i++;
+      } else {
+        flush();
+        out.push({ type: "italic", children: parseInline(s.slice(i + 1, close), inTable, depth + 1) });
+        i = close + 1;
+      }
+    } else {
+      buf += c;
+      i++;
+    }
+  }
+  flush();
+  return out;
+}
+function tableAt(lines, i) {
+  const head = lines[i];
+  const delimiter = lines[i + 1];
+  if (delimiter === void 0 || !hasPipe(head) || !hasPipe(delimiter)) return null;
+  const align = parseDelimiter(delimiter);
+  if (!align) return null;
+  const header = splitRow(head);
+  if (header.length !== align.length) return null;
+  const rows = [];
+  let j = i + 2;
+  while (j < lines.length && lines[j].trim() !== "" && hasPipe(lines[j]) && !FENCE.test(lines[j])) {
+    rows.push(splitRow(lines[j]));
+    j++;
+  }
+  return { end: j, align, header, rows };
+}
+function listAt(lines, i) {
+  const kind = (line) => {
+    const text2 = line.trim();
+    const bullet = BULLET.exec(text2);
+    if (bullet) return { ordered: false, number: 1, content: bullet[1] };
+    const ordered = ORDERED.exec(text2);
+    return ordered ? { ordered: true, number: Number(ordered[1]), content: ordered[2] } : null;
+  };
+  const first = kind(lines[i]);
+  if (!first) return null;
+  const items = [first.content];
+  let j = i + 1;
+  for (let next = kind(lines[j] ?? ""); next && next.ordered === first.ordered; next = kind(lines[j] ?? "")) {
+    items.push(next.content);
+    j++;
+  }
+  return items.length < 2 ? null : { end: j, ordered: first.ordered, start: first.number, items };
+}
+function withoutCode(line) {
+  return line.replace(/(`+)[^`]*?\1/g, "");
+}
+function htmlDiagnostics(lines, skip) {
+  const out = [];
+  lines.forEach((line, index) => {
+    if (skip[index]) return;
+    const match = HTML_TAG.exec(withoutCode(line));
+    if (!match) return;
+    const tag = match[0];
+    out.push({
+      kind: "html-tag",
+      line: index + 1,
+      message: /^<br\b/i.test(tag) ? `${tag} is shown as text. Start a new line instead (leave an empty line between paragraphs).` : `HTML such as ${tag} is shown as text. Use the formatting shown in the help instead.`
+    });
+  });
+  return out;
+}
+function plainBlocks(text2) {
+  const trimmed = text2.trim();
+  if (!trimmed) return [];
+  const children = [];
+  trimmed.split("\n").forEach((line, index) => {
+    if (index > 0) children.push({ type: "break" });
+    if (line) children.push({ type: "text", text: line });
+  });
+  return [{ type: "paragraph", children }];
+}
+function scanBlocks(lines) {
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+    if (FENCE.test(line)) {
+      const code = [];
+      let j = i + 1;
+      while (j < lines.length && !FENCE_END.test(lines[j])) {
+        code.push(lines[j]);
+        j++;
+      }
+      const closed = j < lines.length;
+      out.push({ kind: "fence", from: i, to: closed ? j + 1 : j, code, closed });
+      i = j + 1;
+      continue;
+    }
+    const table = tableAt(lines, i);
+    if (table) {
+      out.push({ kind: "table", from: i, to: table.end, align: table.align, header: table.header, rows: table.rows });
+      i = table.end;
+      continue;
+    }
+    const list = listAt(lines, i);
+    if (list) {
+      out.push({ kind: "list", from: i, to: list.end, ordered: list.ordered, start: list.start, items: list.items });
+      i = list.end;
+      continue;
+    }
+    const start = i;
+    const paragraph = [];
+    while (i < lines.length && lines[i].trim() !== "") {
+      if (i > start && (FENCE.test(lines[i]) || tableAt(lines, i) || listAt(lines, i))) break;
+      paragraph.push(lines[i].trim());
+      i++;
+    }
+    out.push({ kind: "paragraph", from: start, to: i, lines: paragraph });
+  }
+  return out;
+}
+function parseAll(text2, options) {
+  const lines = text2.replace(/\r\n?/g, "\n").split("\n");
+  const diagnostics = [];
+  const blocks = [];
+  const inFence = [];
+  if (options.blocks === "inline") {
+    const body = lines.map((line) => line.trim()).join("\n").trim();
+    if (body) blocks.push({ type: "paragraph", children: parseInline(body, false) });
+    return { blocks, diagnostics: htmlDiagnostics(lines, inFence) };
+  }
+  for (const raw of scanBlocks(lines)) {
+    switch (raw.kind) {
+      case "fence": {
+        for (let j = raw.from; j < raw.to; j++) inFence[j] = true;
+        if (!raw.closed) {
+          diagnostics.push({
+            kind: "unclosed-fence",
+            line: raw.from + 1,
+            message: "The code block starts with ``` but never ends. Close it with a line of ```."
+          });
+        }
+        blocks.push({ type: "code", text: raw.code.join("\n") });
+        break;
+      }
+      case "table": {
+        const columns = raw.header.length;
+        raw.rows.forEach((row, index) => {
+          if (row.length !== columns) {
+            diagnostics.push({
+              kind: "table-columns",
+              line: raw.from + 3 + index,
+              message: `Row ${index + 2} has ${row.length} cells but the header has ${columns}.${row.length > columns ? " The extra cells are not shown." : " The missing cells are left empty."}`
+            });
+          }
+        });
+        const cell = (text3) => parseInline(text3 ?? "", true);
+        blocks.push({
+          type: "table",
+          align: raw.align,
+          header: raw.header.map(cell),
+          rows: raw.rows.map((row) => raw.header.map((_, column) => cell(row[column])))
+        });
+        break;
+      }
+      case "list":
+        blocks.push({
+          type: "list",
+          ordered: raw.ordered,
+          start: raw.start,
+          items: raw.items.map((item) => parseInline(item, false))
+        });
+        break;
+      case "paragraph": {
+        const rowLike = raw.lines.findIndex((row) => ROW_LIKE.test(row));
+        if (rowLike >= 0) {
+          diagnostics.push({
+            kind: "table-no-header",
+            line: raw.from + rowLike + 1,
+            message: "This looks like a table but has no |---| line under its first row (with the same number of cells), so it is shown as text."
+          });
+        }
+        blocks.push({ type: "paragraph", children: parseInline(raw.lines.join("\n"), false) });
+        break;
+      }
+    }
+  }
+  diagnostics.push(...htmlDiagnostics(lines, inFence));
+  diagnostics.sort((a, b) => a.line - b.line);
+  return { blocks, diagnostics };
+}
+function parseRichText(text2, options = {}) {
+  const source = typeof text2 === "string" ? text2 : "";
+  try {
+    return parseAll(source, options);
+  } catch {
+    return { blocks: plainBlocks(source), diagnostics: [] };
+  }
+}
+
+// lib/rich-text/advice.ts
+var WIDE_TABLE_COLUMNS = 6;
+var LONG_TABLE_ROWS = 25;
+var letter = (index) => String.fromCharCode(65 + index);
+var plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+var MAY_HAVE_FORMATTING = /[|<`]/;
+function formattingAdvice(question) {
+  const advice = [];
+  const fields = [
+    { label: "Question text", text: question.text, blocks: "all" },
+    { label: "Explanation", text: question.explanation ?? "", blocks: "all" },
+    ...question.options.flatMap((option, i) => [
+      { label: `Option ${letter(i)}`, text: option.text, blocks: "inline" },
+      { label: `Reason for option ${letter(i)}`, text: option.rationale ?? "", blocks: "inline" }
+    ])
+  ];
+  for (const { label, text: text2, blocks } of fields) {
+    if (!MAY_HAVE_FORMATTING.test(text2)) continue;
+    const { diagnostics, blocks: tree } = parseRichText(text2, { blocks });
+    if (diagnostics.length > 0) {
+      const [first, ...rest] = diagnostics;
+      const more = rest.length > 0 ? ` (${plural(rest.length, "more problem")} in this text.)` : "";
+      const line = text2.includes("\n") ? `, line ${first.line}` : "";
+      advice.push({ kind: "formatting", message: `${label}${line}: ${first.message}${more}` });
+    }
+    for (const block of tree) {
+      if (block.type !== "table") continue;
+      const columns = block.header.length;
+      if (columns > WIDE_TABLE_COLUMNS) {
+        advice.push({
+          kind: "wide-table",
+          message: `${label} has a table with ${columns} columns. On a phone players scroll sideways past ${WIDE_TABLE_COLUMNS}; fewer columns, or two smaller tables, read better.`
+        });
+      }
+      if (block.rows.length > LONG_TABLE_ROWS) {
+        advice.push({
+          kind: "long-table",
+          message: `${label} has a table with ${block.rows.length} rows. More than ${LONG_TABLE_ROWS} is a lot to read in an exam; consider splitting it.`
+        });
+      }
+    }
+  }
+  return advice;
+}
+
+// lib/quiz-format/breaks.ts
+var BREAK_TEST = /<br\s*\/?>/i;
+var BREAK_ALL = /<br\s*\/?>/gi;
+function replaceBreakTags(text2) {
+  if (!BREAK_TEST.test(text2)) return text2;
+  let fence = false;
+  return text2.split("\n").map((line) => {
+    if (fence) {
+      if (isFenceEnd(line)) fence = false;
+      return line;
+    }
+    if (isFenceStart(line)) {
+      fence = true;
+      return line;
+    }
+    return line.includes("|") ? line.replace(BREAK_ALL, " ") : line.replace(BREAK_ALL, "\n");
+  }).join("\n");
+}
+function convertBreakTags(question) {
+  let changed = false;
+  const fix = (value) => {
+    if (value === void 0) return value;
+    const next = replaceBreakTags(value);
+    if (next !== value) changed = true;
+    return next;
+  };
+  question.text = fix(question.text);
+  if (question.explanation !== void 0) question.explanation = fix(question.explanation);
+  for (const option of question.options) {
+    option.text = fix(option.text);
+    if (option.rationale !== void 0) option.rationale = fix(option.rationale);
+  }
+  return changed;
+}
+
 // lib/quiz-format/types.ts
 var FORMAT_NAME = "ageno-quiz";
 var FORMAT_VERSION = 1;
@@ -138,6 +556,19 @@ var emptyImport = (shape = "questions") => ({
   unplaced: [],
   issues: []
 });
+function finishRows(parsed) {
+  for (const row of allRows(parsed)) {
+    if (convertBreakTags(row.question)) {
+      row.issues.push(warning("<br> was turned into a line break (into a space inside a table row). Check how it reads."));
+    }
+  }
+  return parsed;
+}
+function allRows(parsed) {
+  const rows = [];
+  for (const level of ["easy", "medium", "hard"]) rows.push(...parsed.levels[level]?.rows ?? []);
+  return [...rows, ...parsed.unplaced];
+}
 function addRow(parsed, level, row) {
   if (!level) {
     parsed.unplaced.push(row);
@@ -182,6 +613,7 @@ function checkRows(rows, options = {}) {
         issues.push(warning(`option ${index + 1} is "${option.text.trim()}", which stops making sense if the options are reordered.`));
       }
     });
+    for (const advice of formattingAdvice(row.question)) issues.push(warning(advice.message));
     if (row.note) issues.push(warning(`note: ${row.note}`));
     const status = issues.some((issue) => issue.severity === "error") ? "error" : issues.length > 0 ? "warning" : "ok";
     return { row, clean: status === "error" ? null : question, status, issues };
@@ -373,7 +805,8 @@ function readLevel(raw, level, parsed) {
     parsed.issues.push(warning("The level's time and multiplier were ignored because the level isn't named."));
   }
 }
-function readQuizValue(value) {
+var readQuizValue = (value) => finishRows(readValue(value));
+function readValue(value) {
   if (Array.isArray(value)) {
     const parsed2 = emptyImport("questions");
     value.forEach((item, index) => parsed2.unplaced.push(readQuestion2(item, `Question ${index + 1}`)));

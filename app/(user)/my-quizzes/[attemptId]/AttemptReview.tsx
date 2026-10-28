@@ -4,13 +4,30 @@ import { format } from "date-fns";
 import { FileQuestion } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Container } from "@/components/layout/Container";
-import ResultsScreen from "@/components/quiz/exam/ResultsScreen";
 import { Alert, Button, EmptyState, Skeleton } from "@/components/ui";
 import { useAuth } from "@/contexts/auth-context";
 import { ApiRequestError, fetchAttemptResult } from "@/lib/exam/api";
 import type { AttemptResult } from "@/lib/exam/types";
+
+// The review (and the rich-text renderer behind it) loads on its own, so the page's first load stays small.
+// The server still renders it into the HTML when it has the result.
+const ResultsScreen = lazy(() => import("@/components/quiz/exam/ResultsScreen"));
+
+/** Holds the layout of the results while they load (the lazy code, or the request). */
+const ResultsSkeleton = (
+  <div aria-busy="true" aria-label="Loading your results">
+    <Skeleton className="h-9 w-56" />
+    <div className="mt-8 grid gap-8 lg:grid-cols-[20rem_minmax(0,1fr)]">
+      <Skeleton className="h-96 w-full rounded-lg" />
+      <div className="space-y-4">
+        <Skeleton className="h-40 w-full rounded-lg" />
+        <Skeleton className="h-40 w-full rounded-lg" />
+      </div>
+    </div>
+  </div>
+);
 
 export type ReviewState =
   | { kind: "loading" }
@@ -65,25 +82,27 @@ export default function AttemptReview({ initial = null }: { initial?: ReviewStat
   if (state.kind === "ready") {
     const { data } = state;
     return (
-      <ResultsScreen
-        title={data.quizTitle}
-        subtitle={format(new Date(data.submittedAt), "MMM d, yyyy 'at' h:mm a")}
-        questions={data.questions}
-        result={data.result}
-        difficulty={data.difficulty}
-        actions={
-          <>
-            <Button asChild>
-              <Link href="/my-quizzes">Back to my quizzes</Link>
-            </Button>
-            <Button asChild variant="secondary">
-              <Link href={`/q/${encodeURIComponent(data.quizId)}`}>
-                Take this quiz again
-              </Link>
-            </Button>
-          </>
-        }
-      />
+      <Suspense fallback={<Container className="py-8 sm:py-10">{ResultsSkeleton}</Container>}>
+        <ResultsScreen
+          title={data.quizTitle}
+          subtitle={format(new Date(data.submittedAt), "MMM d, yyyy 'at' h:mm a")}
+          questions={data.questions}
+          result={data.result}
+          difficulty={data.difficulty}
+          actions={
+            <>
+              <Button asChild>
+                <Link href="/my-quizzes">Back to my quizzes</Link>
+              </Button>
+              <Button asChild variant="secondary">
+                <Link href={`/q/${encodeURIComponent(data.quizId)}`}>
+                  Take this quiz again
+                </Link>
+              </Button>
+            </>
+          }
+        />
+      </Suspense>
     );
   }
 
@@ -91,16 +110,7 @@ export default function AttemptReview({ initial = null }: { initial?: ReviewStat
     <div className="flex-1 bg-bg text-text">
       <Container className="py-8 sm:py-10">
         {state.kind === "loading" ? (
-          <div aria-busy="true" aria-label="Loading your results">
-            <Skeleton className="h-9 w-56" />
-            <div className="mt-8 grid gap-8 lg:grid-cols-[20rem_minmax(0,1fr)]">
-              <Skeleton className="h-96 w-full rounded-lg" />
-              <div className="space-y-4">
-                <Skeleton className="h-40 w-full rounded-lg" />
-                <Skeleton className="h-40 w-full rounded-lg" />
-              </div>
-            </div>
-          </div>
+          ResultsSkeleton
         ) : state.kind === "failed" ? (
           <Alert
             variant="error"

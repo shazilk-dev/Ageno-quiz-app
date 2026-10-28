@@ -10,7 +10,7 @@ import { LIMITS } from "@/lib/quiz-schema";
 export const metadata: Metadata = { title: "AI & formats" };
 
 const FILES = [
-  { href: "/ageno-quiz/example.ageno.json", label: "Example quiz (JSON)", note: "Two levels, a select-all question, reasons and a note." },
+  { href: "/ageno-quiz/example.ageno.json", label: "Example quiz (JSON)", note: "Two levels, a select-all question, reasons, a table, a list and a note." },
   { href: "/ageno-quiz/schema.json", label: "JSON Schema", note: "For tools that check JSON against a schema." },
   { href: "/ageno-quiz/template.csv", label: "Spreadsheet template (CSV)", note: "Opens in Excel or Google Sheets." },
   { href: "/ageno-quiz/template.txt", label: "Plain-text template", note: "For typing questions by hand." },
@@ -62,6 +62,8 @@ export default function AiFormatsPage() {
           </Link>{" "}
           shows every question with a status, highlights anything the AI marked as a guess, lets you fix or skip a row,
           and tells you exactly what will change before it saves anything. Nothing goes live until you open the quiz.
+          A question can hold a scenario, a table, a list or a code block: the AI writes them in the file, and the
+          check step shows each one the way players will see it.
         </Step>
       </ol>
 
@@ -150,12 +152,20 @@ export default function AiFormatsPage() {
           <li>One correct option makes a question single-answer; several make it select-all, and the player must pick them all.</li>
           <li>A reason for an option is up to {LIMITS.rationale} characters; the explanation for the question up to {LIMITS.explanation}.</li>
           <li>
+            The text of a question (and the explanation) may hold paragraphs, <span className="font-mono">**bold**</span>,
+            lists, code blocks and tables written as <span className="font-mono">| a | b |</span> rows with a{" "}
+            <span className="font-mono">|---|---|</span> line under the header. Options stay one line. HTML, links and images
+            are not allowed; <span className="font-mono">&lt;br&gt;</span> is turned into a line break on import.
+          </li>
+          <li>
             In a spreadsheet, one row is one question. Columns: level, type, question, option_a to option_f, correct (B, 2, the
             option&apos;s text, or A,C), explanation, a_why to f_why, image. A row starting with # is skipped.
           </li>
           <li>
             In plain text, a number and a dot start a question, &quot;- &quot; an option, &quot;[x]&quot; a correct one, &quot;~&quot; the
-            reason for the option above, &quot;&gt;&quot; the explanation, &quot;!&quot; an image.
+            reason for the option above, &quot;&gt;&quot; the explanation, &quot;!&quot; an image. A question or explanation can
+            go over several lines: a blank line starts a new paragraph, table rows keep their lines, and a line that would
+            be read as an option (starting with &quot;-&quot; or a number and a dot) takes a backslash in front.
           </li>
         </ul>
       </section>

@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, Copy, Eye, Plus, Trash2, X } from "lucide-react
 import { useState, type Dispatch } from "react";
 import { Alert, Button } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { Level, QuestionType } from "@/lib/quiz-schema";
+import { LIMITS, type Level, type QuestionType } from "@/lib/quiz-schema";
 import {
   MAX_OPTIONS,
   MIN_OPTIONS,
@@ -13,6 +13,7 @@ import {
   type EditorAction,
 } from "./editor-state";
 import { ImageField } from "./ImageField";
+import { RichTextField } from "./RichTextField";
 
 interface QuestionCardProps {
   level: Level;
@@ -168,20 +169,13 @@ export function QuestionCard({
           </p>
         )}
 
-        <div>
-          <label htmlFor={`${baseId}-text`} className="mb-2 block text-sm font-medium">
-            Question
-          </label>
-          <textarea
-            id={`${baseId}-text`}
-            value={question.text}
-            rows={2}
-            onChange={(event) =>
-              dispatch({ type: "editQuestion", level, key, patch: { text: event.target.value } })
-            }
-            className={cn(fieldClasses, "min-h-20 resize-y py-2 leading-relaxed")}
-          />
-        </div>
+        <RichTextField
+          id={`${baseId}-text`}
+          label="Question"
+          value={question.text}
+          maxLength={LIMITS.questionText}
+          onChange={(text) => dispatch({ type: "editQuestion", level, key, patch: { text } })}
+        />
 
         <fieldset>
           <legend className="mb-2 text-sm font-medium">Question type</legend>
@@ -346,21 +340,15 @@ export function QuestionCard({
             Explanation and image (optional)
           </summary>
           <div className="mt-3 space-y-4">
-            <div>
-              <label htmlFor={`${baseId}-explanation`} className="mb-2 block text-sm font-medium">
-                Explanation
-                <span className="ml-2 font-normal text-text-muted">Shown in the review after submitting.</span>
-              </label>
-              <textarea
-                id={`${baseId}-explanation`}
-                value={question.explanation ?? ""}
-                rows={2}
-                onChange={(event) =>
-                  dispatch({ type: "editQuestion", level, key, patch: { explanation: event.target.value } })
-                }
-                className={cn(fieldClasses, "min-h-16 resize-y py-2 leading-relaxed")}
-              />
-            </div>
+            <RichTextField
+              id={`${baseId}-explanation`}
+              label="Explanation"
+              hint="Shown in the review after submitting."
+              value={question.explanation ?? ""}
+              minRows={2}
+              maxLength={LIMITS.explanation}
+              onChange={(explanation) => dispatch({ type: "editQuestion", level, key, patch: { explanation } })}
+            />
             <ImageField
               id={`${baseId}-image`}
               value={question.imageUrl ?? ""}

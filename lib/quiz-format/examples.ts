@@ -1,3 +1,4 @@
+import { SCENARIO_EXAMPLE } from "@/lib/rich-text/example";
 import { FORMAT_NAME, FORMAT_VERSION } from "./types";
 
 // The example files shipped with the format (and with the AI skill). They are data here so a test can hold
@@ -23,7 +24,10 @@ export const MINIMAL_EXAMPLE = {
   },
 };
 
-/** Settings, two levels, a select-all question, reasons, an explanation and a note for the reviewer. */
+/**
+ * Settings, two levels, a select-all question, reasons, an explanation and a note for the reviewer, a scenario
+ * with a table, and a question with a list.
+ */
 export const FULL_EXAMPLE = {
   format: FORMAT_NAME,
   version: FORMAT_VERSION,
@@ -60,6 +64,15 @@ export const FULL_EXAMPLE = {
           ],
           note: "The source listed only two ranges; I added the third from RFC 1918. Please check.",
         },
+        {
+          // A scenario, a table and the question: blank lines between, one `|---|` row, numbers right-aligned.
+          text: SCENARIO_EXAMPLE,
+          options: [
+            { text: "North", isCorrect: true, rationale: "120 to 150." },
+            { text: "South", isCorrect: false, rationale: "90 to 80: it fell." },
+          ],
+          explanation: "North grew by 30; South fell by 10.",
+        },
       ],
     },
     hard: {
@@ -75,6 +88,15 @@ export const FULL_EXAMPLE = {
             { text: "FIN", isCorrect: false },
           ],
           imageUrl: "https://example.com/handshake.png",
+        },
+        {
+          // A list needs at least two items, one per line.
+          text: "A runbook lists these steps:\n\n- Stop the database\n- Copy the data files\n- Start the database\n\nWhich step should come before the copy?",
+          options: [
+            { text: "Take a snapshot of the volume", isCorrect: true },
+            { text: "Delete the old files", isCorrect: false },
+            { text: "Restart the server twice", isCorrect: false },
+          ],
         },
       ],
     },
