@@ -18,6 +18,19 @@ const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 export const isSafeId = (value: unknown): value is string =>
   typeof value === "string" && SAFE_ID.test(value);
 
+/**
+ * Firestore refusing a query because its composite index isn't deployed (or is still building). The gRPC
+ * transport (emulator, tests) reports it as code 9 (FAILED_PRECONDITION); the REST transport production
+ * uses reports code 3 with a message saying the query requires an index.
+ */
+export function isMissingIndex(error: unknown): boolean {
+  const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
+  return (
+    code === 9 ||
+    (code === 3 && typeof message === "string" && message.includes("requires an index"))
+  );
+}
+
 export function assertSafeId(value: unknown, what: string): asserts value is string {
   if (!isSafeId(value)) {
     throw new ApiError(400, "invalid_id", `That ${what} isn't valid.`);

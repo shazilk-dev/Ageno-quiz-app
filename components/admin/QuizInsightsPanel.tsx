@@ -1,10 +1,11 @@
 "use client";
 
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Download } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Badge, Button, Card, EmptyState, FilterTabs, Select, Skeleton } from "@/components/ui";
 import { adminQuizzes } from "@/lib/admin-api";
 import { ApiRequestError } from "@/lib/api-client";
+import { downloadText } from "@/lib/download";
 import {
   FLAG_LABELS,
   MIN_FOR_FLAGS,
@@ -157,6 +158,30 @@ export function QuizInsightsPanel({ quizId }: { quizId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [show, setShow] = useState<Show>("all");
   const [order, setOrder] = useState<Order>("quiz");
+  const [exporting, setExporting] = useState(false);
+  const [exportNote, setExportNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const exportCsv = async () => {
+    setExporting(true);
+    setExportNote(null);
+    try {
+      const file = await adminQuizzes.questionResults(quizId);
+      downloadText(file.filename, file.csv, "text/csv");
+      setExportNote({
+        ok: true,
+        text: file.truncated
+          ? `Saved the first ${file.rows.toLocaleString()} rows. The quiz has more than a spreadsheet handles well, so the rest were left out.`
+          : `Saved ${file.rows.toLocaleString()} rows from ${file.results} results.`,
+      });
+    } catch (failure) {
+      setExportNote({
+        ok: false,
+        text: failure instanceof ApiRequestError ? failure.message : "We couldn't make the file. Try again.",
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setError(null);
@@ -217,6 +242,22 @@ export function QuizInsightsPanel({ quizId }: { quizId: string }) {
           : `Based on all ${data.analysed} ${data.analysed === 1 ? "result" : "results"}.`}{" "}
         These figures are a guide to what to look at, not a verdict. They can lag by a few minutes.
       </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button variant="secondary" size="sm" onClick={() => void exportCsv()} loading={exporting}>
+          <Download className="size-4" aria-hidden="true" />
+          Download results CSV
+        </Button>
+        <span className="text-sm text-text-muted">One row per person and question, with player names.</span>
+      </div>
+      {exportNote && (
+        <p
+          role={exportNote.ok ? "status" : "alert"}
+          className={cn("mt-2 text-sm", exportNote.ok ? "text-text-body" : "text-error")}
+        >
+          {exportNote.text}
+        </p>
+      )}
 
       <div className="mt-4 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-border border-b">
         <FilterTabs<Show>

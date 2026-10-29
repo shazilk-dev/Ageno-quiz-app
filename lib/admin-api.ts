@@ -37,6 +37,12 @@ export const adminQuizzes = {
   insights: (quizId: string) =>
     apiRequest<QuizInsights>(`/api/admin/quizzes/${encodeURIComponent(quizId)}/insights`),
 
+  /** The quiz's latest results as CSV text, one row per person and question. */
+  questionResults: (quizId: string) =>
+    apiRequest<{ filename: string; csv: string; rows: number; truncated: boolean; results: number }>(
+      `/api/admin/quizzes/${encodeURIComponent(quizId)}/question-results`
+    ),
+
   /** Moves the quiz to the trash; nothing is deleted. */
   trash: (quizId: string) =>
     apiRequest<{ responseCount: number }>(`/api/admin/quizzes/${quizId}`, { method: "DELETE" }),

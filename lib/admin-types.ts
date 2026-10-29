@@ -60,8 +60,23 @@ export interface AdminAttemptDetail {
   eventsTruncated: boolean;
 }
 
+/** Finished results on one UTC day. */
+export interface TrendDay {
+  /** `YYYY-MM-DD`, UTC. */
+  day: string;
+  results: number;
+}
+
+/** Something on the dashboard worth an admin's look, with where to go next. */
+export type AttentionItem =
+  | { kind: "low_average"; quizId: string; title: string; average: number; results: number }
+  | { kind: "integrity"; attemptId: string; userName: string; quizTitle: string; events: number };
+
 export interface DashboardData {
   totals: { users: number; quizzes: number; attempts: number; averageScore: number };
+  /** Results per day for the last 30 days, oldest first, today last. */
+  trend: TrendDay[];
+  attention: AttentionItem[];
   recentQuizzes: { id: string; title: string; createdAt: number }[];
   /** The latest results (more than the list shows, for the charts). */
   recent: ReportRow[];

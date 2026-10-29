@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  INTEGRITY_ALERT_AT,
+  LOW_AVERAGE_BELOW,
+  LOW_AVERAGE_MIN_RESULTS,
   csvCell,
+  dayWindows,
   formatDuration,
+  integrityAlerts,
+  lowAverageAlerts,
   scoreBands,
   secondsTaken,
   summarizeReports,
@@ -98,5 +104,49 @@ describe("CSV export", () => {
     const [header, line] = csv.split("\r\n");
     expect(header.startsWith('"Quiz","Player","Score (%)"')).toBe(true);
     expect(line).toBe('"A, ""B""","Ada","","","2026-10-01T12:00:00.000Z","0","0","0"');
+  });
+});
+
+describe("dashboard trend and attention", () => {
+  const stat = (quizId: string, results: number, average: number | null) => ({ quizId, title: `Quiz ${quizId}`, results, average });
+
+  it("lists the last 30 UTC days, oldest first, ending with today", () => {
+    const now = Date.UTC(2026, 9, 29, 15, 30);
+    const days = dayWindows(now);
+    expect(days).toHaveLength(30);
+    expect(days[29]).toMatchObject({ day: "2026-10-29", start: Date.UTC(2026, 9, 29), end: Date.UTC(2026, 9, 30) });
+    expect(days[0].day).toBe("2026-09-30");
+    // No gaps and no overlaps, across a month boundary.
+    for (let i = 1; i < days.length; i++) expect(days[i].start).toBe(days[i - 1].end);
+    expect(dayWindows(now, 3).map((d) => d.day)).toEqual(["2026-10-27", "2026-10-28", "2026-10-29"]);
+  });
+
+  it("flags a quiz with a low average only with enough results, lowest first", () => {
+    const alerts = lowAverageAlerts([
+      stat("fine", 40, 72),
+      stat("few", LOW_AVERAGE_MIN_RESULTS - 1, 10),
+      stat("edge", 10, LOW_AVERAGE_BELOW),
+      stat("bad", 12, 38.4),
+      stat("worse", 7, 21),
+      stat("none", 9, null),
+    ]);
+    expect(alerts).toEqual([
+      { kind: "low_average", quizId: "worse", title: "Quiz worse", average: 21, results: 7 },
+      { kind: "low_average", quizId: "bad", title: "Quiz bad", average: 38, results: 12 },
+    ]);
+    expect(lowAverageAlerts(Array.from({ length: 9 }, (_, i) => stat(`q${i}`, 10, 10)), 3)).toHaveLength(3);
+  });
+
+  it("lists results with many recorded events, most first, and ignores the quiet ones", () => {
+    const alerts = integrityAlerts([
+      row({ id: "quiet", tabSwitchCount: 2, blurCount: 1 }),
+      row({ id: "edge", tabSwitchCount: 3, fullscreenExits: 1, blurCount: 1 }),
+      row({ id: "loud", tabSwitchCount: 9, userName: "", quizTitle: "" }),
+    ]);
+    expect(INTEGRITY_ALERT_AT).toBe(5);
+    expect(alerts).toEqual([
+      { kind: "integrity", attemptId: "loud", userName: "Unknown user", quizTitle: "Unknown quiz", events: 9 },
+      { kind: "integrity", attemptId: "edge", userName: "Ada", quizTitle: "Quiz", events: 5 },
+    ]);
   });
 });

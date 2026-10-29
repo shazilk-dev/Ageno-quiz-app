@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AdminPage } from "@/components/admin/AdminPage";
 import { DistributionChart } from "@/components/admin/DistributionChart";
+import { TrendChart } from "@/components/admin/TrendChart";
 import {
   Alert,
   Button,
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui";
 import { adminQuizzes, adminReports } from "@/lib/admin-api";
 import { scoreBands, timeBands } from "@/lib/admin-analytics";
-import type { DashboardData } from "@/lib/admin-types";
+import type { AttentionItem, DashboardData } from "@/lib/admin-types";
 import { ApiRequestError } from "@/lib/api-client";
 
 const formatDate = (ms: number | null) =>
@@ -34,6 +35,23 @@ function PanelHeader({ title, href, label }: { title: string; href: string; labe
       </Link>
     </div>
   );
+}
+
+/** One line of the "Needs attention" list: what is wrong in words, and a link to where to look. */
+function attentionLine(item: AttentionItem): { href: string; title: string; detail: string; action: string } {
+  return item.kind === "low_average"
+    ? {
+        href: `/quizzes/${encodeURIComponent(item.quizId)}`,
+        title: item.title,
+        detail: `Average score ${item.average}% across ${item.results} results.`,
+        action: "See which questions",
+      }
+    : {
+        href: `/quiz-reports/${encodeURIComponent(item.attemptId)}`,
+        title: `${item.userName} on ${item.quizTitle}`,
+        detail: `${item.events} tab switches, lost-focus or fullscreen events during one attempt.`,
+        action: "Open the result",
+      };
 }
 
 function DashboardSkeleton() {
@@ -138,6 +156,39 @@ export default function DashboardClient({ initial = null }: { initial?: Dashboar
               { label: "Average score", value: data.totals.attempts ? `${data.totals.averageScore}%` : "—" },
             ]}
           />
+
+          {data.attention.length > 0 && (
+            <section aria-labelledby="attention-heading">
+              <Card>
+                <div className="border-border border-b px-5 py-4">
+                  <h2 id="attention-heading" className="text-lg">
+                    Needs attention
+                  </h2>
+                </div>
+                <ul className="divide-y divide-border">
+                  {data.attention.map((item) => {
+                    const line = attentionLine(item);
+                    return (
+                      <li
+                        key={item.kind === "low_average" ? `q-${item.quizId}` : `r-${item.attemptId}`}
+                        className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{line.title}</p>
+                          <p className="text-sm text-text-muted">{line.detail}</p>
+                        </div>
+                        <Link href={line.href} className="shrink-0 text-sm text-link underline-offset-4 hover:underline">
+                          {line.action}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Card>
+            </section>
+          )}
+
+          <TrendChart days={data.trend} />
 
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>

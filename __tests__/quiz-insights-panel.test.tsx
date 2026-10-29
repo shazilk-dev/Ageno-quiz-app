@@ -3,8 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QuestionInsight, QuizInsights } from "@/lib/item-analysis";
 
-const api = vi.hoisted(() => ({ insights: vi.fn() }));
+const api = vi.hoisted(() => ({ insights: vi.fn(), questionResults: vi.fn() }));
 vi.mock("@/lib/admin-api", () => ({ adminQuizzes: api }));
+const saved = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/download", () => ({ downloadText: saved }));
 
 import { QuizInsightsPanel } from "@/components/admin/QuizInsightsPanel";
 import { ApiRequestError } from "@/lib/api-client";
@@ -48,7 +50,11 @@ const insights = (over: Partial<QuizInsights> = {}): QuizInsights => ({
   ...over,
 });
 
-beforeEach(() => api.insights.mockReset());
+beforeEach(() => {
+  api.insights.mockReset();
+  api.questionResults.mockReset();
+  saved.mockReset();
+});
 afterEach(cleanup);
 
 describe("Results by question", () => {
@@ -117,5 +123,32 @@ describe("Results by question", () => {
     expect(await screen.findByText("Not ready yet.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.getByText("Fine question")).toBeTruthy());
+  });
+
+  it("downloads the results as a CSV and says how many rows it holds", async () => {
+    api.insights.mockResolvedValue(insights());
+    api.questionResults.mockResolvedValue({ filename: "networking-results-by-question.csv", csv: "a,b", rows: 1240, truncated: false, results: 40 });
+    render(<QuizInsightsPanel quizId="quiz1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Download results CSV/ }));
+    await waitFor(() => expect(saved).toHaveBeenCalledWith("networking-results-by-question.csv", "a,b", "text/csv"));
+    expect(api.questionResults).toHaveBeenCalledWith("quiz1");
+    expect((await screen.findByRole("status")).textContent).toBe("Saved 1,240 rows from 40 results.");
+  });
+
+  it("tells the admin when the export had to stop early", async () => {
+    api.insights.mockResolvedValue(insights());
+    api.questionResults.mockResolvedValue({ filename: "x.csv", csv: "a", rows: 100000, truncated: true, results: 2000 });
+    render(<QuizInsightsPanel quizId="quiz1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Download results CSV/ }));
+    expect((await screen.findByRole("status")).textContent).toContain("first 100,000 rows");
+  });
+
+  it("shows why a download failed and saves nothing", async () => {
+    api.insights.mockResolvedValue(insights());
+    api.questionResults.mockRejectedValue(new ApiRequestError(503, "index_required", "Not ready yet."));
+    render(<QuizInsightsPanel quizId="quiz1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Download results CSV/ }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Not ready yet.");
+    expect(saved).not.toHaveBeenCalled();
   });
 });

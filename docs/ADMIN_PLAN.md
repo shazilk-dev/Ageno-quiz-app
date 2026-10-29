@@ -3,8 +3,8 @@
 **Purpose:** make the admin side fast, safe and pleasant to run: bring a whole quiz in from a file (or from an AI) in minutes, support questions with several correct answers, attach reasoning to every answer option, and see how each question performs. Same rules as the other plans: phases, checkbox tasks, a status table and a session log.
 
 - **Created:** 2026-10-26
-- **Last updated:** 2026-10-29 (Session 16: A5.1 to A5.3 built; browser check outstanding)
-- **Current phase:** A5 (A5.1 backfill run, A5.2 results by question and A5.3 attempt review built; the browser check is in MANUAL_STEPS; A5.4 dashboard strip and A5.5 CSV next). A3 still waits on its browser check and Storage setup, A2 on its browser check and a try of the skill; A1.10 waits one release; then A4
+- **Last updated:** 2026-10-29 (Session 16: all of A5 built; browser check and an index deploy outstanding)
+- **Current phase:** A5 is built (A5.1 backfill run on production; A5.2 results by question, A5.3 attempt review, A5.4 dashboard strip and trend, A5.5 CSV). Left for you: the browser check and deploying one index (both in MANUAL_STEPS). Not built: voiding an attempt / allowing another, a link from a question to the people who got it wrong. Then A4 (lifecycle), A6. A3 still waits on its browser check and Storage setup, A2 on its browser check and a try of the skill; A1.10 waits one release; then A4
 - **Related:** `docs/IMPROVEMENT_ROADMAP.md` (its Phase 8 "Pro exam features" items are folded in here where they touch admin), `docs/PERFORMANCE_PLAN.md` (speed rules still apply), `docs/MANUAL_STEPS.md` (things only the user can do)
 
 ---
@@ -35,7 +35,7 @@
 | A2 | Quiz format, import/export, and the AI skill | P0 | In progress (built; browser check and a real AI run outstanding) |
 | A3 | Faster editing | P1 | Built (A3.1 to A3.6; browser check and Storage setup outstanding) |
 | A4 | Quiz lifecycle (draft, schedule, trash, versions) | P1 | In progress (A4.3 trash done) |
-| A5 | Insights (attempt review for admins, question analytics) | P1 | Built (A5.1 to A5.3; browser check outstanding; A5.4 and A5.5 not started) |
+| A5 | Insights (attempt review for admins, question analytics) | P1 | Built (A5.1 to A5.5; browser check and one index deploy outstanding) |
 | A6 | Governance (audit log, editor role, user tools) | P2 | Not started |
 | A7 | AI built into the app (optional) | P3 | Not started |
 
@@ -358,8 +358,8 @@ Files: new `lib/quiz-format/`, `lib/quiz-import/`, `components/admin/quiz-import
   - [x] **A5.3e Per-person view.** `GET /api/admin/reports?userId=` (and `/quiz-reports?userId=`) lists one person's results with `person` named in the response; a "Results" link on each row of the Users screen. A person and a quiz are not combined (400 `invalid_filter`; the quiz filter is greyed out in person view). It uses the existing `responses` index on `userId` + `submittedAt`, so **nothing to deploy**. *Done 2026-10-29.*
   - [ ] **A5.3f Tests.** Done: emulator block in `admin-api.test.ts` (6 tests: another person's picks next to the key and the player's name; review given to the admin when the quiz hides it from players; the player's own result route still owner-only; events in order and the truncation flag, no device clock sent; an attempt from before question model v2; 401/403/404/409/bad id), and `admin-attempt-detail.test.tsx` (8 tests: wording, Wrong / Not answered filter, timeline, nothing-recorded, checked-by-hand quiz, Retry, missing answers, Reports links). Added with A5.3e: the `userId` filter emulator test, Reports and Users page tests, the detail page's person link, and an `access-control.test.ts` case for `/quiz-reports/<id>`.
   - [ ] **A5.3g Later:** **void** an attempt (same code path that keeps `leaderboard/*` and `userTotals/*` right, compare with `backfill:leaderboard` dry run) and **allow another attempt**; note for the admin on a result ("checked by hand").
-- [ ] **A5.4** Dashboard "needs attention" strip (quizzes with very low average, results with many integrity events) and a 30-day trend from cached count queries.
-- [ ] **A5.5** Per-question results CSV (formula-safe cells, same helper as the reports CSV): one row per person and question, for the admin's own analysis.
+- [x] **A5.4** Dashboard "Needs attention" and a 30-day trend, both from count and aggregation queries kept 5 minutes in the data cache (no result document is read). Trend: one count per UTC day (30 queries), drawn as one bar a day with a sentence that says the same in words. Needs attention: quizzes with 5 or more results and an average under 50% (an average per quiz over the 40 newest quizzes), and results among the latest 50 with 5 or more recorded events (tab switches, lost focus, fullscreen exits), each with a link (the quiz, or the result). *Built 2026-10-29. The low-average part needs a new index, `responses`: `quizId` + `score` ascending (in `firestore.indexes.json`, **not yet deployed**); until it is, that part is left out and the dashboard still loads.*
+- [x] **A5.5** Per-question results CSV: "Download results CSV" on the Results by question tab. One row per person and question (quiz, level, result id, player, submitted UTC, question number and text, picked letters, correct letters, outcome right / wrong / skipped / not marked), player names only (no email), formula-safe cells, Excel-friendly (byte order mark), stops at 100,000 rows and says so. `GET /api/admin/quizzes/[quizId]/question-results`, `lib/question-results-csv.ts` (pure). "Correct answer" is the key as it is now; "outcome" is what was recorded when the result was scored. *Built 2026-10-29.*
 
 **Out of scope for A5:** manual marking of free-text answers (no such question type yet), sharing a result with a player, exporting personal data in bulk beyond the existing CSV, emailing results.
 
@@ -413,6 +413,12 @@ Estimated size (sessions of the kind the other plans used): A1 ≈ 3–4, A2 ≈
 ## Session Log
 
 Add new entries at the top.
+
+### 2026-10-29 — Session 16, part 4 (A5.4 dashboard strip and trend, A5.5 CSV)
+- Done: **A5.4** `getDashboard` now returns `trend` (30 UTC days of counts) and `attention` (low-average quizzes, noisy results); `TrendChart`; a "Needs attention" card with links. Pure parts in `lib/admin-analytics.ts` (`dayWindows`, `lowAverageAlerts`, `integrityAlerts`). **A5.5** the CSV (`lib/question-results-csv.ts`, `getQuestionResultsCsv`, route, button; the statistics and the CSV share one read of the quiz's latest results).
+- Found by running the code against production (read-only): (1) the per-quiz average needs a `responses` index on `quizId` + `score` ascending that production does not have, which would have made the whole Dashboard fail; that part is now fail-soft and the index is in `firestore.indexes.json`, to be deployed by you; (2) over the REST transport production uses, a missing index is reported as code 3 with the message "The query requires an index", not code 9, so the older `code === 9` checks (the Reports quiz filter, and A5.2) would never have fired there. All three places now use `isMissingIndex` (`lib/server/request.ts`, tested for both shapes).
+- Verified: `tsc`, lint, `npm run build` clean (public pages unchanged; `/dashboard` 163 kB, `/quizzes/[quizId]` 176 kB, admin). Passing: `admin-dashboard` (6), `question-results-csv` (7), `admin-analytics` (+3), `quiz-insights-panel` (10), `missing-index` (3), `admin-pages`, `access-control`; emulator `admin-api.test.ts` **68 of 68** (new: trend, needs attention, CSV). Read-only run of the real dashboard and CSV code on production worked: 116 results, trend 45 in 30 days, an integrity list (one attempt with 54 events), CSV for three quizzes (20, 380 and 240 rows). `attempts-api.test.ts` was started afterwards (see the result below). Not looked at in a browser.
+- Next up: you deploy the index and do the browser check; then A4 (lifecycle) or A6.
 
 ### 2026-10-29 — Session 16, part 3 (A5.1 backfill and A5.2 results by question)
 - Done: **A5.1** `npm run backfill:sheets` run on production after a dry run (94 results: 79 got a sheet, 15 had one, 0 unreadable; rerun reports nothing left). It only adds `sheet` and `schemaVersion: 2`; nothing else reads `schemaVersion`. **A5.2** `lib/item-analysis.ts`, `lib/server/admin-insights.ts`, `GET /api/admin/quizzes/[quizId]/insights`, `QuizInsightsPanel` and a "Questions / Results by question" switch on the quiz page (share right, separation, flags in words, option pick bars, "Needs attention" filter, hardest or easiest first, the number of results shown).

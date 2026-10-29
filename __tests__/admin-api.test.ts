@@ -62,6 +62,7 @@ import { DELETE as deleteQuizRoute, GET as getQuizRoute, PUT as putQuizRoute } f
 import { POST as foreverRoute } from "@/app/api/admin/quizzes/[quizId]/delete-forever/route";
 import { POST as restoreRoute } from "@/app/api/admin/quizzes/[quizId]/restore/route";
 import { GET as insightsRoute } from "@/app/api/admin/quizzes/[quizId]/insights/route";
+import { GET as questionResultsRoute } from "@/app/api/admin/quizzes/[quizId]/question-results/route";
 import { GET as listRoute, POST as createRoute } from "@/app/api/admin/quizzes/route";
 import { GET as reportsRoute } from "@/app/api/admin/reports/route";
 import { GET as attemptDetailRoute } from "@/app/api/admin/reports/[attemptId]/route";
@@ -1360,6 +1361,47 @@ describe.skipIf(!emulator)("results by question (A5.2)", () => {
     expect(data.levels[0].questions.every((q) => q.attempts === 0 && q.difficulty === null)).toBe(true);
   });
 
+  describe("the CSV (A5.5)", () => {
+    const csvOf = (quizId: string, token: string | null = ADMIN) =>
+      questionResultsRoute(request(`/api/admin/quizzes/${quizId}/question-results`, "GET", token ?? undefined), quizCtx(quizId));
+
+    it("has a row per person and question with names, picks, the key and the outcome, and no email address", async () => {
+      const quizId = (await createOk({ title: "=Sneaky quiz" })).id;
+      const right = unique("pl");
+      const wrong = unique("pl");
+      await db.doc(`users/${right}`).set({ displayName: "Ada Lovelace", email: "ada@example.com" });
+      await db.doc(`users/${wrong}`).set({ email: "grace@example.com" });
+      await play(quizId, right, true);
+      await play(quizId, wrong, false);
+
+      const response = await csvOf(quizId);
+      expect(response.status).toBe(200);
+      const file = (await response.json()) as { filename: string; csv: string; rows: number; truncated: boolean; results: number };
+      expect(file).toMatchObject({ rows: 4, truncated: false, results: 2 });
+      expect(file.filename).toBe("sneaky-quiz-results-by-question.csv");
+      expect(file.csv.charCodeAt(0)).toBe(0xfeff);
+
+      const lines = file.csv.slice(1).split("\r\n");
+      expect(lines).toHaveLength(5);
+      // The title starts with "=", so it is written as text, not left to run as a formula.
+      expect(lines[1]).toContain(`"'=Sneaky quiz"`);
+      expect(file.csv).toContain("Ada Lovelace");
+      // Someone with no display name is shown by email, like the reports; the address of someone with a name is not.
+      expect(file.csv).not.toContain("ada@example.com");
+      expect(file.csv).toContain("grace@example.com");
+      expect(lines.filter((line) => line.endsWith(`"right"`))).toHaveLength(2);
+      expect(lines.filter((line) => line.endsWith(`"wrong"`))).toHaveLength(2);
+    });
+
+    it("is for admins only", async () => {
+      const quizId = (await createOk()).id;
+      expect((await csvOf(quizId, null)).status).toBe(401);
+      expect((await csvOf(quizId, "uid:plain")).status).toBe(403);
+      expect((await csvOf(unique("nothing"))).status).toBe(404);
+      expect((await csvOf("../x")).status).toBe(400);
+    });
+  });
+
   it("is for admins only, and refuses a quiz that doesn't exist or a bad id", async () => {
     const quizId = (await createOk()).id;
     expect((await insights(quizId, null)).status).toBe(401);
@@ -1376,6 +1418,8 @@ describe.skipIf(!emulator)("reports and the dashboard", () => {
   let seeds = 0;
   const reports = (query = "", token: string | null = ADMIN) =>
     reportsRoute(request(`/api/admin/reports${query}`, "GET", token ?? undefined));
+  const dashboard = async () =>
+    (await (await statsRoute(request("/api/admin/stats", "GET", ADMIN))).json()) as DashboardData;
 
   /** Five results from the year 2100 (each call newer than the last), so they are the newest in a shared database. */
   async function seedResults() {
@@ -1531,6 +1575,54 @@ describe.skipIf(!emulator)("reports and the dashboard", () => {
     expect(data.recent.length).toBeLessThanOrEqual(50);
     expect(data.recent.slice(0, 5).map((r) => r.id)).toEqual([4, 3, 2, 1, 0].map((i) => `${tag}-r${i}`));
     expect(data.recentQuizzes.length).toBeLessThanOrEqual(5);
+  });
+
+  it("gives a 30-day trend of results per day, with today last", async () => {
+    // Results submitted just now, so they land in today's bucket whatever else the database holds.
+    const quizId = (await createOk()).id;
+    const before = (await dashboard()).trend;
+    await play(quizId, unique("pl"));
+    await play(quizId, unique("pl"));
+    const after = (await dashboard()).trend;
+
+    expect(after).toHaveLength(30);
+    expect(after[29].day).toBe(new Date().toISOString().slice(0, 10));
+    for (let i = 1; i < 30; i++) expect(after[i].day > after[i - 1].day).toBe(true);
+    // Two results more than before (a midnight crossing would move them to the next day, so compare the totals).
+    const sum = (days: { results: number }[]) => days.reduce((n, day) => n + day.results, 0);
+    expect(sum(after) - sum(before)).toBe(2);
+  });
+
+  it("puts a quiz with a low average and a result with many recorded events under 'needs attention'", async () => {
+    const tag = unique("att");
+    const quizId = `${tag}-quiz`;
+    await db.doc(`quizzes/${quizId}`).set({ title: "Struggling quiz", createdAt: Timestamp.fromMillis(Date.UTC(2100, 0, 1)) });
+    await db.doc(`users/${tag}-ann`).set({ displayName: "Noisy Ann" });
+    const base = Date.UTC(2100, 5, 1);
+    for (let i = 0; i < 6; i++) {
+      await db.doc(`responses/${tag}-r${i}`).set({
+        quizId,
+        userId: `${tag}-ann`,
+        score: 20,
+        selectedDifficulty: "easy",
+        startedAt: Timestamp.fromMillis(base + i * 1000 - 60_000),
+        submittedAt: Timestamp.fromMillis(base + i * 1000),
+        // Only the last, newest result is noisy.
+        tabSwitchCount: i === 5 ? 6 : 0,
+        fullscreenExits: i === 5 ? 2 : 0,
+      });
+    }
+    const { attention } = await dashboard();
+    expect(attention).toContainEqual({ kind: "low_average", quizId, title: "Struggling quiz", average: 20, results: 6 });
+    expect(attention).toContainEqual({
+      kind: "integrity",
+      attemptId: `${tag}-r5`,
+      userName: "Noisy Ann",
+      quizTitle: "Struggling quiz",
+      events: 8,
+    });
+    // The quiet results of the same person are not listed.
+    expect(attention.filter((item) => item.kind === "integrity" && item.attemptId.startsWith(tag))).toHaveLength(1);
   });
 });
 

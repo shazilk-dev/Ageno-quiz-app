@@ -1,4 +1,4 @@
-import type { ReportRow } from "@/lib/admin-types";
+import type { AttentionItem, ReportRow } from "@/lib/admin-types";
 
 /** One bar of a distribution. */
 export interface Band {
@@ -122,4 +122,60 @@ export function toCsv(rows: ReportRow[]): string {
       .join(",")
   );
   return [header.map(csvCell).join(","), ...lines].join("\r\n");
+}
+
+// ---- the dashboard's trend and "needs attention" strip --------------------------------------------------
+
+/** A quiz with at least this many results and an average under this is worth a look. */
+export const LOW_AVERAGE_BELOW = 50;
+export const LOW_AVERAGE_MIN_RESULTS = 5;
+/** Tab switches, lost focus and fullscreen exits together, in one result, at which it is listed. */
+export const INTEGRITY_ALERT_AT = 5;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The last `days` UTC days ending with the day of `now`, oldest first: `YYYY-MM-DD` and the half-open range in epoch ms. */
+export function dayWindows(now: number, days = 30): { day: string; start: number; end: number }[] {
+  const today = Math.floor(now / DAY_MS) * DAY_MS;
+  return Array.from({ length: days }, (_, i) => {
+    const start = today - (days - 1 - i) * DAY_MS;
+    return { day: new Date(start).toISOString().slice(0, 10), start, end: start + DAY_MS };
+  });
+}
+
+/** Quizzes that finished people did badly on. Lowest average first. */
+export function lowAverageAlerts(
+  stats: { quizId: string; title: string; results: number; average: number | null }[],
+  max = 5
+): AttentionItem[] {
+  return stats
+    .filter(
+      (quiz): quiz is typeof quiz & { average: number } =>
+        quiz.average !== null && quiz.results >= LOW_AVERAGE_MIN_RESULTS && quiz.average < LOW_AVERAGE_BELOW
+    )
+    .sort((a, b) => a.average - b.average)
+    .slice(0, max)
+    .map((quiz) => ({
+      kind: "low_average",
+      quizId: quiz.quizId,
+      title: quiz.title,
+      average: Math.round(quiz.average),
+      results: quiz.results,
+    }));
+}
+
+/** Results where the browser recorded a lot happening. Most events first. */
+export function integrityAlerts(rows: ReportRow[], max = 5): AttentionItem[] {
+  return rows
+    .map((row) => ({ row, events: row.tabSwitchCount + row.fullscreenExits + row.blurCount }))
+    .filter(({ events }) => events >= INTEGRITY_ALERT_AT)
+    .sort((a, b) => b.events - a.events)
+    .slice(0, max)
+    .map(({ row, events }) => ({
+      kind: "integrity",
+      attemptId: row.id,
+      userName: row.userName || "Unknown user",
+      quizTitle: row.quizTitle || "Unknown quiz",
+      events,
+    }));
 }

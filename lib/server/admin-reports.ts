@@ -1,7 +1,9 @@
 import { AggregateField, Timestamp } from "firebase-admin/firestore";
 import { db } from "@/firebase/admin";
-import type { DashboardData, ReportRow, ReportsPage } from "@/lib/admin-types";
-import { ApiError, isSafeId } from "./request";
+import { dayWindows, integrityAlerts, lowAverageAlerts } from "@/lib/admin-analytics";
+import type { AttentionItem, DashboardData, ReportRow, ReportsPage, TrendDay } from "@/lib/admin-types";
+import { cached } from "./cache";
+import { ApiError, isMissingIndex, isSafeId } from "./request";
 
 // What the admin dashboard and the reports page read. Everything is a bounded query: counts and the average
 // come from aggregation queries (no documents are read), result rows come a page at a time with only the
@@ -27,7 +29,7 @@ const ms = (value: unknown): number | null =>
 const count = (value: unknown): number => (typeof value === "number" ? value : 0);
 
 /** `getAll` in chunks, so a long page never builds one enormous request. */
-async function namesFor(
+export async function namesFor(
   collection: "quizzes" | "users",
   ids: string[],
   pick: (data: FirebaseFirestore.DocumentData) => string,
@@ -123,8 +125,7 @@ export async function getReportsPage(
       db.collection("quizzes").select("title").get(),
     ]);
   } catch (error) {
-    // 9 = FAILED_PRECONDITION: Firestore wants an index that isn't deployed (or is still building).
-    if (filtered && (error as { code?: number }).code === 9) {
+    if (filtered && isMissingIndex(error)) {
       throw new ApiError(
         503,
         "index_required",
@@ -156,6 +157,54 @@ export async function getReportsPage(
 }
 
 const RECENT_FOR_CHARTS = 50;
+/** Quizzes whose average is checked for "needs attention" (the newest ones), one aggregation query each. */
+const QUIZZES_CHECKED = 40;
+
+/**
+ * The dashboard's 30-day trend (one count query per day) and the quizzes with a low average (one aggregation
+ * query per quiz). Both are counts, so no result document is read, and both are kept five minutes in the
+ * data cache: a handful of seconds of delay on a dashboard is fine, and 70 queries on every load is not.
+ */
+async function loadTrendAndAverages(): Promise<{ trend: TrendDay[]; lowAverage: AttentionItem[] }> {
+  const windows = dayWindows(Date.now());
+  const [trend, quizzes] = await Promise.all([
+    Promise.all(
+      windows.map(async ({ day, start, end }): Promise<TrendDay> => {
+        const snap = await db
+          .collection("responses")
+          .where("submittedAt", ">=", Timestamp.fromMillis(start))
+          .where("submittedAt", "<", Timestamp.fromMillis(end))
+          .count()
+          .get();
+        return { day, results: snap.data().count };
+      })
+    ),
+    db.collection("quizzes").orderBy("createdAt", "desc").limit(QUIZZES_CHECKED).select("title", "deletedAt").get(),
+  ]);
+
+  // An average per quiz needs the `quizId` + `score` index (firestore.indexes.json). Until it is deployed
+  // this part of the strip is simply empty: the dashboard itself must not fail over it.
+  let lowAverage: AttentionItem[] = [];
+  try {
+    const stats = await Promise.all(
+      quizzes.docs
+        .filter((doc) => !doc.data().deletedAt)
+        .map(async (doc) => {
+          const snap = await db
+            .collection("responses")
+            .where("quizId", "==", doc.id)
+            .aggregate({ results: AggregateField.count(), average: AggregateField.average("score") })
+            .get();
+          const { results, average } = snap.data();
+          return { quizId: doc.id, title: String(doc.data().title || "Untitled quiz"), results, average };
+        })
+    );
+    lowAverage = lowAverageAlerts(stats);
+  } catch (error) {
+    if (!isMissingIndex(error)) throw error;
+  }
+  return { trend, lowAverage };
+}
 
 export async function getDashboard(): Promise<DashboardData> {
   const [users, quizzes, attempts, recentQuizzes, recent] = await Promise.all([
@@ -179,6 +228,8 @@ export async function getDashboard(): Promise<DashboardData> {
   ]);
 
   const { total, average } = attempts.data();
+  const { trend, lowAverage } = await cached(["dashboard-trend"], ["admin-dashboard"], loadTrendAndAverages, 300);
+  const recentRows = await toRows(recent.docs);
   return {
     totals: {
       users: users.data().count,
@@ -194,6 +245,8 @@ export async function getDashboard(): Promise<DashboardData> {
         title: String(doc.data().title || "Untitled quiz"),
         createdAt: ms(doc.data().createdAt) ?? 0,
       })),
-    recent: await toRows(recent.docs),
+    trend,
+    attention: [...lowAverage, ...integrityAlerts(recentRows)],
+    recent: recentRows,
   };
 }
