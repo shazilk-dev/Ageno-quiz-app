@@ -1,7 +1,7 @@
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { LogoWordmark } from "@/components/brand/LogoWordmark";
-import { agenoverseLinks } from "@/lib/navigation";
+import { agenoverseLinks, makerLinks, makerName } from "@/lib/navigation";
 import { AGENOVERSE_URL, cn } from "@/lib/utils";
 import { Container } from "./Container";
 
@@ -65,6 +65,26 @@ export default function Footer({ className }: { className?: string }) {
         <Container className="flex flex-col gap-1 py-4 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-label">{"// LET'S RISE TOGETHER"}</span>
           <span className="text-label">© {year} Agenoverse</span>
+        </Container>
+        <Container className="flex flex-col gap-x-4 pb-4 text-sm text-text-muted sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Built by <span className="text-text">{makerName}</span>
+          </span>
+          <ul className="flex flex-wrap gap-x-5">
+            {makerLinks.map((link) => (
+              <li key={link.href}>
+                <a
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={linkClass}
+                >
+                  {link.label}
+                  <ArrowUpRight className="size-3.5" aria-hidden="true" />
+                </a>
+              </li>
+            ))}
+          </ul>
         </Container>
       </div>
     </footer>

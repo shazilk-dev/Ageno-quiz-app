@@ -31,6 +31,13 @@ export const myQuizzesLink: NavLink = {
 export const adminLink: NavLink = { label: "Admin", href: "/dashboard" };
 
 /** Pages on the Agenoverse site, shown in the footer. */
+/** The maker's own pages, shown in the footer's bottom bar. */
+export const makerName = "Shazil Khan";
+export const makerLinks: NavLink[] = [
+  { label: "Portfolio", href: "https://www.shazilkhan.me" },
+  { label: "LinkedIn", href: "https://www.linkedin.com/in/shazilkhan-dev/" },
+];
+
 export const agenoverseLinks: NavLink[] = [
   { label: "Community", href: agenoverseUrl("/community") },
   { label: "Agenoversity", href: agenoverseUrl("/agenoversity") },

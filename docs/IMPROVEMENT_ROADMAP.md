@@ -3,7 +3,7 @@
 **Purpose:** turn Ageno Quiz into a professional, industry-level quiz and exam platform that belongs to the **Agenoverse** brand. The plan spans multiple sessions and tracks its own progress.
 
 - **Created:** 2026-10-23
-- **Last updated:** 2026-10-26 (Session 10)
+- **Last updated:** 2026-10-29 (Session 11)
 - **Current phase:** 7 (App-wide polish and accessibility). P7.1 to P7.5 are done; the user hasn't looked at any of them yet.
 - **Admin plan:** `docs/ADMIN_PLAN.md` (written 2026-10-26, nothing built yet) covers the admin side: several correct answers and reasoning per option (A1, includes a data-structure change), the quiz format, import/export and an AI skill (A2), lifecycle, insights. Decisions are made; the first step is A1.1.
 - **UX plan:** `docs/UX_PLAN.md` (written 2026-10-27; U3 and U1 built): light theme as the default with a Light/Dark/System switch (this changes the "Dark by default" rule in Design principles once U1 ships), a compact exam screen, a clearer result and review.
@@ -470,6 +470,12 @@ Add new entries at the top. Template:
 - Notes/blockers: …
 - Next up: P0.3
 ```
+
+### 2026-10-29 — Session 11 (footer maker credit)
+- Done: the footer's bottom bar has a "Built by Shazil Khan" line with Portfolio and LinkedIn links (`components/layout/Footer.tsx`; the name and URLs are `makerName` and `makerLinks` in `lib/navigation.ts`). Same link style as the Agenoverse links (44px tap target, new tab, `rel="noopener noreferrer"`). The header, exam and admin screens are untouched.
+- Verified: `tsc` ✓ `eslint` on the two files ✓. **Not verified:** how it looks in a real browser at phone and desktop width, in light and dark.
+- Notes: not a roadmap task; no phase or Status table change.
+- Next up: unchanged (see the Status table).
 
 ### 2026-10-26 — Session 10 (Phase 6 closed, P7.1 to P7.5)
 - **P7.5 audit (Lighthouse 13 and axe-core, real Chrome, production build on localhost).** Pages: `/`, `/join`, the lobby (a real quiz, read-only), and, through a **throwaway harness** (deleted; it mounted the real components with a fake signed-in user and a patched `fetch`, because real sign-in needs real credentials), the exam, results, My quizzes, leaderboard, profile and four admin screens. axe ran at 1366 and 390 wide with the WCAG 2.0 to 2.2 A/AA and best-practice rule sets; sign-in and sign-up were axe-checked too.
