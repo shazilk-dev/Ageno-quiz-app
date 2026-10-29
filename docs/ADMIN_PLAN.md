@@ -3,8 +3,8 @@
 **Purpose:** make the admin side fast, safe and pleasant to run: bring a whole quiz in from a file (or from an AI) in minutes, support questions with several correct answers, attach reasoning to every answer option, and see how each question performs. Same rules as the other plans: phases, checkbox tasks, a status table and a session log.
 
 - **Created:** 2026-10-26
-- **Last updated:** 2026-10-29 (Session 16: A5.3 admin attempt review built; browser check outstanding)
-- **Current phase:** A5.3 (an admin opens one person's attempt: built, browser check in MANUAL_STEPS; per-person view and "other attempts" next, then A5.2 per-question statistics). A3 still waits on its browser check and Storage setup, A2 on its browser check and a try of the skill; A1.10 waits one release; then A4
+- **Last updated:** 2026-10-29 (Session 16: A5.1 to A5.3 built; browser check outstanding)
+- **Current phase:** A5 (A5.1 backfill run, A5.2 results by question and A5.3 attempt review built; the browser check is in MANUAL_STEPS; A5.4 dashboard strip and A5.5 CSV next). A3 still waits on its browser check and Storage setup, A2 on its browser check and a try of the skill; A1.10 waits one release; then A4
 - **Related:** `docs/IMPROVEMENT_ROADMAP.md` (its Phase 8 "Pro exam features" items are folded in here where they touch admin), `docs/PERFORMANCE_PLAN.md` (speed rules still apply), `docs/MANUAL_STEPS.md` (things only the user can do)
 
 ---
@@ -35,7 +35,7 @@
 | A2 | Quiz format, import/export, and the AI skill | P0 | In progress (built; browser check and a real AI run outstanding) |
 | A3 | Faster editing | P1 | Built (A3.1 to A3.6; browser check and Storage setup outstanding) |
 | A4 | Quiz lifecycle (draft, schedule, trash, versions) | P1 | In progress (A4.3 trash done) |
-| A5 | Insights (attempt review for admins, question analytics) | P1 | In progress (A5.3 first: an admin opening one person's attempt) |
+| A5 | Insights (attempt review for admins, question analytics) | P1 | Built (A5.1 to A5.3; browser check outstanding; A5.4 and A5.5 not started) |
 | A6 | Governance (audit log, editor role, user tools) | P2 | Not started |
 | A7 | AI built into the app (optional) | P3 | Not started |
 
@@ -348,8 +348,8 @@ Files: new `lib/quiz-format/`, `lib/quiz-import/`, `components/admin/quiz-import
 - **Honest numbers.** Statistics are advice for the admin, with the sample size next to every percentage, and a "too few attempts" state under 10 instead of a misleading figure.
 
 **Tasks**
-- [ ] **A5.1** Run `backfill:sheets` (dry run, then `-- --apply`) so older results have a `sheet` (needed by A5.2 only; A5.3 does not use it).
-- [ ] **A5.2** Per-question statistics. `lib/item-analysis.ts` (pure, unit-tested: % correct, discrimination with the top and bottom 27% by score, pick rate per option incl. multi-select, flags "very hard < 30%", "very easy > 90%", "negative discrimination: check the key", "option picked by under 5%"), `lib/server/admin-insights.ts` (reads the latest N sheets, tagged cache), `GET /api/admin/quizzes/[quizId]/insights`, a Questions tab on the quiz page with the sample size shown, and a link from each question to the people who got it wrong. Needs the question *key at the time of the attempt*, so statistics are computed from each attempt's own snapshot, not the current quiz.
+- [x] **A5.1** Run `backfill:sheets` (dry run, then `-- --apply`) so older results have a `sheet` (needed by A5.2 only; A5.3 does not use it). *Done 2026-10-29 against production: 94 results, 15 already had a sheet, 79 got one, 0 unreadable; a second dry run said 94 of 94 done. It only adds `sheet` and `schemaVersion: 2`; scores, answers and the old `answers/*` documents are untouched.*
+- [x] **A5.2** Per-question statistics (built 2026-10-29; the link from a question to the people who got it wrong is not built, and a browser check is outstanding). `lib/item-analysis.ts` (pure, unit-tested: % correct, discrimination with the top and bottom 27% by score, pick rate per option incl. multi-select, flags "very hard < 30%", "very easy > 90%", "negative discrimination: check the key", "option picked by under 5%"), `lib/server/admin-insights.ts` (reads the latest N sheets, tagged cache), `GET /api/admin/quizzes/[quizId]/insights`, a Questions tab on the quiz page with the sample size shown, and a link from each question to the people who got it wrong. Needs the question *key at the time of the attempt*, so statistics are computed from each attempt's own snapshot, not the current quiz.
 - [ ] **A5.3** Attempt review (the admin sees what a person did wrong). Done in steps:
   - [x] **A5.3a Reader.** `getAttemptForAdmin(attemptId)` in `lib/server/attempts.ts` (shares `upgradeAttempt` with `owned`, takes no user id, always builds the review from the snapshot, returns the player's name and email, the quiz title, level, score, raw %, multiplier, time taken, late flag, integrity counts and the timestamped events). `AdminAttemptDetail` DTO in `lib/admin-types.ts`. *Done 2026-10-29.*
   - [x] **A5.3b Route.** `GET /api/admin/reports/[attemptId]` behind `requireAdmin`, `no-store`. *Done 2026-10-29.*
@@ -362,6 +362,8 @@ Files: new `lib/quiz-format/`, `lib/quiz-import/`, `components/admin/quiz-import
 - [ ] **A5.5** Per-question results CSV (formula-safe cells, same helper as the reports CSV): one row per person and question, for the admin's own analysis.
 
 **Out of scope for A5:** manual marking of free-text answers (no such question type yet), sharing a result with a player, exporting personal data in bulk beyond the existing CSV, emailing results.
+
+**What A5.2 does (decisions):** `lib/item-analysis.ts` is pure. "Got it right" is the share of every result at that level (a skipped question counts as not right); right or wrong is what was recorded when the result was scored (`ok`), else the current key. Discrimination is the top 27% by score minus the bottom 27%, shown only with 10 or more scored results. Flags: very hard under 30% and very easy over 90% (10 or more results); "check the key" when discrimination is below -0.1 (30 or more scored results); an unused option when a wrong option of a question with 3 or more options is picked by under 5% (20 or more results). Under 10 results the figures show and nothing is flagged. The tab reads the latest 2000 results of the quiz (`quizId` + `submittedAt` index, already deployed) and says when it is not all of them; it is cached 5 minutes under the quiz's tag, so an edit clears it. Known limit: a question edited after some results were taken is judged against all of them, because a result stores picks, not the options it saw. Server: `lib/server/admin-insights.ts`, `GET /api/admin/quizzes/[quizId]/insights`; screen: the quiz page's "Results by question" tab (`QuizInsightsPanel`).
 
 **Done when:** an admin opens any finished result and sees exactly which questions that person got wrong or skipped (with the correct answer and the reasons) and what the browser recorded during the attempt; and opens a quiz and sees which questions are too hard, possibly mis-keyed, or have dead options, on one screen.
 
@@ -411,6 +413,12 @@ Estimated size (sessions of the kind the other plans used): A1 ≈ 3–4, A2 ≈
 ## Session Log
 
 Add new entries at the top.
+
+### 2026-10-29 — Session 16, part 3 (A5.1 backfill and A5.2 results by question)
+- Done: **A5.1** `npm run backfill:sheets` run on production after a dry run (94 results: 79 got a sheet, 15 had one, 0 unreadable; rerun reports nothing left). It only adds `sheet` and `schemaVersion: 2`; nothing else reads `schemaVersion`. **A5.2** `lib/item-analysis.ts`, `lib/server/admin-insights.ts`, `GET /api/admin/quizzes/[quizId]/insights`, `QuizInsightsPanel` and a "Questions / Results by question" switch on the quiz page (share right, separation, flags in words, option pick bars, "Needs attention" filter, hardest or easiest first, the number of results shown).
+- Decisions: see "What A5.2 does" under Phase A5. A pick outside a question's options is not a pick (found by the unit test).
+- Verified: `tsc`, lint, `npm run build` clean (public pages unchanged; `/quizzes/[quizId]` 176 kB, admin). Passing: `item-analysis` (14), `quiz-insights-panel` (7); emulator `admin-api.test.ts -t A5` 9 of 9 (3 for this route: figures from real stored sheets incl. a result with no sheet and one at another level, empty quiz, admin-only/404/bad id). A read-only run of the analysis on production returned correctly for the first quiz (1 result, 20 questions, average right 50%); the rest of that run died on network resets (`ECONNRESET` from this machine to Firestore) twice, so the other quizzes were not looked at. Not looked at in a browser.
+- Next up: the browser check, then A5.4 (dashboard "needs attention" strip and trend) and A5.5 (per-question CSV); the link from a question to the people who got it wrong.
 
 ### 2026-10-29 — Session 16, part 2 (A5.3d/e: one person's results)
 - Done: `getReportsPage(..., userId)` and `?userId=` on the reports route (`person` in the response; person and quiz filters are exclusive), `/quiz-reports?userId=` (heading names the person, Back to all results, quiz filter off), a "Results" link on every Users row, and "All results by this person" on the attempt page. Checked first whether the index was needed: `responses` already had `userId` + `submittedAt` (My quizzes uses it), so `firestore.indexes.json` is unchanged and there is no deploy step.

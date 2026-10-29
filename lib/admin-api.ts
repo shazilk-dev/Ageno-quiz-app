@@ -5,6 +5,7 @@ import type {
   ReportsPage,
 } from "@/lib/admin-types";
 import { apiRequest } from "@/lib/api-client";
+import type { QuizInsights } from "@/lib/item-analysis";
 import type { AdminQuizDetail, AdminQuizSummary, QuizInput } from "@/lib/quiz-schema";
 
 // The admin screens' calls to the admin routes (`app/api/admin/*`). Each sends the signed-in admin's ID
@@ -31,6 +32,10 @@ export const adminQuizzes = {
       method: "PUT",
       body: { ...input, version },
     }),
+
+  /** How each question performed, from the quiz's latest finished results (cached for a few minutes). */
+  insights: (quizId: string) =>
+    apiRequest<QuizInsights>(`/api/admin/quizzes/${encodeURIComponent(quizId)}/insights`),
 
   /** Moves the quiz to the trash; nothing is deleted. */
   trash: (quizId: string) =>

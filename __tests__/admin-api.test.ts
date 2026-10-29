@@ -61,6 +61,7 @@ import { POST as registerRoute } from "@/app/api/auth/user/route";
 import { DELETE as deleteQuizRoute, GET as getQuizRoute, PUT as putQuizRoute } from "@/app/api/admin/quizzes/[quizId]/route";
 import { POST as foreverRoute } from "@/app/api/admin/quizzes/[quizId]/delete-forever/route";
 import { POST as restoreRoute } from "@/app/api/admin/quizzes/[quizId]/restore/route";
+import { GET as insightsRoute } from "@/app/api/admin/quizzes/[quizId]/insights/route";
 import { GET as listRoute, POST as createRoute } from "@/app/api/admin/quizzes/route";
 import { GET as reportsRoute } from "@/app/api/admin/reports/route";
 import { GET as attemptDetailRoute } from "@/app/api/admin/reports/[attemptId]/route";
@@ -79,6 +80,7 @@ import { migrateLegacyQuestions } from "@/lib/server/legacy-questions";
 import { buildOverallBoard, buildQuizBoard, type LeaderboardRow } from "@/lib/leaderboard";
 import { entryId, totalsFromEntries, type EntryDoc, type TotalsDoc } from "@/lib/leaderboard-stats";
 import type { AdminAttemptDetail, DashboardData, ReportsPage } from "@/lib/admin-types";
+import type { QuizInsights } from "@/lib/item-analysis";
 import type { AdminQuizDetail, AdminQuizSummary, QuizInput } from "@/lib/quiz-schema";
 import type { AttemptState, SubmitResult } from "@/lib/exam/types";
 
@@ -1312,6 +1314,60 @@ describe.skipIf(!emulator)("an admin opening one person's attempt (A5.3)", () =>
       const response = await detail(encodeURIComponent(bad));
       expect([400, 404]).toContain(response.status);
     }
+  });
+});
+
+describe.skipIf(!emulator)("results by question (A5.2)", () => {
+  const insights = (quizId: string, token: string | null = ADMIN) =>
+    insightsRoute(request(`/api/admin/quizzes/${quizId}/insights`, "GET", token ?? undefined), quizCtx(quizId));
+
+  it("works out each question's share right and option picks from the stored sheets", async () => {
+    const quizId = (await createOk()).id;
+    // Ten results: six get every answer right, four get every answer wrong (option C).
+    for (let i = 0; i < 10; i++) await play(quizId, unique("pl"), i < 6);
+    // Results the analysis must tolerate: one with no sheet at all, one at a level the quiz doesn't have.
+    await db.doc(`responses/${unique("nosheet")}`).set({ quizId, userId: "x", score: 10, selectedDifficulty: "easy", submittedAt: Timestamp.now() });
+    await db.doc(`responses/${unique("otherlevel")}`).set({ quizId, userId: "x", score: 10, selectedDifficulty: "hard", sheet: { nope: { p: [0] } }, submittedAt: Timestamp.now() });
+
+    const response = await insights(quizId);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    const data = (await response.json()) as QuizInsights;
+
+    expect(data.total).toBe(12);
+    expect(data.analysed).toBe(12);
+    expect(data.levels.map((level) => level.level)).toEqual(["easy"]);
+    const easy = data.levels[0];
+    expect(easy.attempts).toBe(11); // the 10 played + the one without a sheet; the "hard" one belongs elsewhere
+    expect(easy.questions.map((q) => q.label)).toEqual(["One", "Two"]);
+    for (const question of easy.questions) {
+      expect(question).toMatchObject({ attempts: 11, answered: 10, correct: 6, enough: true });
+      expect(question.difficulty).toBeCloseTo(6 / 11);
+      // Everyone who got it wrong picked option C.
+      expect(question.options[2].picks).toBe(4);
+      expect(question.options.reduce((sum, option) => sum + option.picks, 0)).toBe(10);
+    }
+    // The key came from the quiz as it is: option B for "One", option A for "Two".
+    expect(easy.questions[0].options.map((o) => o.correct)).toEqual([false, true, false]);
+    expect(easy.questions[1].options.map((o) => o.correct)).toEqual([true, false, false]);
+  });
+
+  it("answers for a quiz nobody has taken, and does not mix in another quiz's results", async () => {
+    const quizId = (await createOk()).id;
+    await play((await createOk()).id, unique("pl"));
+    const data = (await (await insights(quizId)).json()) as QuizInsights;
+    expect(data).toMatchObject({ total: 0, analysed: 0, flagged: 0 });
+    expect(data.levels[0].questions.every((q) => q.attempts === 0 && q.difficulty === null)).toBe(true);
+  });
+
+  it("is for admins only, and refuses a quiz that doesn't exist or a bad id", async () => {
+    const quizId = (await createOk()).id;
+    expect((await insights(quizId, null)).status).toBe(401);
+    expect((await insights(quizId, "uid:plain")).status).toBe(403);
+    const missing = await insights(unique("nothing"));
+    expect(missing.status).toBe(404);
+    expect(await errorCode(missing)).toBe("quiz_not_found");
+    expect((await insights("../x")).status).toBe(400);
   });
 });
 

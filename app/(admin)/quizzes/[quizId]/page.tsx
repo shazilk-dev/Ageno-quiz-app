@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AdminPage } from "@/components/admin/AdminPage";
+import { QuizInsightsPanel } from "@/components/admin/QuizInsightsPanel";
 import RichText from "@/components/rich-text/RichText";
-import { Alert, Badge, Button, CopyButton, Skeleton } from "@/components/ui";
+import { Alert, Badge, Button, CopyButton, FilterTabs, Skeleton } from "@/components/ui";
 import { useDuplicateQuiz } from "@/hooks/useDuplicateQuiz";
 import { adminQuizzes } from "@/lib/admin-api";
 import { ApiRequestError } from "@/lib/api-client";
@@ -30,6 +31,7 @@ export default function ViewQuizPage() {
   const { quizId } = useParams() as { quizId: string };
   const [quiz, setQuiz] = useState<AdminQuizDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"questions" | "results">("questions");
   const { duplicate, busyId } = useDuplicateQuiz();
 
   const load = useCallback(async () => {
@@ -140,13 +142,31 @@ export default function ViewQuizPage() {
         </Fact>
       </dl>
 
-      {levels.length === 0 && (
+      <div className="mt-8 border-border border-b">
+        <FilterTabs<"questions" | "results">
+          label="Show"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "questions", label: "Questions", count: totalQuestions },
+            { value: "results", label: "Results by question", count: quiz.responseCount },
+          ]}
+        />
+      </div>
+
+      {view === "results" && (
+        <div className="mt-6">
+          <QuizInsightsPanel quizId={quiz.id} />
+        </div>
+      )}
+
+      {view === "questions" && levels.length === 0 && (
         <Alert variant="warning" title="No questions yet" className="mt-8">
           Players can&apos;t take this quiz until it has questions.
         </Alert>
       )}
 
-      {levels.map((level) => {
+      {view === "questions" && levels.map((level) => {
         const entry = quiz.levels[level]!;
         return (
           <section key={level} aria-labelledby={`level-${level}`} className="mt-10">
