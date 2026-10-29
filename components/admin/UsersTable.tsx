@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
+import Link from "next/link";
 import { Badge, Button, Card } from "@/components/ui";
 import type { AdminUserDTO } from "@/lib/admin-types";
 import { cn } from "@/lib/utils";
@@ -126,6 +127,14 @@ export function UsersTable({
                   </td>
                   <td className={td}>
                     <div className="flex justify-end gap-2">
+                      <Button asChild variant="ghost" size="sm">
+                        <Link
+                          href={`/quiz-reports?userId=${encodeURIComponent(user.id)}`}
+                          aria-label={`Results: ${name}`}
+                        >
+                          Results
+                        </Link>
+                      </Button>
                       <Button
                         variant="secondary"
                         size="sm"

@@ -173,6 +173,13 @@ export default function AttemptDetailClient({
       title={data.player.name}
       description={data.player.email && data.player.email !== data.player.name ? data.player.email : undefined}
       back={BACK}
+      actions={
+        <Button asChild variant="secondary">
+          <Link href={`/quiz-reports?userId=${encodeURIComponent(data.player.id)}`}>
+            All results by this person
+          </Link>
+        </Button>
+      }
     >
       <Card className="p-5">
         <dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">

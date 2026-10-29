@@ -73,24 +73,34 @@ async function toRows(docs: FirebaseFirestore.QueryDocumentSnapshot[]): Promise<
 
 /**
  * One page of finished results, newest first, plus the quiz list for the filter. With `quizId` only that
- * quiz's results (and its total) come back; that query needs the composite index on `quizId` + `submittedAt`
- * (firestore.indexes.json). Until it is deployed the query is refused with `index_required`.
+ * quiz's results (and its total) come back; with `userId` only that person's, and `person` says who. Each
+ * needs its own composite index with `submittedAt` (firestore.indexes.json); until it is deployed the query is
+ * refused with `index_required`. The two filters are not combined (that would be a third index).
  */
 export async function getReportsPage(
   limit: unknown,
   cursor: unknown,
-  quizId?: unknown
+  quizId?: unknown,
+  userId?: unknown
 ): Promise<ReportsPage> {
   const size = Math.min(
     MAX_PAGE,
     Math.max(1, typeof limit === "number" && Number.isFinite(limit) ? Math.floor(limit) : DEFAULT_PAGE)
   );
 
-  const filtered = quizId !== undefined && quizId !== null && quizId !== "";
-  if (filtered && !isSafeId(quizId)) throw new ApiError(400, "invalid_id", "That quiz isn't valid.");
-  const scope = filtered
+  const byQuiz = quizId !== undefined && quizId !== null && quizId !== "";
+  const byPerson = userId !== undefined && userId !== null && userId !== "";
+  if (byQuiz && byPerson) {
+    throw new ApiError(400, "invalid_filter", "Pick a quiz or a person, not both.");
+  }
+  if (byQuiz && !isSafeId(quizId)) throw new ApiError(400, "invalid_id", "That quiz isn't valid.");
+  if (byPerson && !isSafeId(userId)) throw new ApiError(400, "invalid_id", "That person isn't valid.");
+  const filtered = byQuiz || byPerson;
+  const scope = byQuiz
     ? db.collection("responses").where("quizId", "==", quizId)
-    : db.collection("responses");
+    : byPerson
+      ? db.collection("responses").where("userId", "==", userId)
+      : db.collection("responses");
 
   let query = scope
     .orderBy("submittedAt", "desc")
@@ -118,7 +128,9 @@ export async function getReportsPage(
       throw new ApiError(
         503,
         "index_required",
-        "Filtering by quiz isn't ready yet. Showing every quiz's results instead."
+        byPerson
+          ? "Looking up one person's results isn't ready yet."
+          : "Filtering by quiz isn't ready yet. Showing every quiz's results instead."
       );
     }
     throw error;
@@ -126,10 +138,17 @@ export async function getReportsPage(
 
   const hasMore = snapshot.size > size;
   const docs = snapshot.docs.slice(0, size);
+  const person = byPerson
+    ? {
+        id: userId as string,
+        name: (await namesFor("users", [userId as string], (data) => String(data.displayName || data.email || ""), ["displayName", "email"])).get(userId as string) || "Unknown user",
+      }
+    : null;
   return {
     rows: await toRows(docs),
     nextCursor: hasMore ? docs[docs.length - 1].id : null,
     total: total.data().count,
+    person,
     quizzes: quizSnapshot.docs
       .map((doc) => ({ id: doc.id, title: String(doc.data().title || "Untitled quiz") }))
       .sort((a, b) => a.title.localeCompare(b.title)),

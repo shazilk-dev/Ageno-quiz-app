@@ -34,7 +34,7 @@ const location = (res: Response) => new URL(res.headers.get("location") ?? "", "
 const passesThrough = (res: Response) => res.headers.get("x-middleware-next") === "1";
 
 describe("middleware: admin screens", () => {
-  const adminPaths = ["/dashboard", "/quizzes", "/quizzes/new", "/quizzes/abc/edit", "/users", "/quiz-reports", "/settings"];
+  const adminPaths = ["/dashboard", "/quizzes", "/quizzes/new", "/quizzes/abc/edit", "/users", "/quiz-reports", "/quiz-reports/abc123", "/settings"];
 
   it.each(adminPaths)("%s needs a session", async (path) => {
     const res = await call(path);

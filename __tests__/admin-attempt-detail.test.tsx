@@ -57,6 +57,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Admin attempt detail", () => {
+  it("links to everything else that person has done", () => {
+    render(<AttemptDetailClient attemptId="att1" initial={detail()} />);
+    expect(screen.getByRole("link", { name: "All results by this person" }).getAttribute("href")).toBe(
+      "/quiz-reports?userId=u1"
+    );
+  });
+
   it("shows who it was, the score, and each answer in the admin's words", () => {
     render(<AttemptDetailClient attemptId="att1" initial={detail()} />);
 

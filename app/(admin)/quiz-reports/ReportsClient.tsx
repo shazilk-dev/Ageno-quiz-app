@@ -29,7 +29,15 @@ const percent = (value: number | null) => (value === null ? "—" : `${value}%`)
  * `initial` is the first page for every quiz, rendered with the page on the server; a quiz filter, "Load
  * more" and Retry go through the API.
  */
-export default function ReportsClient({ initial = null }: { initial?: ReportsPage | null }) {
+export default function ReportsClient({
+  initial = null,
+  userId,
+}: {
+  initial?: ReportsPage | null;
+  /** Show only this person's results (the quiz filter is then off). */
+  userId?: string;
+}) {
+  const [person, setPerson] = useState(initial?.person ?? null);
   const [rows, setRows] = useState<ReportRow[]>(initial?.rows ?? []);
   const [quizzes, setQuizzes] = useState<{ id: string; title: string }[]>(initial?.quizzes ?? []);
   const [quizId, setQuizId] = useState("");
@@ -47,8 +55,9 @@ export default function ReportsClient({ initial = null }: { initial?: ReportsPag
     setLoading(true);
     setError(null);
     try {
-      const page = await adminReports.page({ quizId: quizId || undefined });
+      const page = await adminReports.page({ quizId: quizId || undefined, userId });
       setRows(page.rows);
+      setPerson(page.person);
       setQuizzes(page.quizzes);
       setCursor(page.nextCursor);
       setTotal(page.total);
@@ -59,7 +68,7 @@ export default function ReportsClient({ initial = null }: { initial?: ReportsPag
     } finally {
       setLoading(false);
     }
-  }, [quizId]);
+  }, [quizId, userId]);
 
   // The unfiltered first page came with the page; any other filter, or the first one without it, is asked for.
   const initialShown = useRef(initial !== null);
@@ -74,7 +83,7 @@ export default function ReportsClient({ initial = null }: { initial?: ReportsPag
     setLoadingMore(true);
     setError(null);
     try {
-      const page = await adminReports.page({ cursor, quizId: quizId || undefined });
+      const page = await adminReports.page({ cursor, quizId: quizId || undefined, userId });
       setRows((current) => [...current, ...page.rows]);
       setCursor(page.nextCursor);
       setTotal(page.total);
@@ -117,6 +126,7 @@ export default function ReportsClient({ initial = null }: { initial?: ReportsPag
   };
 
   const filtered = quizId !== "" || period !== "all";
+  const forPerson = userId !== undefined;
   const clearFilters = () => {
     setQuizId("");
     setPeriod("all");
@@ -125,7 +135,12 @@ export default function ReportsClient({ initial = null }: { initial?: ReportsPag
   return (
     <AdminPage
       title="Reports"
-      description="Every finished quiz, with scores, timing and what was recorded during the attempt."
+      description={
+        forPerson
+          ? `Every finished quiz by ${person?.name ?? "this person"}, with scores, timing and what was recorded.`
+          : "Every finished quiz, with scores, timing and what was recorded during the attempt."
+      }
+      back={forPerson ? { href: "/quiz-reports", label: "All results" } : undefined}
       actions={
         <Button variant="secondary" onClick={exportCsv} disabled={visible.length === 0}>
           <Download className="size-4" aria-hidden="true" />
@@ -134,7 +149,12 @@ export default function ReportsClient({ initial = null }: { initial?: ReportsPag
       }
     >
       <div className="grid gap-4 sm:grid-cols-3">
-        <Select label="Quiz" value={quizId} onChange={(event) => setQuizId(event.target.value)}>
+        <Select
+          label="Quiz"
+          value={quizId}
+          disabled={forPerson}
+          onChange={(event) => setQuizId(event.target.value)}
+        >
           <option value="">All quizzes</option>
           {quizzes.map((quiz) => (
             <option key={quiz.id} value={quiz.id}>

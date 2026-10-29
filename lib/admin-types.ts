@@ -25,6 +25,8 @@ export interface ReportsPage {
   /** Every finished result, not just this page. */
   total: number;
   quizzes: { id: string; title: string }[];
+  /** Who the results are for when the page was asked for one person's; otherwise null. */
+  person: { id: string; name: string } | null;
 }
 
 /** One thing the browser reported during an attempt; `at` is the server's clock when it arrived (epoch ms). */

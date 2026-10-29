@@ -5,6 +5,16 @@ import ReportsClient from "./ReportsClient";
 
 export const metadata: Metadata = { title: "Quiz reports" };
 
-export default async function QuizReportsPage() {
-  return <ReportsClient initial={await loadForAdmin(() => getReportsPage(undefined, undefined))} />;
+type PageProps = { searchParams: Promise<{ userId?: string | string[] }> };
+
+export default async function QuizReportsPage({ searchParams }: PageProps) {
+  // `?userId=` shows one person's results (the Users screen links here).
+  const raw = (await searchParams).userId;
+  const userId = typeof raw === "string" && raw ? raw : undefined;
+  return (
+    <ReportsClient
+      userId={userId}
+      initial={await loadForAdmin(() => getReportsPage(undefined, undefined, undefined, userId))}
+    />
+  );
 }

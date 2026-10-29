@@ -1435,6 +1435,24 @@ describe.skipIf(!emulator)("reports and the dashboard", () => {
     }
   });
 
+  it("shows one person's results, names them, and will not combine a person with a quiz", async () => {
+    const { tag, quizA } = await seedResults();
+    const ann = (await (await reports(`?userId=${tag}-ann`)).json()) as ReportsPage;
+    expect(ann.person).toEqual({ id: `${tag}-ann`, name: "Ann" });
+    expect(ann.total).toBe(2);
+    expect(ann.rows.map((row) => row.userId)).toEqual([`${tag}-ann`, `${tag}-ann`]);
+    expect(ann.rows[0].submittedAt).toBeGreaterThan(ann.rows[1].submittedAt as number);
+
+    const nobody = (await (await reports(`?userId=${tag}-nobody`)).json()) as ReportsPage;
+    expect(nobody).toMatchObject({ total: 0, rows: [], person: { name: "Unknown user" } });
+    expect(((await (await reports(`?quizId=${quizA}`)).json()) as ReportsPage).person).toBeNull();
+
+    const both = await reports(`?userId=${tag}-ann&quizId=${quizA}`);
+    expect(both.status).toBe(400);
+    expect(await errorCode(both)).toBe("invalid_filter");
+    expect((await reports("?userId=../x")).status).toBe(400);
+  });
+
   it("is for admins only", async () => {
     expect((await reports("", null)).status).toBe(401);
     expect((await reports("", "uid:plain")).status).toBe(403);

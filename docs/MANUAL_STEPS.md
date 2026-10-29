@@ -255,3 +255,4 @@ Nothing here changes stored data, and no new Firestore index is needed yet. Chec
 - [ ] A quiz with **Show answer review** off: the player sees no review, you still see all answers.
 - [ ] A result of a quiz you deleted forever (or an old one with no stored answers): a plain message, not a crash.
 - [ ] Signed in as a normal user, `/quiz-reports/<any id>` sends you away, and the player's own `/my-quizzes/<id>` still shows only their own results.
+- [ ] **One person's results.** On **Users** click **Results** on a row: Reports opens for that person only (heading names them, the Quiz filter is greyed out, "All results" goes back). From an attempt page, **All results by this person** does the same. No index to deploy (the one it uses already exists).

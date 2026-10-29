@@ -77,6 +77,13 @@ describe("Users page", () => {
     person({ id: "u3", displayName: "Linus", emailVerified: false, createdAt: 1_000 }),
   ];
 
+  it("links each person to their results", async () => {
+    api.users.list.mockResolvedValue({ users: people, total: 3 });
+    render(<UsersPage />);
+    const link = await screen.findByRole("link", { name: "Results: Grace" });
+    expect(link.getAttribute("href")).toBe("/quiz-reports?userId=u2");
+  });
+
   it("lists people with no controls on your own row and no dead invite button", async () => {
     api.users.list.mockResolvedValue({ users: people, total: 3 });
     render(<UsersPage />);
@@ -222,7 +229,7 @@ describe("Admin pages rendered with their data", () => {
 
     render(
       <QuizReportsPage
-        initial={{ rows: [result({ id: "r9", userName: "Server Grace" })], quizzes: [{ id: "q1", title: "Networking" }], nextCursor: null, total: 1 }}
+        initial={{ rows: [result({ id: "r9", userName: "Server Grace" })], quizzes: [{ id: "q1", title: "Networking" }], nextCursor: null, total: 1, person: null }}
       />
     );
     expect(screen.getAllByText("Server Grace").length).toBeGreaterThan(0);
@@ -230,14 +237,29 @@ describe("Admin pages rendered with their data", () => {
   });
 
   it("still asks the API when a quiz filter is picked on a server-rendered reports page", async () => {
-    api.reports.page.mockResolvedValue({ rows: [], quizzes: [{ id: "q1", title: "Networking" }], nextCursor: null, total: 0 });
+    api.reports.page.mockResolvedValue({ rows: [], quizzes: [{ id: "q1", title: "Networking" }], nextCursor: null, total: 0, person: null });
     render(
       <QuizReportsPage
-        initial={{ rows: [result({ id: "r9" })], quizzes: [{ id: "q1", title: "Networking" }], nextCursor: null, total: 1 }}
+        initial={{ rows: [result({ id: "r9" })], quizzes: [{ id: "q1", title: "Networking" }], nextCursor: null, total: 1, person: null }}
       />
     );
     fireEvent.change(screen.getByLabelText("Quiz"), { target: { value: "q1" } });
     await waitFor(() => expect(api.reports.page).toHaveBeenCalledWith({ quizId: "q1" }));
+  });
+
+  it("shows one person's results, names them, and leaves the quiz filter off", async () => {
+    api.reports.page.mockResolvedValue({
+      rows: [],
+      quizzes: [{ id: "q1", title: "Networking" }],
+      nextCursor: "r1",
+      total: 3,
+      person: { id: "u7", name: "Grace Hopper" },
+    });
+    render(<QuizReportsPage userId="u7" />);
+    await waitFor(() => expect(api.reports.page).toHaveBeenCalledWith({ quizId: undefined, userId: "u7" }));
+    expect(screen.getByText(/Every finished quiz by Grace Hopper/)).toBeTruthy();
+    expect((screen.getByLabelText("Quiz") as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.getByRole("link", { name: /All results/ }).getAttribute("href")).toBe("/quiz-reports");
   });
 });
 

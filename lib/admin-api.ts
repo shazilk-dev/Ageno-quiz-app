@@ -68,11 +68,17 @@ export const adminUsers = {
 
 export const adminReports = {
   /** A page of finished results, newest first. Pass the previous page's `nextCursor` for the next one. */
-  page: ({ cursor, limit, quizId }: { cursor?: string | null; limit?: number; quizId?: string } = {}) => {
+  page: ({
+    cursor,
+    limit,
+    quizId,
+    userId,
+  }: { cursor?: string | null; limit?: number; quizId?: string; userId?: string } = {}) => {
     const params = new URLSearchParams();
     if (cursor) params.set("cursor", cursor);
     if (limit) params.set("limit", String(limit));
     if (quizId) params.set("quizId", quizId);
+    if (userId) params.set("userId", userId);
     const query = params.toString();
     return apiRequest<ReportsPage>(`/api/admin/reports${query ? `?${query}` : ""}`);
   },
