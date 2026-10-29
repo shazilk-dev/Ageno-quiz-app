@@ -1,4 +1,9 @@
-import type { AdminUserDTO, DashboardData, ReportsPage } from "@/lib/admin-types";
+import type {
+  AdminAttemptDetail,
+  AdminUserDTO,
+  DashboardData,
+  ReportsPage,
+} from "@/lib/admin-types";
 import { apiRequest } from "@/lib/api-client";
 import type { AdminQuizDetail, AdminQuizSummary, QuizInput } from "@/lib/quiz-schema";
 
@@ -71,5 +76,8 @@ export const adminReports = {
     const query = params.toString();
     return apiRequest<ReportsPage>(`/api/admin/reports${query ? `?${query}` : ""}`);
   },
+  /** One finished attempt with the person's answers, the key and what was recorded during it. */
+  attempt: (attemptId: string) =>
+    apiRequest<AdminAttemptDetail>(`/api/admin/reports/${encodeURIComponent(attemptId)}`),
   dashboard: () => apiRequest<DashboardData>("/api/admin/stats"),
 };

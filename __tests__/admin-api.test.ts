@@ -63,6 +63,8 @@ import { POST as foreverRoute } from "@/app/api/admin/quizzes/[quizId]/delete-fo
 import { POST as restoreRoute } from "@/app/api/admin/quizzes/[quizId]/restore/route";
 import { GET as listRoute, POST as createRoute } from "@/app/api/admin/quizzes/route";
 import { GET as reportsRoute } from "@/app/api/admin/reports/route";
+import { GET as attemptDetailRoute } from "@/app/api/admin/reports/[attemptId]/route";
+import { GET as playerResultRoute } from "@/app/api/attempts/[id]/result/route";
 import { GET as statsRoute } from "@/app/api/admin/stats/route";
 import { DELETE as deleteUserRoute, PATCH as patchUserRoute } from "@/app/api/admin/users/[uid]/route";
 import { GET as listUsersRoute } from "@/app/api/admin/users/route";
@@ -76,7 +78,7 @@ import { backfillSheets } from "@/lib/server/response-sheets";
 import { migrateLegacyQuestions } from "@/lib/server/legacy-questions";
 import { buildOverallBoard, buildQuizBoard, type LeaderboardRow } from "@/lib/leaderboard";
 import { entryId, totalsFromEntries, type EntryDoc, type TotalsDoc } from "@/lib/leaderboard-stats";
-import type { DashboardData, ReportsPage } from "@/lib/admin-types";
+import type { AdminAttemptDetail, DashboardData, ReportsPage } from "@/lib/admin-types";
 import type { AdminQuizDetail, AdminQuizSummary, QuizInput } from "@/lib/quiz-schema";
 import type { AttemptState, SubmitResult } from "@/lib/exam/types";
 
@@ -1133,6 +1135,183 @@ describe.skipIf(!emulator)("the registration route", () => {
   it("needs a valid sign-in", async () => {
     expect((await register(undefined, { uid: "x" })).status).toBe(401);
     expect((await register("bogus", { uid: "x" })).status).toBe(401);
+  });
+});
+
+describe.skipIf(!emulator)("an admin opening one person's attempt (A5.3)", () => {
+  const detail = (attemptId: string, token: string | null = ADMIN) =>
+    attemptDetailRoute(request(`/api/admin/reports/${attemptId}`, "GET", token ?? undefined), {
+      params: Promise.resolve({ attemptId }),
+    });
+
+  /** Starts an attempt at a `createOk()` quiz (two easy questions) and submits every answer wrong, or leaves it running. */
+  async function attemptAt(quizId: string, player: string, { submit = true } = {}) {
+    const started = await startRoute(
+      request("/api/attempts/start", "POST", `uid:${player}`, { quizId, difficulty: "easy" })
+    );
+    expect(started.status).toBe(201);
+    const attempt = (await started.json()) as AttemptState;
+    if (submit) {
+      const answers = Object.fromEntries(attempt.questions.map((x) => [x.id, [2]]));
+      const done = await submitRoute(
+        request(`/api/attempts/${attempt.attemptId}/submit`, "POST", `uid:${player}`, { answers }),
+        { params: Promise.resolve({ id: attempt.attemptId }) }
+      );
+      expect(done.status).toBe(200);
+    }
+    return attempt;
+  }
+
+  it("shows what a different person picked next to the key, with the player's name", async () => {
+    const quizId = (await createOk({ title: "Wrong answers quiz" })).id;
+    const player = unique("pl");
+    await db.doc(`users/${player}`).set({ displayName: "Ada Lovelace", email: "ada@example.com" });
+    const attempt = await attemptAt(quizId, player);
+
+    const response = await detail(attempt.attemptId);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    const data = (await response.json()) as AdminAttemptDetail;
+
+    expect(data.player).toEqual({ id: player, name: "Ada Lovelace", email: "ada@example.com" });
+    expect(data.quizTitle).toBe("Wrong answers quiz");
+    expect(data.graded).toBe(true);
+    expect(data.result.score).toBe(0);
+    expect(data.questions).toHaveLength(2);
+    // Everything was answered with option C; the key is B for the first question and A for the second.
+    for (const question of data.questions) expect(data.result.answers[question.id]).toEqual([2]);
+    const keys = data.questions.map((question) => data.result.review?.[question.id]?.correct);
+    expect(keys.sort()).toEqual([[0], [1]]);
+  });
+
+  it("gives the admin the review even when the quiz hides it from players", async () => {
+    const quizId = (await createOk({ showAnswerReview: false })).id;
+    const player = unique("pl");
+    const attempt = await attemptAt(quizId, player);
+
+    const own = (await (
+      await playerResultRoute(request(`/api/attempts/${attempt.attemptId}/result`, "GET", `uid:${player}`), {
+        params: Promise.resolve({ id: attempt.attemptId }),
+      })
+    ).json()) as { result: SubmitResult };
+    expect(own.result.review).toBeNull();
+
+    const data = (await (await detail(attempt.attemptId)).json()) as AdminAttemptDetail;
+    expect(data.result.review).not.toBeNull();
+    expect(Object.keys(data.result.review ?? {})).toHaveLength(2);
+  });
+
+  it("keeps a person's own result route owner-only", async () => {
+    const quizId = (await createOk()).id;
+    const attempt = await attemptAt(quizId, unique("pl"));
+    const other = await playerResultRoute(
+      request(`/api/attempts/${attempt.attemptId}/result`, "GET", `admin:${unique("someone")}`),
+      { params: Promise.resolve({ id: attempt.attemptId }) }
+    );
+    expect(other.status).toBe(404);
+  });
+
+  it("lists the recorded events in order, with the server's time, and says when some are not kept", async () => {
+    const quizId = (await createOk()).id;
+    const attempt = await attemptAt(quizId, unique("pl"));
+    const at = Date.now();
+    await db.doc(`attempts/${attempt.attemptId}`).update({
+      events: [
+        { seq: 1, type: "tab_hidden", at, clientAt: 5 },
+        { seq: 2, type: "fullscreen_exit", at: at + 4_000, clientAt: 6 },
+      ],
+      tabSwitches: 1,
+      fullscreenExits: 1,
+    });
+    let data = (await (await detail(attempt.attemptId)).json()) as AdminAttemptDetail;
+    expect(data.events).toEqual([
+      { type: "tab_hidden", at },
+      { type: "fullscreen_exit", at: at + 4_000 },
+    ]);
+    expect(data.eventsTruncated).toBe(false);
+    // The browser's own clock is context for the server only.
+    expect(JSON.stringify(data.events)).not.toContain("clientAt");
+
+    await db.doc(`attempts/${attempt.attemptId}`).update({ tabSwitches: 9 });
+    data = (await (await detail(attempt.attemptId)).json()) as AdminAttemptDetail;
+    expect(data.eventsTruncated).toBe(true);
+  });
+
+  it("reads an attempt that began under the older question model", async () => {
+    const quizId = unique("oldq");
+    const attemptId = unique("olda");
+    const userId = unique("pl");
+    await db.doc(`quizzes/${quizId}`).set({ title: "Older quiz" });
+    await db.doc(`attempts/${attemptId}`).set({
+      quizId,
+      userId,
+      difficulty: "easy",
+      status: "submitted",
+      startedAt: Timestamp.fromMillis(1_000),
+      deadline: Timestamp.fromMillis(601_000),
+      submittedAt: Timestamp.fromMillis(61_000),
+      updatedAt: Timestamp.fromMillis(61_000),
+      createdAt: Timestamp.fromMillis(1_000),
+      durationSec: 600,
+      questions: [
+        { id: "q1", text: "One", options: ["a", "b", "c"], correctIndex: 1, explanation: "B is right." },
+        { id: "q2", text: "Two", options: ["a", "b"], correctIndex: 0 },
+      ],
+      autoCheck: true,
+      showAnswerReview: false,
+      multiplier: 1,
+      answers: { q1: 0, q2: null },
+      flagged: {},
+      index: 0,
+      tabSwitches: 0,
+      fullscreenExits: 0,
+      result: {
+        responseId: attemptId,
+        graded: true,
+        score: 0,
+        rawPercent: 0,
+        correct: 0,
+        total: 2,
+        answered: 1,
+        multiplier: 1,
+        timeTakenSec: 60,
+        late: false,
+        answers: { q1: 0, q2: null },
+        tabSwitches: 0,
+        blurs: 0,
+        fullscreenExits: 0,
+        review: null,
+      },
+    });
+
+    const data = (await (await detail(attemptId)).json()) as AdminAttemptDetail;
+    expect(data.player.name).toBe("Unknown user");
+    expect(data.result.answers).toEqual({ q1: [0], q2: [] });
+    expect(data.result.review?.q1).toMatchObject({ correct: [1], explanation: "B is right." });
+    expect(data.result.review?.q2).toMatchObject({ correct: [0] });
+  });
+
+  it("is for admins only, and says plainly what it cannot show", async () => {
+    const quizId = (await createOk()).id;
+    const finished = await attemptAt(quizId, unique("pl"));
+    const running = await attemptAt(quizId, unique("pl"), { submit: false });
+
+    expect((await detail(finished.attemptId, null)).status).toBe(401);
+    expect((await detail(finished.attemptId, "uid:plain")).status).toBe(403);
+    expect((await detail(finished.attemptId, "bad-token")).status).toBe(401);
+
+    const missing = await detail(unique("nothing"));
+    expect(missing.status).toBe(404);
+    expect(await errorCode(missing)).toBe("attempt_not_found");
+
+    const unfinished = await detail(running.attemptId);
+    expect(unfinished.status).toBe(409);
+    expect(await errorCode(unfinished)).toBe("attempt_not_finished");
+
+    for (const bad of ["../x", "a/b", "x".repeat(300)]) {
+      const response = await detail(encodeURIComponent(bad));
+      expect([400, 404]).toContain(response.status);
+    }
   });
 });
 

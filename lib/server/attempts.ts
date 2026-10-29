@@ -1,6 +1,7 @@
 import { Timestamp } from "firebase-admin/firestore";
 import type { DocumentSnapshot } from "firebase-admin/firestore";
 import { db } from "@/firebase/admin";
+import type { AdminAttemptDetail } from "@/lib/admin-types";
 import {
   applyEvents,
   type IntegrityState,
@@ -223,6 +224,11 @@ function owned(snap: DocumentSnapshot, userId: string): AttemptDoc {
   if (!snap.exists || !data || data.userId !== userId) {
     throw new ApiError(404, "attempt_not_found", "We couldn't find that attempt.");
   }
+  return upgradeAttempt(data);
+}
+
+/** The stored attempt read into the current shape. Callers decide who may see it before this is called. */
+function upgradeAttempt(data: AttemptDoc): AttemptDoc {
   const questions = data.questions.map(upgradeStoredQuestion);
   const storedAnswers = (data.answers ?? {}) as Record<string, unknown>;
   const answers: Record<string, number[]> = {};
@@ -345,6 +351,60 @@ export async function getAttempt(
   const data = owned(await attempts().doc(attemptId).get(), userId);
   assertOpen(data);
   return toAttemptState(attemptId, data, now);
+}
+
+/**
+ * A finished attempt for an administrator, whoever took it: the picks, the key and reasons from the attempt's
+ * own copy of the questions, and the integrity record. The review is built even when the quiz hides it from
+ * players or isn't marked automatically, because the admin is the one who needs the answers then. The caller
+ * must have passed `requireAdmin`; nothing here checks who is asking.
+ */
+export async function getAttemptForAdmin(attemptId: unknown): Promise<AdminAttemptDetail> {
+  assertSafeId(attemptId, "attempt");
+  const snap = await attempts().doc(attemptId).get();
+  const stored = snap.data() as AttemptDoc | undefined;
+  if (!snap.exists || !stored) {
+    throw new ApiError(
+      404,
+      "attempt_not_found",
+      "The detailed answers for this result aren't stored."
+    );
+  }
+  if (stored.status !== "submitted" || !stored.result) {
+    throw new ApiError(409, "attempt_not_finished", "This attempt hasn't been submitted yet.");
+  }
+  const data = upgradeAttempt(stored);
+
+  const [quizSnap, userSnap] = await Promise.all([
+    db.collection("quizzes").doc(data.quizId).get(),
+    db.collection("users").doc(data.userId).get(),
+  ]);
+  const title = quizSnap.data()?.title;
+  const profile = userSnap.data();
+  const email = typeof profile?.email === "string" ? profile.email : "";
+  const name = typeof profile?.displayName === "string" ? profile.displayName : "";
+
+  const storedResult = resultOf(data);
+  const result: SubmitResult = {
+    ...storedResult,
+    review: storedResult.review ?? buildReview(data.questions),
+  };
+  const events = data.events ?? [];
+  return {
+    attemptId,
+    quizId: data.quizId,
+    quizTitle: typeof title === "string" && title ? title : "Unknown quiz",
+    difficulty: data.difficulty,
+    player: { id: data.userId, name: name || email || "Unknown user", email },
+    startedAt: data.startedAt.toMillis(),
+    submittedAt: (data.submittedAt ?? data.updatedAt).toMillis(),
+    graded: result.graded,
+    questions: data.questions.map(toExamQuestion),
+    result,
+    events: events.map(({ type, at }) => ({ type, at })),
+    eventsTruncated:
+      data.tabSwitches + (data.blurs ?? 0) + data.fullscreenExits > events.length,
+  };
 }
 
 /**

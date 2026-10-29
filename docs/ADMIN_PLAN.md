@@ -3,8 +3,8 @@
 **Purpose:** make the admin side fast, safe and pleasant to run: bring a whole quiz in from a file (or from an AI) in minutes, support questions with several correct answers, attach reasoning to every answer option, and see how each question performs. Same rules as the other plans: phases, checkbox tasks, a status table and a session log.
 
 - **Created:** 2026-10-26
-- **Last updated:** 2026-10-27 (Session 15: A3 built; browser check and Storage setup outstanding)
-- **Current phase:** A3 (all six tasks built; the browser check and turning on Storage are in MANUAL_STEPS). A2 still waits on its browser check and a try of the skill; A1.10 waits one release; then A4
+- **Last updated:** 2026-10-29 (Session 16: A5.3 admin attempt review built; browser check outstanding)
+- **Current phase:** A5.3 (an admin opens one person's attempt: built, browser check in MANUAL_STEPS; per-person view and "other attempts" next, then A5.2 per-question statistics). A3 still waits on its browser check and Storage setup, A2 on its browser check and a try of the skill; A1.10 waits one release; then A4
 - **Related:** `docs/IMPROVEMENT_ROADMAP.md` (its Phase 8 "Pro exam features" items are folded in here where they touch admin), `docs/PERFORMANCE_PLAN.md` (speed rules still apply), `docs/MANUAL_STEPS.md` (things only the user can do)
 
 ---
@@ -35,7 +35,7 @@
 | A2 | Quiz format, import/export, and the AI skill | P0 | In progress (built; browser check and a real AI run outstanding) |
 | A3 | Faster editing | P1 | Built (A3.1 to A3.6; browser check and Storage setup outstanding) |
 | A4 | Quiz lifecycle (draft, schedule, trash, versions) | P1 | In progress (A4.3 trash done) |
-| A5 | Insights (question analytics, attempt review) | P1 | Not started |
+| A5 | Insights (attempt review for admins, question analytics) | P1 | In progress (A5.3 first: an admin opening one person's attempt) |
 | A6 | Governance (audit log, editor role, user tools) | P2 | Not started |
 | A7 | AI built into the app (optional) | P3 | Not started |
 
@@ -334,9 +334,36 @@ Files: new `lib/quiz-format/`, `lib/quiz-import/`, `components/admin/quiz-import
 **Done when:** deleting a quiz by mistake is a two-click recovery, and a quiz can be prepared in draft and opened at a set time.
 
 ### Phase A5: Insights (P1)
-- [ ] **A5.1** Run `backfill:sheets -- --apply` (if not already). **A5.2** `lib/item-analysis.ts` (pure, unit-tested: difficulty, discrimination at 27%, distractor rates incl. multi-select) and `lib/server/admin-insights.ts`; the quiz's Questions tab. **A5.3** Attempt detail with answers and integrity timeline; void; allow another attempt. **A5.4** Dashboard "needs attention" and trend. **A5.5** Per-question results CSV.
 
-**Done when:** an admin opens a quiz and sees which questions are too hard, possibly mis-keyed, or have dead options, on one screen.
+**Why this phase exists (found 2026-10-29):** an admin can list results (`/quiz-reports`: who, score, time, integrity counts) but cannot open one. Nothing reads `responses.sheet`, `integrityEvents` or the attempt's question snapshot for an admin, and `getAttemptResult` refuses anyone but the attempt's owner. So "what did this person get wrong?" and "which questions does everyone get wrong?" have no answer on screen. A5 builds both, in that order: **one person's attempt first (A5.3), then per-question statistics (A5.2).** The order of the task numbers is historical; do A5.3 first.
+
+**Principles (the industry practice this follows)**
+- **Least privilege, one audited door.** A different person's answers are personal data. Only `requireAdmin` routes serve them; the owner-only player route is not loosened (no `if admin` branch inside `getAttemptResult`); the admin reader is its own function that takes no `userId`. Players never see each other's answers. Every admin read of an individual attempt is logged once A6.1 exists (the route calls `recordAdminAction` then); until then the reader is the single place to add it.
+- **Show what the person actually saw.** The review is rebuilt from the attempt's own question snapshot, so a later edit of the quiz never changes it (a mis-key found later is shown as it was scored, with the current key noted in A5.2, not rewritten).
+- **Review is shown to the admin even when the quiz hides it from players** (`showAnswerReview: false`) and even when the quiz is checked by hand (`isAutoCheck: false`; this is where the admin needs the answers most).
+- **Server decides, client displays.** Counts, "wrong / skipped" and times come from the server DTO; the client only filters. DTOs are plain JSON in `lib/admin-types.ts`; no Firestore types cross the wire.
+- **Bounded reads.** One attempt = one `attempts` document + one `responses` document + two name look-ups. Per-question statistics read at most the latest N `responses` (default 2000, `select` only the fields used), cached for 5 minutes by tag; no counter document (a hot counter would cap submits near one a second during a mass exam).
+- **Old data keeps working** (expand, then contract): attempts from before question model v2 (`correctIndex`, single-number answers), results with a stored `review`, and results with no `integrityEvents` all render. A result whose `attempts` document is gone says so plainly and does not guess.
+- **Accessible and on-brand.** Existing `QuestionReview` for each question (status in words + icon, never colour alone), `FilterTabs` for Wrong / Skipped, tokens only, a table for the timeline with real headers, keyboard reachable rows (the whole row is a link, not a click handler), loading skeleton and error with Retry.
+- **Honest numbers.** Statistics are advice for the admin, with the sample size next to every percentage, and a "too few attempts" state under 10 instead of a misleading figure.
+
+**Tasks**
+- [ ] **A5.1** Run `backfill:sheets` (dry run, then `-- --apply`) so older results have a `sheet` (needed by A5.2 only; A5.3 does not use it).
+- [ ] **A5.2** Per-question statistics. `lib/item-analysis.ts` (pure, unit-tested: % correct, discrimination with the top and bottom 27% by score, pick rate per option incl. multi-select, flags "very hard < 30%", "very easy > 90%", "negative discrimination: check the key", "option picked by under 5%"), `lib/server/admin-insights.ts` (reads the latest N sheets, tagged cache), `GET /api/admin/quizzes/[quizId]/insights`, a Questions tab on the quiz page with the sample size shown, and a link from each question to the people who got it wrong. Needs the question *key at the time of the attempt*, so statistics are computed from each attempt's own snapshot, not the current quiz.
+- [ ] **A5.3** Attempt review (the admin sees what a person did wrong). Done in steps:
+  - [x] **A5.3a Reader.** `getAttemptForAdmin(attemptId)` in `lib/server/attempts.ts` (shares `upgradeAttempt` with `owned`, takes no user id, always builds the review from the snapshot, returns the player's name and email, the quiz title, level, score, raw %, multiplier, time taken, late flag, integrity counts and the timestamped events). `AdminAttemptDetail` DTO in `lib/admin-types.ts`. *Done 2026-10-29.*
+  - [x] **A5.3b Route.** `GET /api/admin/reports/[attemptId]` behind `requireAdmin`, `no-store`. *Done 2026-10-29.*
+  - [x] **A5.3c Page.** `/quiz-reports/[attemptId]` (server page through `loadForAdmin`, `AttemptDetailClient` fetches when it got `null`): header (player, quiz, level, submitted, score with the multiplier explained, correct x of y, time), "Wrong / Not answered" filter with counts, one `QuestionReview` per question (new `viewer="admin"` wording: "Their answer"), and a **Recorded during the attempt** table (time into the attempt, event in words). *Done 2026-10-29.*
+  - [ ] **A5.3d Entry points.** Done: every Reports row links to its attempt (the player's name), and the Dashboard's recent results too. Not done: a person's other attempts at the same quiz listed on the detail page (query by `userId`+`quizId`, needs an index; deploy before use).
+  - [ ] **A5.3e Per-person view.** Reports filter by person (`userId` + `submittedAt` index) with a "Results" link on the Users screen.
+  - [ ] **A5.3f Tests.** Done: emulator block in `admin-api.test.ts` (6 tests: another person's picks next to the key and the player's name; review given to the admin when the quiz hides it from players; the player's own result route still owner-only; events in order and the truncation flag, no device clock sent; an attempt from before question model v2; 401/403/404/409/bad id), and `admin-attempt-detail.test.tsx` (8 tests: wording, Wrong / Not answered filter, timeline, nothing-recorded, checked-by-hand quiz, Retry, missing answers, Reports links). Not done: an `access-control.test.ts` case for `/quiz-reports/<id>` (the prefix rule already covers it; add the case with A5.3e).
+  - [ ] **A5.3g Later:** **void** an attempt (same code path that keeps `leaderboard/*` and `userTotals/*` right, compare with `backfill:leaderboard` dry run) and **allow another attempt**; note for the admin on a result ("checked by hand").
+- [ ] **A5.4** Dashboard "needs attention" strip (quizzes with very low average, results with many integrity events) and a 30-day trend from cached count queries.
+- [ ] **A5.5** Per-question results CSV (formula-safe cells, same helper as the reports CSV): one row per person and question, for the admin's own analysis.
+
+**Out of scope for A5:** manual marking of free-text answers (no such question type yet), sharing a result with a player, exporting personal data in bulk beyond the existing CSV, emailing results.
+
+**Done when:** an admin opens any finished result and sees exactly which questions that person got wrong or skipped (with the correct answer and the reasons) and what the browser recorded during the attempt; and opens a quiz and sees which questions are too hard, possibly mis-keyed, or have dead options, on one screen.
 
 ### Phase A6: Governance (P2)
 - [ ] **A6.1** Audit log + screen (test: every admin route writes one entry, none contains a key or personal data). **A6.2** Editor role (when a second admin exists). **A6.3** Users: server-side search/paging, disable account, per-user page, CSV. **A6.4** Groups and assignment (optional).
@@ -384,6 +411,13 @@ Estimated size (sessions of the kind the other plans used): A1 ≈ 3–4, A2 ≈
 ## Session Log
 
 Add new entries at the top.
+
+### 2026-10-29 — Session 16 (A5.3: an admin sees what each person did wrong)
+- Found: the admin side listed results but could not open one. Nothing read `responses.sheet`, `integrityEvents` or the attempt's question snapshot for an admin, and `getAttemptResult` only serves the owner. Rewrote the A5 section (principles, tasks, out of scope) and built the first slice.
+- Done: **A5.3a to A5.3c.** `getAttemptForAdmin` (`lib/server/attempts.ts`; `owned` now calls a shared `upgradeAttempt`, so old and new attempts read the same way), `GET /api/admin/reports/[attemptId]`, `/quiz-reports/[attemptId]` (`AttemptDetailClient`: player, quiz, score, time, Wrong / Not answered filter, every question with their answer, the key and the reasons, and the recorded-events table), `AdminAttemptDetail` and `AttemptEventDTO` in `lib/admin-types.ts`, `adminReports.attempt`. The player's name in the Reports table and the quiz title in the Dashboard's recent results link to it. `QuestionReview` takes `viewer="admin"` ("Their answer", neutral select-all line); the player wording is unchanged.
+- Decisions: the admin reader is its own function, not a branch inside the owner-only one, so the player route stays owner-only (tested). The admin always gets the review, also when the quiz hides it from players or is checked by hand. The device's clock for an event is never sent (`clientAt` stays on the server). A result whose `attempts` document is gone says "the detailed answers aren't stored" rather than guessing. `ResultsScreen` was not reused (it is the player's screen, with its own container and wording, and it sits near the 170 kB budget); the admin screen shares `QuestionReview` instead.
+- Verified: `npx tsc --noEmit` and `npm run lint` clean; `npm run build` passes (public pages unchanged: `/q/[id]` 169 kB, `/my-quizzes/[attemptId]` 167 kB; admin `/quiz-reports/[attemptId]` 166 kB). Passing: `admin-attempt-detail` (8), `admin-pages`, `question-review`, `access-control`, `exam-logic` (155 together); emulator `admin-api.test.ts -t "A5.3"` 6 of 6 (not the whole file this time). **Not verified:** anything in a real browser (checklist: MANUAL_STEPS, "Admin Phase A5.3"); the rest of `admin-api.test.ts` and `attempts-api.test.ts` were not rerun (the only change they touch is `owned`, split into two functions without a change in behaviour).
+- Next up: the browser check, then A5.3d/e (other attempts by the same person, a Results link per person on the Users screen: needs the `userId` + `submittedAt` index in `firestore.indexes.json`, deployed before use), then A5.2 (per-question statistics, run A5.1 `backfill:sheets` first).
 
 ### 2026-10-27 — Session 15 (A3: faster editing)
 - Done: **A3.1** a copy of unsaved edits is kept on the device (after a pause in typing, and when the tab is hidden or closing) and offered back with Restore / Discard; **A3.2** a Cards / Grid switch in the editor (the choice is remembered) with the grid: keyboard movement, a Correct column, per-cell edits, paste of spreadsheet rows; **A3.3** one preview dialog drawn by the real question and review components, replacing the review-only preview; **A3.4** a Checks panel from the pure `lib/quiz-checks.ts`; **A3.5** Duplicate (on the list and the quiz page) and ticking questions to copy, move or delete them, all with Undo. Side fix: pressing Enter in a text box no longer saves the quiz and leaves the editor (it did, in the card view too).

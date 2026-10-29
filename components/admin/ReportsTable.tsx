@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Badge, Card } from "@/components/ui";
 import { formatDuration, secondsTaken } from "@/lib/admin-analytics";
 import type { ReportRow } from "@/lib/admin-types";
@@ -60,7 +61,15 @@ export function ReportsTable({ rows }: { rows: ReportRow[] }) {
                       </Badge>
                     )}
                   </td>
-                  <td className={cn(td, "max-w-[10rem] truncate")}>{row.userName || "Unknown user"}</td>
+                  <td className={cn(td, "max-w-[10rem] truncate")}>
+                    <Link
+                      href={`/quiz-reports/${encodeURIComponent(row.id)}`}
+                      className="text-link underline-offset-2 hover:underline"
+                      aria-label={`See ${row.userName || "this person"}'s answers to ${row.quizTitle || "this quiz"}`}
+                    >
+                      {row.userName || "Unknown user"}
+                    </Link>
+                  </td>
                   <td className={cn(td, "font-mono text-base tabular-nums")}>
                     {row.score === null ? (
                       <span className="font-sans text-sm text-text-muted">Not scored</span>

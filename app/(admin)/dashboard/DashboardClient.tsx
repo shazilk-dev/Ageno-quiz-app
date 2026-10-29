@@ -195,7 +195,12 @@ export default function DashboardClient({ initial = null }: { initial?: Dashboar
                   {recent.slice(0, 5).map((row) => (
                     <li key={row.id} className="flex items-center justify-between gap-3 px-5 py-3">
                       <div className="min-w-0">
-                        <p className="truncate font-medium">{row.quizTitle}</p>
+                        <Link
+                          href={`/quiz-reports/${encodeURIComponent(row.id)}`}
+                          className="block truncate font-medium hover:underline"
+                        >
+                          {row.quizTitle}
+                        </Link>
                         <p className="truncate text-sm text-text-muted">
                           {row.userName} · {formatDate(row.submittedAt)}
                         </p>

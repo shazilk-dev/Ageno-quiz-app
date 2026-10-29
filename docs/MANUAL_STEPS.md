@@ -245,3 +245,13 @@ Import and the AI skill (after R4):
 - [ ] In **Excel** (Alt+Enter) and **Google Sheets** (Ctrl+Enter) type a question with a scenario, a table and the question on separate lines inside one cell, copy the row, and paste it into Import > Sheet / CSV. The check step draws the table. Save the sheet as CSV and import that file too: same result.
 - [ ] Open `public/ageno-quiz/template.txt` and `template.csv` (also on the AI & formats page): questions 3 and 4 of the text template and the second sample row of the CSV (take the `#` off) import cleanly and show a table / a list.
 - [ ] Ask the AI (with the skill, then again with the pasted instructions only) for a table question where the source has no delimiter row or uses `<br>`: it should write a proper table; if `<br>` slips through, Import says it turned it into a line break.
+
+## Admin Phase A5.3 (an admin opening one person's attempt; after it is deployed)
+
+Nothing here changes stored data, and no new Firestore index is needed yet. Check in a real browser as admin (about 5 minutes), with at least one result from a different account:
+- [ ] **Reports → click a player's name.** `/quiz-reports/<id>` opens: the player's name and email, the quiz, level, score, time and every question with "Their answer" next to the right option and its reasons. **Wrong** and **Not answered** show only those questions.
+- [ ] Same from the Dashboard: click a quiz title under **Recent results**.
+- [ ] Take a quiz in a second account, switch to another tab twice and leave fullscreen once, submit. Open that result as admin: **Recorded during the attempt** lists the events with how far into the attempt they happened.
+- [ ] A quiz with **Show answer review** off: the player sees no review, you still see all answers.
+- [ ] A result of a quiz you deleted forever (or an old one with no stored answers): a plain message, not a crash.
+- [ ] Signed in as a normal user, `/quiz-reports/<any id>` sends you away, and the player's own `/my-quizzes/<id>` still shows only their own results.

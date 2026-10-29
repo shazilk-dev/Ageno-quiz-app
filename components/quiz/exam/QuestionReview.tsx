@@ -39,6 +39,8 @@ interface QuestionReviewProps {
   position: number;
   /** The options this person picked (`[]` when the question was skipped). */
   answer: number[];
+  /** Whose answers these are: the reader's own (default) or another person's, as an admin sees them. */
+  viewer?: "self" | "admin";
 }
 
 const letter = (index: number) => String.fromCharCode(65 + index);
@@ -54,6 +56,7 @@ export default function QuestionReview({
   review,
   position,
   answer,
+  viewer = "self",
 }: QuestionReviewProps) {
   const { correct } = review;
   const status = getQuestionStatus(correct, answer);
@@ -64,6 +67,7 @@ export default function QuestionReview({
     .map((option, index) => ({ option, index, reason: reasonOf(index) }))
     .filter(({ index, reason }) => reason && !correct.includes(index) && !answer.includes(index));
   const selectAll = question.type === "multiple";
+  const admin = viewer === "admin";
 
   return (
     <li>
@@ -90,7 +94,9 @@ export default function QuestionReview({
 
         {selectAll && (
           <p className="mt-1 text-text-muted text-xs">
-            Select-all question: it counts only when you pick exactly the correct options.
+            {admin
+              ? "Select-all question: it counts only when exactly the correct options are picked."
+              : "Select-all question: it counts only when you pick exactly the correct options."}
           </p>
         )}
 
@@ -100,7 +106,7 @@ export default function QuestionReview({
             const isRight = correct.includes(index);
             const reason = isRight || isYours ? reasonOf(index) : null;
             const tags: string[] = [];
-            if (isYours) tags.push("Your answer");
+            if (isYours) tags.push(admin ? "Their answer" : "Your answer");
             if (isRight) tags.push("Correct answer");
             return (
               <li
