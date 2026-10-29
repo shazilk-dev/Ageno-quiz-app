@@ -3,6 +3,7 @@ import Link from "next/link";
 import HomeCodeForm from "@/components/home/HomeCodeForm";
 import { Container } from "@/components/layout/Container";
 import { Button, Card } from "@/components/ui";
+import { WHATSAPP_CHANNEL_URL } from "@/lib/navigation";
 import { agenoverseUrl } from "@/lib/utils";
 
 const STEPS = [
@@ -74,6 +75,13 @@ export default function Home() {
               </Button>
               <Button asChild size="lg" variant="secondary">
                 <a href="#enter-code">Enter code</a>
+              </Button>
+              {/* TEMPORARY: remove with WHATSAPP_CHANNEL_URL in lib/navigation.ts */}
+              <Button asChild size="lg" variant="ghost" className="border border-control-border">
+                <a href={WHATSAPP_CHANNEL_URL} target="_blank" rel="noopener noreferrer">
+                  Join the channel
+                  <ArrowUpRight className="size-5" aria-hidden="true" />
+                </a>
               </Button>
             </div>
           </div>

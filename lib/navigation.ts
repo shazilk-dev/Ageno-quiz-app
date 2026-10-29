@@ -31,6 +31,10 @@ export const myQuizzesLink: NavLink = {
 export const adminLink: NavLink = { label: "Admin", href: "/dashboard" };
 
 /** Pages on the Agenoverse site, shown in the footer. */
+/** TEMPORARY: the maker's WhatsApp channel, offered beside the landing page's buttons. Remove with its button. */
+export const WHATSAPP_CHANNEL_URL =
+  "https://whatsapp.com/channel/0029VbDmcVV8F2p50lfBp10v";
+
 /** The maker's own pages, shown in the footer's bottom bar. */
 export const makerName = "Shazil Khan";
 export const makerLinks: NavLink[] = [

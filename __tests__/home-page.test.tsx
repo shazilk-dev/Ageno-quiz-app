@@ -22,6 +22,15 @@ describe("Landing page", () => {
     expect(document.getElementById("enter-code")).toBeTruthy();
   });
 
+  it("offers the temporary WhatsApp channel link in a new tab safely", () => {
+    render(<Home />);
+    const channel = screen.getByRole("link", { name: /Join the channel/ });
+
+    expect(channel.getAttribute("href")).toMatch(/^https:\/\/whatsapp\.com\/channel\//);
+    expect(channel.getAttribute("target")).toBe("_blank");
+    expect(channel.getAttribute("rel")).toContain("noopener");
+  });
+
   it("puts a working access-code field in the code card, with a sign-in hint when signed out", () => {
     render(<Home />);
     const card = document.getElementById("enter-code") as HTMLElement;
